@@ -96,6 +96,7 @@ inline const std::vector<Spec>& all() {
         {"freeze", "Freeze", Kind::Bool, 0.0f},
         // SHAPE
         {"shape_on", "Shape On", Kind::Bool, 0.0f},
+        {"shape_type", "Shape Type", Kind::Choice, 0.0f, {"Tape", "Tube", "Fold", "Rectify", "Slew", "Bloom"}},
         {"shape_tilt", "Shape Tilt", Kind::Float, 0.5f, {}, [](float t) { return bip(t, 6.0f, " dB"); }},
         {"shape_drive", "Shape Drive", Kind::Float, 0.2f, {}, pct},
         {"shape_harm", "Shape Harmonics", Kind::Float, 0.3f, {}, pct},
