@@ -68,6 +68,16 @@ juce::WebBrowserComponent::Options StasisEditor::createOptions(Relays& relays) {
                            if (!args.isEmpty()) processor_.applyPreset(int(args[0]));
                            complete(juce::var());
                        })
+                       // MOTION mapping.
+                       .withNativeFunction("getLaneTargets", [this](const juce::Array<juce::var>&, auto complete) {
+                           juce::Array<juce::var> ids;
+                           for (const auto& id : processor_.getLaneTargets()) ids.add(id);
+                           complete(ids);
+                       })
+                       .withNativeFunction("setLaneTarget", [this](const juce::Array<juce::var>& args, auto complete) {
+                           if (args.size() >= 2) processor_.setLaneTarget(int(args[0]), args[1].toString());
+                           complete(juce::var());
+                       })
                        .withNativeFunction("setOrder", [this](const juce::Array<juce::var>& args, auto complete) {
                            juce::StringArray names;
                            if (!args.isEmpty())
@@ -109,7 +119,12 @@ StasisEditor::StasisEditor(StasisProcessor& p)
     fft_.prepare(size);
 
     // A preset or project load changes the order: show it.
-    processor_.onOrderChanged = [this] { sendOrder(); };
+    processor_.onOrderChanged = [this] {
+        sendOrder();
+        juce::Array<juce::var> ids;
+        for (const auto& id : processor_.getLaneTargets()) ids.add(id);
+        webView_.emitEventIfBrowserIsVisible("stasis_targets", ids);
+    };
     processor_.onPresetChanged = [this] { webView_.emitEventIfBrowserIsVisible("stasis_preset", processor_.getCurrentProgram()); };
 
     addAndMakeVisible(webView_);

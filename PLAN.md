@@ -496,6 +496,10 @@ Règle : **chaque phase se termine par des écoutes et des mesures** (CPU, IR, n
   - **bug STRETCH corrigé** : depuis le découpage en étapes, la moitié basse du spectre (< 12 kHz) gardait ses phases d'origine, donc chaque trame rejouait l'entrée, ce qui donnait un écho. Test ajouté : un clic doit ressortir en souffle (facteur de crête 8, contre 121 avec le bug). La mesure « 0,45 dB de fluctuation » publiée avant était faussée par ce bug ; avec des phases vraiment aléatoires, le niveau de chaque note fluctue d'environ 4,5 dB, comme dans tout PaulStretch ;
   - modules éteints = zéro calcul (dont la détection de notes de FOCUS et les LFO de MOTION) ;
   - MOTION : amplitude ±50 %, toutes les lignes à DEPTH 0 % par défaut (une ligne à 0 ne calcule rien) ; arc et point orange sur chaque potard modulé, survol d'une ligne = potard cible entouré.
+- **v0.4** :
+  - MOTION assignable : 12 lignes vides par défaut (sauf la 1, sur le DRY / WET global), cible choisie dans une liste par module ou par TOUCH (armer, puis cliquer un potard) ; assignations sauvegardées avec l'état ;
+  - DEPTH = part de la course totale du potard : valeur = réglage + depth × (lfo − réglage) ;
+  - plus de sélection de texte dans l'interface ; cartes alignées sur le visualiseur et MOTION, fil de chaîne dans les marges.
 - **Reste à faire** :
   - embarquer les polices (aujourd'hui chargées depuis Google Fonts : sans réseau, l'interface passe sur des polices de secours).
 

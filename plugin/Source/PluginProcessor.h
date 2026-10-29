@@ -39,6 +39,10 @@ public:
     void setModuleOrder(const juce::StringArray& names);
     std::function<void()> onOrderChanged;  // message thread, set by the editor
 
+    // MOTION mapping: the parameter id each of the 12 lanes moves ("" = none).
+    juce::StringArray getLaneTargets() const;
+    void setLaneTarget(int lane, const juce::String& id);  // ignores ids MOTION may not move
+
     juce::AudioProcessorValueTreeState apvts;
     stasis::Engine engine;
     std::atomic<float> cpuLoad{0.0f};  // share of the block duration spent processing
