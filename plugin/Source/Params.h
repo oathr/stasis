@@ -55,6 +55,8 @@ inline int derezMultiple(float t) { return int(std::lround(32.0f * std::pow(2.0f
 
 inline const std::array<const char*, 14> kDivisionNames = {"1/32", "1/16T", "1/16", "1/16.", "1/8T", "1/8", "1/8.",
                                                            "1/4T", "1/4",   "1/4.", "1/2T",  "1/2", "1/2.", "1/1"};
+inline const std::array<float, 14> kDivisionBeats = {0.125f, 1.0f / 6.0f, 0.25f, 0.375f, 1.0f / 3.0f, 0.5f, 0.75f,
+                                                     2.0f / 3.0f, 1.0f, 1.5f, 4.0f / 3.0f, 2.0f, 3.0f, 4.0f};
 // The modules of the chain, in their default order. The order is part of the state
 // (not a parameter): the UI changes it, the engine reads it.
 // Indices are stable (new modules are added at the end); kDefaultOrder is the order
@@ -111,7 +113,9 @@ inline const std::vector<Spec>& all() {
         {"grain_on", "Grain On", Kind::Bool, 0.0f},
         {"grain_algo", "Grain Algorithm", Kind::Choice, 1.0f, {"Pulse", "Scatter", "Drift"}},
         {"grain_env", "Grain Envelope", Kind::Choice, 0.0f, {"Sine", "Triangle", "Square", "Perc"}},
+        {"grain_sync", "Grain Sync", Kind::Choice, 0.0f, {"Free", "Sync"}},
         {"grain_density", "Grain Density", Kind::Float, 0.45f, {}, [](float t) { return fmt("%.1f /s", double(grainDensity(t))); }},
+        {"grain_div", "Grain Division", Kind::Float, 5.0f / 13.0f, {}, [](float t) { return std::string(kDivisionNames[size_t(echoDivision(t))]); }},
         {"grain_chance", "Grain Chance", Kind::Float, 0.7f, {}, pct},
         {"grain_size", "Grain Size", Kind::Float, 0.45f, {}, [](float t) { return fmt("%.0f ms", double(grainSizeMs(t))); }},
         {"grain_mix", "Grain Mix", Kind::Float, 0.7f, {}, pct},

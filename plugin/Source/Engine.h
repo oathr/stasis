@@ -95,9 +95,11 @@ public:
     }
 
     // values[i] belongs to params::all()[i]: 0..1, 0/1 or a choice index.
-    void process(const float* values, float bpm, float* left, float* right, int numSamples) {
+    // ppq: song position in quarter notes at the start of the block (if playing).
+    void process(const float* values, float bpm, double ppq, bool playing, float* left, float* right, int numSamples) {
         for (int start = 0; start < numSamples; start += kMaxBlock) {
             const int n = std::min(kMaxBlock, numSamples - start);
+            grain_.setTransport(bpm, ppq + double(start) * bpm / 60.0 / sampleRate_, playing);
             update(modulate(values, n), bpm);
             processBlock(left + start, right + start, n);
         }
@@ -219,10 +221,11 @@ private:
         if (changed({iBreath, iWidthAir, iLofi})) air_.setParams({v(values, iBreath), v(values, iWidthAir), v(values, iLofi)});
         static const int iGrainOn = indexOf("grain_on"), iAlgo = indexOf("grain_algo"), iEnv = indexOf("grain_env"), iDensity = indexOf("grain_density"),
                          iChance = indexOf("grain_chance"), iGrainSize = indexOf("grain_size"), iGrainMix = indexOf("grain_mix"),
-                         iOctaves = indexOf("grain_octaves"), iNote0 = indexOf("grain_n0");
+                         iOctaves = indexOf("grain_octaves"), iNote0 = indexOf("grain_n0"), iGrainSync = indexOf("grain_sync"),
+                         iGrainDiv = indexOf("grain_div");
         on_[kGrain] = v(values, iGrainOn) > 0.5f;
         mix_[kGrain] = v(values, iGrainMix);
-        if (changed({iAlgo, iEnv, iDensity, iChance, iGrainSize, iOctaves, iNote0, iNote0 + 1, iNote0 + 2, iNote0 + 3, iNote0 + 4, iNote0 + 5,
+        if (changed({iAlgo, iEnv, iDensity, iChance, iGrainSize, iOctaves, iGrainSync, iGrainDiv, iNote0, iNote0 + 1, iNote0 + 2, iNote0 + 3, iNote0 + 4, iNote0 + 5,
                      iNote0 + 6, iNote0 + 7, iNote0 + 8, iNote0 + 9, iNote0 + 10, iNote0 + 11})) {
             GrainCloud::Params p;
             p.algo = GrainCloud::Algo(std::clamp(int(v(values, iAlgo)), 0, 2));
@@ -231,6 +234,8 @@ private:
             p.chance = v(values, iChance);
             p.sizeMs = grainSizeMs(v(values, iGrainSize));
             p.octaves = std::clamp(int(v(values, iOctaves)), 0, 2);
+            p.sync = v(values, iGrainSync) > 0.5f;
+            p.divisionBeats = kDivisionBeats[size_t(std::clamp(echoDivision(v(values, iGrainDiv)), 0, 13))];
             p.notes = 0;
             for (int i = 0; i < 12; ++i)
                 if (v(values, iNote0 + i) > 0.5f) p.notes = uint16_t(p.notes | (1u << i));  // grain_n0..n11 follow each other

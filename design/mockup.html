@@ -189,7 +189,8 @@ header { display: grid; grid-template-columns: auto 1fr auto; align-items: cente
 /* GRAIN */
 .grain-modes { display: flex; gap: 10px; flex-wrap: wrap; }
 .grain-notes { display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: center; }
-.piano-caption { font-size: 7.5px; letter-spacing: .12em; color: var(--muted); margin-top: -4px; }
+.piano-caption { font-size: 7.5px; letter-spacing: .12em; color: var(--muted); }
+.grain-notes { grid-template-columns: auto 1fr auto !important; }
 .viz canvas { width: 100%; height: 100%; display: block; }
 .viz .hud { position: absolute; inset: 0; pointer-events: none; padding: 8px 10px; display: flex; flex-direction: column; justify-content: space-between; color: var(--on-dark); }
 .viz .hud div { display: flex; justify-content: space-between; font-size: 9px; font-weight: 400; letter-spacing: .12em; }
@@ -199,11 +200,10 @@ header { display: grid; grid-template-columns: auto 1fr auto; align-items: cente
 
 /* FOCUS keys */
 /* Piano octave: 7 white keys, 5 black keys on top. .on = lit (accent). */
-.piano { position: relative; height: 40px; display: flex; gap: 2px; padding: 2px; background: var(--dark); flex: 1; min-width: 0; }
-.piano .w { flex: 1; background: var(--on-dark); color: var(--dark); border: 0; display: flex; align-items: flex-end; justify-content: center;
-  font: inherit; font-size: 7.5px; padding: 0 0 3px; }
-.piano .b { position: absolute; top: 2px; height: 58%; width: calc((100% - 4px) / 7 * .6); background: var(--dark); border: 1px solid var(--on-dark-muted);
-  color: var(--on-dark-muted); font: inherit; font-size: 6.5px; display: flex; align-items: flex-end; justify-content: center; padding: 0 0 2px; z-index: 1; }
+.piano { position: relative; height: 20px; width: 140px; flex: none; display: flex; gap: 1px; }
+.piano .w { flex: 1; background: color-mix(in srgb, var(--on-dark) 78%, transparent); border: 0; padding: 0; font-size: 0; }
+.piano .b { position: absolute; top: 0; height: 60%; width: calc(100% / 7 * .58); background: var(--dark); border: 1px solid color-mix(in srgb, var(--on-dark) 35%, transparent);
+  padding: 0; font-size: 0; z-index: 1; }
 .piano .w.on, .piano .b.on { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
 .piano.clickable .w, .piano.clickable .b { cursor: pointer; }
 .piano.clickable .w:hover { background: color-mix(in srgb, var(--on-dark) 80%, var(--accent)); }
@@ -534,8 +534,9 @@ function piano(labels, onToggle) {
   for (let i = 0; i < 12; i++) {
     const k = document.createElement(onToggle ? 'button' : 'div');
     k.textContent = labels[i];
-    if (i in BLACK) { k.className = 'b'; k.style.left = `calc(2px + (100% - 4px) / 7 * ${BLACK[i] + 1} - (100% - 4px) / 7 * .3)`; }
+    if (i in BLACK) { k.className = 'b'; k.style.left = `calc(100% / 7 * ${BLACK[i] + 1} - 100% / 7 * .29)`; }
     else k.className = 'w';
+    k.title = NOTE_NAMES[i];
     if (onToggle) k.onclick = () => onToggle(i);
     keys.push(k);
   }
@@ -582,14 +583,21 @@ const MODS = {
               state[i] = !state[i]; keys.light(i, state[i]); bridge.send('grain_n' + i, state[i]);
             });
             state.forEach((on, i) => { keys.light(i, on); bridge.register('grain_n' + i, 'toggle', v => { state[i] = !!v; keys.light(i, state[i]); }); });
-            notes.append(keys, seg(['+0', '+1', '+2'], 1, null, 'grain_octaves'));
             const caption = document.createElement('div'); caption.className = 'piano-caption';
-            caption.textContent = 'C = THE NOTE PLAYED · KEYS = INTERVALS ABOVE IT';
-            b.append(modes, notes, caption, knobRow([
-              { id: 'grain_density', l: 'Density', t: .45, f: t => (0.5 * Math.pow(80, t)).toFixed(1) + '/s' },
+            caption.textContent = 'C = NOTE PLAYED';
+            notes.append(keys, caption, seg(['+0', '+1', '+2'], 1, null, 'grain_octaves'));
+            // FREE: DENSITY in grains per second; SYNC: a note division of the host tempo.
+            const DIVS = ['1/32', '1/16T', '1/16', '1/16.', '1/8T', '1/8', '1/8.', '1/4T', '1/4', '1/4.', '1/2T', '1/2', '1/2.', '1/1'];
+            let row = null;
+            const knobs = sync => knobRow([
+              sync ? { id: 'grain_div', l: 'Rate', t: 5 / 13, f: t => DIVS[Math.round(t * 13)] }
+                   : { id: 'grain_density', l: 'Density', t: .45, f: t => (0.5 * Math.pow(80, t)).toFixed(1) + '/s' },
               { id: 'grain_chance', l: 'Chance', t: .7, f: pct },
               { id: 'grain_size', l: 'Size', t: .45, f: t => Math.round(20 * Math.pow(100, t)) + ' ms' },
-              { id: 'grain_mix', l: 'Mix', t: .7, f: pct }])); } },
+              { id: 'grain_mix', l: 'Mix', t: .7, f: pct }]);
+            row = knobs(false);
+            modes.append(seg(['Free', 'Sync'], 0, i => { const next = knobs(i === 1); row.replaceWith(next); row = next; }, 'grain_sync'));
+            b.append(modes, notes, row); } },
   echo:   { n: '05', name: 'ECHO',    code: 'Tape · sync', build: b => {
             // SYNC: TIME snaps to divisions of the host tempo (straight, dotted, triplet)
             const DIVS = ['1/32', '1/16T', '1/16', '1/16.', '1/8T', '1/8', '1/8.', '1/4T', '1/4', '1/4.', '1/2T', '1/2', '1/2.', '1/1'];
@@ -787,7 +795,7 @@ const MAPPABLE = {
   derez: [['derez_interval', 'Interval'], ['derez_crush', 'Crush'], ['derez_bits', 'Bits'], ['derez_mix', 'Mix']],
   pitch: [['pitch_semi', 'Semi'], ['pitch_shift', 'Shift'], ['pitch_mix', 'Mix']],
   stretch: [['stretch_factor', 'Memory'], ['stretch_mix', 'Mix']],
-  grain: [['grain_density', 'Density'], ['grain_chance', 'Chance'], ['grain_size', 'Size'], ['grain_mix', 'Mix']],
+  grain: [['grain_density', 'Density (free)'], ['grain_div', 'Rate (sync)'], ['grain_chance', 'Chance'], ['grain_size', 'Size'], ['grain_mix', 'Mix']],
   echo: [['echo_time', 'Time (free)'], ['echo_div', 'Time (sync)'], ['echo_fdbk', 'Feedback'], ['echo_mix', 'Mix']],
   space: [['space_size', 'Size'], ['space_decay', 'Decay'], ['space_tone', 'Tone'], ['space_mod', 'Mod'], ['space_pre', 'Pre-delay'], ['space_mix', 'Mix'],
           ['shimmer_depth', 'Shimmer depth'], ['shimmer_pitch', 'Shimmer pitch'], ['space_width', 'Width']],
@@ -1136,7 +1144,7 @@ function drawGrains(now) {
   if (grainCanvas.width !== W * dpr) { grainCanvas.width = W * dpr; grainCanvas.height = H * dpr; }
   const ctx = grainCanvas.getContext('2d'); ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, W, H);
   const css = getComputedStyle(document.documentElement), acc = css.getPropertyValue('--accent').trim(), spark = css.getPropertyValue('--spark').trim();
-  const line = css.getPropertyValue('--dark-line').trim();
+  const line = css.getPropertyValue('--dark-line').trim(), ink = css.getPropertyValue('--on-dark').trim();
   const top = 22, bottom = H - 22, yOf = st => bottom - (st / 35) * (bottom - top);
   ctx.strokeStyle = line; ctx.lineWidth = 1;
   [0, 12, 24].forEach(st => { ctx.beginPath(); ctx.moveTo(0, yOf(st) + .5); ctx.lineTo(W, yOf(st) + .5); ctx.stroke(); });  // octaves
@@ -1150,8 +1158,7 @@ function drawGrains(now) {
     const w = Math.max(STEP, g.len * 1000 / GRAIN_WINDOW * W), x1 = W - age / GRAIN_WINDOW * W, x0 = x1 - w, y = yOf(g.st);
     if (x1 < -STEP) return;
     const shape = p => g.env === 0 ? Math.sin(Math.PI * p) : g.env === 1 ? 1 - Math.abs(2 * p - 1) : g.env === 2 ? 1 : Math.min(1, p / .03) * Math.pow(1 - p, 3);
-    const pc = ((Math.round(g.st) % 12) + 12) % 12;
-    ctx.fillStyle = `hsl(${(pc * 30 + 220) % 360} 70% ${62 + 6 * Math.floor(g.st / 12)}%)`;
+    ctx.fillStyle = [ink, acc, spark][Math.min(2, Math.floor(g.st / 12))];  // the brand's three inks: one per octave
     ctx.globalAlpha = Math.max(.2, 1 - age / GRAIN_WINDOW);
     for (let c = 0; c * STEP <= w; c++) {
       const x = x0 + c * STEP, e = shape(Math.min(1, (c * STEP) / w));

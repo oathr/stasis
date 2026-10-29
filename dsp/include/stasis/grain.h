@@ -15,6 +15,9 @@ namespace stasis {
 //           SCATTER  random gaps (Poisson): same average rate, no pulse
 //           DRIFT    the rate wanders slowly (×0.25 .. ×4): clusters, then sparse air
 //  ENV      SINE, TRIANGLE, SQUARE (2 % ramps, no clicks), PERC (fast attack, decay)
+//  SYNC     the rate follows the host tempo (a note division). PULSE then fires on
+//           the host's grid (phase-locked to the song position while it plays);
+//           SCATTER and DRIFT keep their randomness around that average rate.
 //  NOTES    bit n = n semitones above the source is allowed (0 = unison, 7 = fifth)
 //  OCTAVES  0, 1 or 2: the allowed set is repeated 1, 2 or 3 octaves up. It widens the
 //           range; it does not shift the notes already allowed.
@@ -35,7 +38,15 @@ public:
         uint16_t notes = 0x81;    // unison and fifth
         int octaves = 1;
         float spread = 0.8f;      // pan width 0..1
+        bool sync = false;
+        float divisionBeats = 0.5f;  // SYNC: one grain per this many quarter notes (average)
     };
+
+    // Host tempo and song position (quarter notes) at the start of the next block.
+    void setTransport(float bpm, double ppq, bool playing) {
+        bpm_ = std::max(bpm, 20.0f);
+        if (playing) beat_ = ppq;
+    }
 
     // What the UI draws: one entry per grain that played.
     struct Event {
@@ -59,7 +70,10 @@ public:
     void setParams(const Params& p) { params_ = p; }
 
     void process(const float* inL, const float* inR, float* outL, float* outR, int numSamples) {
-        const float density = std::clamp(params_.density, 0.05f, 60.0f);
+        const float division = std::max(params_.divisionBeats, 1.0f / 16.0f);
+        const float density = std::clamp(params_.sync ? bpm_ / 60.0f / division : params_.density, 0.05f, 60.0f);
+        const bool grid = params_.sync && params_.algo == Algo::Pulse;
+        const double beatsPerSample = double(bpm_) / 60.0 / sampleRate_;
         const float size = std::clamp(params_.sizeMs, 5.0f, 4000.0f) * 0.001f;
         // Level: overlapping grains add up in power.
         const float level = 1.0f / std::sqrt(std::max(1.0f, density * size * 0.5f));
@@ -68,7 +82,14 @@ public:
             ring_[1][written_ & mask_] = inR[n];
             ++written_;
 
-            if (--countdown_ <= 0.0) {
+            if (grid) {  // on the host's grid
+                beat_ += beatsPerSample;
+                const int64_t step = int64_t(std::floor(beat_ / division));
+                if (step != lastStep_) {
+                    lastStep_ = step;
+                    if (rng_.uniform() < params_.chance) spawn(size, level);
+                }
+            } else if (--countdown_ <= 0.0) {
                 countdown_ += nextGap(density);
                 if (rng_.uniform() < params_.chance) spawn(size, level);
             }
@@ -186,8 +207,9 @@ private:
     size_t mask_ = 0;
     uint64_t written_ = 0;
     std::array<Voice, 32> voices_{};
-    double countdown_ = 0.0;
-    float drift_ = 0.0f;
+    double countdown_ = 0.0, beat_ = 0.0;
+    int64_t lastStep_ = -1;
+    float drift_ = 0.0f, bpm_ = 120.0f;
     Rng rng_{0x6A41};
     std::array<Event, kEvents> events_{};
     std::atomic<uint32_t> eventHead_{0};
