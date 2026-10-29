@@ -47,6 +47,7 @@ private:
     std::vector<std::atomic<float>*> raw_;
     std::vector<float> values_;
     int currentPreset_ = 0;
+    std::atomic<bool> resetPending_{false};
 
     JUCE_DECLARE_WEAK_REFERENCEABLE(StasisProcessor)
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(StasisProcessor)

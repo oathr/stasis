@@ -162,6 +162,12 @@ header { display: grid; grid-template-columns: auto 1fr auto; align-items: cente
 .knob.small .v { font-size: 10px; }
 .knob.small .l { display: none; }
 .knob.stack { flex-direction: column; }
+/* header: the global DRY / WET and OUTPUT, big and labelled */
+.knob.wide { display: grid; grid-template-columns: 38px auto; column-gap: 8px; width: auto; align-items: center; }
+.knob.wide svg { grid-row: 1 / 3; width: 38px; height: 38px; }
+.knob.wide .v { font-size: 15px; font-weight: 600; align-self: end; }
+.knob.wide .l { align-self: start; font-size: 8.5px; color: var(--muted); }
+#globalKnobs { gap: 22px !important; padding: 0 6px; }
 .knob.stack .l { display: block; }
 
 /* ---------- SPACE ---------- */
@@ -199,6 +205,8 @@ header { display: grid; grid-template-columns: auto 1fr auto; align-items: cente
 .cursor .fill { position: absolute; top: calc(50% - 1.5px); height: 3px; background: var(--accent); }
 .cursor .thumb { position: absolute; top: 3px; width: 6px; height: 12px; margin-left: -3px; background: currentColor; color: var(--ink); }
 .cursor .val { color: var(--ink); font-weight: 500; text-align: right; }
+.pitch-cursor { grid-template-columns: auto 1fr auto 40px; }
+.pitch-cursor .track { background: repeating-linear-gradient(90deg, var(--line) 0 1px, transparent 1px calc(100% / 4)) center / 100% 7px no-repeat; }  /* ticks every octave */
 
 /* ---------- MOTION ---------- */
 .motion-body { display: grid; grid-template-columns: 1fr 1fr 130px; gap: 0 22px; }
@@ -364,7 +372,7 @@ const live = {
 function knob(k, opts = {}) {
   const small = !!opts.small;
   const el = document.createElement('div');
-  el.className = 'knob' + (small ? ' small' : '') + (opts.stack ? ' stack' : '');
+  el.className = 'knob' + (small ? ' small' : '') + (opts.stack ? ' stack' : '') + (opts.wide ? ' wide' : '');
   const r = small ? 21 : 15.5;
   el.innerHTML = `<svg viewBox="0 0 44 44">
       ${small ? '' : `<path d="${TICKS}" stroke="currentColor" stroke-width="1.1" opacity=".75"/>`}
@@ -414,7 +422,8 @@ function seg(options, active, onPick, id) {
   return el;
 }
 // Bipolar horizontal cursor (-1 .. +1), drag to move, double-click to centre.
-function cursor(left, right, value, id) {
+// opts.format(v) for the readout, opts.steps to snap (v in -1..1 → steps per side).
+function cursor(left, right, value, id, opts = {}) {
   const el = document.createElement('div'); el.className = 'cursor';
   el.innerHTML = `<span>${left}</span><div class="track"><div class="fill"></div><div class="thumb"></div></div><span>${right}</span><span class="val"></span>`;
   const track = el.querySelector('.track');
@@ -424,10 +433,11 @@ function cursor(left, right, value, id) {
     el.querySelector('.thumb').style.left = x + '%';
     const fill = el.querySelector('.fill');
     fill.style.left = Math.min(x, 50) + '%'; fill.style.width = Math.abs(x - 50) + '%';
-    el.querySelector('.val').textContent = (v >= 0 ? '+' : '') + v.toFixed(2);
+    el.querySelector('.val').textContent = opts.format ? opts.format(v) : (v >= 0 ? '+' : '') + v.toFixed(2);
   };
   const send = () => { if (id) bridge.send(id, (v + 1) / 2); };
-  const set = e => { const r = track.getBoundingClientRect(); v = Math.max(-1, Math.min(1, ((e.clientX - r.left) / r.width) * 2 - 1)); draw(); send(); };
+  const snap = x => opts.steps ? Math.round(x * opts.steps) / opts.steps : x;
+  const set = e => { const r = track.getBoundingClientRect(); v = snap(Math.max(-1, Math.min(1, ((e.clientX - r.left) / r.width) * 2 - 1))); draw(); send(); };
   track.addEventListener('pointerdown', e => { track.setPointerCapture(e.pointerId); if (id) bridge.drag(id, true); set(e); });
   track.addEventListener('pointermove', e => { if (track.hasPointerCapture(e.pointerId)) set(e); });
   track.addEventListener('pointerup', () => { if (id) bridge.drag(id, false); });
@@ -462,20 +472,21 @@ const state = { size: .9, decay: .75, tone: .45, shimmer: .5, freeze: false, str
 
 // ---------- modules ----------
 // Modules that exist in the audio engine (the others are design only for now).
-const LIVE_MODS = ['derez', 'stretch', 'echo', 'space', 'focus', 'color', 'motion'];
+const LIVE_MODS = ['shape', 'derez', 'pitch', 'stretch', 'echo', 'space', 'focus', 'air', 'color', 'motion'];
 const MODS = {
   shape:  { n: '01', name: 'SHAPE',   code: 'Tilt · drive', build: b => b.append(knobRow([
-            { l: 'Tilt', t: .5, f: bip(' dB', 6, 1) }, { l: 'Drive', t: .2, f: pct }, { l: 'Harm', t: .3, f: pct }])) },
+            { id: 'shape_tilt', l: 'Tilt', t: .5, f: bip(' dB', 6, 1) }, { id: 'shape_drive', l: 'Drive', t: .2, f: pct }, { id: 'shape_harm', l: 'Harm', t: .3, f: pct }])) },
   derez:  { n: '02', name: 'DEREZ',   code: 'Tuned · A2', build: b => {
-            const strip = document.createElement('div'); strip.className = 'intervals';
-            const show = i => strip.querySelectorAll('button').forEach((y, j) => y.setAttribute('aria-pressed', j === i));
-            ['-24','-12','-7','-1','0','+1','+7','+12','+24'].forEach((v, i) => { const x = document.createElement('button'); x.textContent = v; x.setAttribute('aria-pressed', v === '-12');
-              x.onclick = () => { show(i); bridge.send('derez_interval', i); }; strip.appendChild(x); });
-            bridge.register('derez_interval', 'choice', show);
-            b.append(strip, knobRow([{ id: 'derez_crush', l: 'Crush', t: .6, f: t => 'n=' + Math.round(32 * Math.pow(2 / 32, t)) },
+            // Interval: a cursor in semitones, -24 .. +24, snapped to the semitone.
+            const st = v => { const n = Math.round(v * 24); return (n > 0 ? '+' : '') + n + ' st'; };
+            const interval = cursor('−24', '+24', -.5, 'derez_interval', { format: st, steps: 24 });
+            interval.classList.add('pitch-cursor');
+            b.append(interval, knobRow([{ id: 'derez_crush', l: 'Crush', t: .6, f: t => 'n=' + Math.round(32 * Math.pow(2 / 32, t)) },
                                      { id: 'derez_bits', l: 'Bits', t: .55, f: lin(16, 2, '', 1) }, { id: 'derez_mix', l: 'Mix', t: .7, f: pct }])); } },
-  pitch:  { n: '03', name: 'PITCH',   code: 'Phase vocoder', build: b => b.append(knobRow([
-            { l: 'Semi', t: .5, f: bip(' st', 24) }, { l: 'Formant', t: .5, f: bip('', 12, 1) }, { l: 'Shift', t: .5, f: bip(' Hz', 50, 0) }])) },
+  pitch:  { n: '03', name: 'PITCH',   code: 'Vocoder · shift', build: b => b.append(knobRow([
+            { id: 'pitch_semi', l: 'Semi', t: .75, f: t => { const v = Math.round((2 * t - 1) * 24); return (v >= 0 ? '+' : '') + v + ' st'; } },
+            { id: 'pitch_shift', l: 'Shift', t: .5, f: t => { const x = 2 * t - 1, v = 50 * x * x * x; return (v >= 0 ? '+' : '') + v.toFixed(Math.abs(v) < 10 ? 1 : 0) + ' Hz'; } },
+            { id: 'pitch_mix', l: 'Mix', t: .4, f: pct }])) },
   stretch:{ n: '04', name: 'STRETCH', code: 'Paul · 30 s', build: b => b.append(stretchModes(),
             knobRow([{ id: 'stretch_factor', l: 'Factor', t: .3, f: t => '×' + Math.round(Math.pow(1000, t)), on: v => state.stretch = v },
                      { id: 'stretch_loop', l: 'Loop', t: .4, f: expo(1, 30, ' s', 1) }, { id: 'stretch_mix', l: 'Mix', t: .5, f: pct }])) },
@@ -497,8 +508,8 @@ const MODS = {
               if (['C','E','G','A','B'].includes(k)) d.classList.add('on'); keys.appendChild(d); });
             b.append(seg(['Key', 'Harm', 'Auto'], 0, null, 'focus_mode'), keys,
                      knobRow([{ id: 'focus_amount', l: 'Focus', t: .6, f: pct }, { id: 'focus_depth', l: 'Depth', t: .9, f: pct }, { id: 'focus_mix', l: 'Mix', t: 1, f: pct }])); } },
-  air:    { n: '08', name: 'AIR',     code: 'Breath', build: b => b.append(knobRow([
-            { l: 'Breath', t: .3, f: pct }, { l: 'Width', t: .66, f: lin(0, 150, '%') }, { l: 'Lo-fi', t: .1, f: pct }])) },
+  air:    { n: '08', name: 'AIR',     code: 'Matter · width', build: b => b.append(knobRow([
+            { id: 'air_breath', l: 'Breath', t: .3, f: pct }, { id: 'air_width', l: 'Width', t: .67, f: t => Math.round(150 * t) + '%' }, { id: 'air_lofi', l: 'Lo-fi', t: .1, f: pct }])) },
   color:  { n: '09', name: 'COLOR',   units: 2, code: 'Tone · low → high', build: b => {
             b.append(knobRow([{ id: 'color_bass', l: 'Bass', t: .5, f: bip('', 1, 2) }, { id: 'color_body', l: 'Body', t: .5, f: bip('', 1, 2) },
                               { id: 'color_mud', l: 'Mud', t: .5, f: t => t.toFixed(2) }, { id: 'color_harsh', l: 'Harsh', t: .3, f: t => t.toFixed(2) },
@@ -707,7 +718,7 @@ document.querySelectorAll('[data-mod]').forEach(buildCard);  // MOTION
 CHAIN_DEFAULT.forEach(m => { const el = document.createElement('section'); el.className = 'card'; el.dataset.mod = m; cards[m] = el; buildCard(el); });
 layoutChain();
 const gk = document.getElementById('globalKnobs');
-gk.append(knob({ id: 'mix', l: 'Mix', t: .5, f: pct }, { small: true }), knob({ id: 'out', l: 'Out', t: .5, f: bip(' dB', 12, 1) }, { small: true }));
+gk.append(knob({ id: 'mix', l: 'Dry / Wet', t: 1, f: pct }, { wide: true }), knob({ id: 'out', l: 'Output', t: .5, f: bip(' dB', 12, 1) }, { wide: true }));
 
 const THEMES = { signal: ['#121210', '#3D6DFF'], sky: ['#B4C8E1', '#13244B'], print: ['#2D5BCB', '#0A0E18'], ochre: ['#D7D6C9', '#E1A92D'], peach: ['#EEE2D2', '#A56BF0'] };
 const themes = document.getElementById('themes');
