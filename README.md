@@ -144,10 +144,10 @@ Même chose avec l'artefact **STASIS-VST3-macOS**, à copier dans `~/Library/Aud
 Prérequis : CMake ≥ 3.22, un compilateur C++20, Git. JUCE 8 est téléchargé automatiquement par CMake.
 
 ### Windows
-Visual Studio 2022 (charge de travail *Développement Desktop en C++*), puis le SDK WebView2 :
+Visual Studio 2022 ou plus récent (charge de travail *Développement Desktop en C++*), puis le SDK WebView2 :
 ```bash
 nuget install Microsoft.Web.WebView2 -OutputDirectory C:\webview2
-cmake -S . -B build -G "Visual Studio 17 2022" -A x64 -DSTASIS_BUILD_RENDER=OFF -DJUCE_WEBVIEW2_PACKAGE_LOCATION=C:\webview2
+cmake -S . -B build -A x64 -DSTASIS_BUILD_RENDER=OFF -DJUCE_WEBVIEW2_PACKAGE_LOCATION=C:\webview2
 cmake --build build --config Release --target Stasis_VST3
 ```
 Le plugin est dans `build/plugin/Stasis_artefacts/Release/VST3/STASIS.vst3`.
