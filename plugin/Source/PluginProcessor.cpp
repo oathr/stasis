@@ -69,12 +69,17 @@ void StasisProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
     }
 
     float bpm = 120.0f;
+    double ppq = 0.0;
+    bool playing = false;
     if (auto* head = getPlayHead())
-        if (const auto position = head->getPosition())
+        if (const auto position = head->getPosition()) {
             if (const auto hostBpm = position->getBpm()) bpm = float(*hostBpm);
+            if (const auto hostPpq = position->getPpqPosition()) ppq = *hostPpq;
+            playing = position->getIsPlaying();
+        }
 
     for (size_t i = 0; i < raw_.size(); ++i) values_[i] = raw_[i]->load(std::memory_order_relaxed);
-    engine.process(values_.data(), bpm, buffer.getWritePointer(0), buffer.getWritePointer(1), numSamples);
+    engine.process(values_.data(), bpm, ppq, playing, buffer.getWritePointer(0), buffer.getWritePointer(1), numSamples);
 
     // The safety guard saw NaN/Inf: rebuild the engine off the audio thread.
     if (engine.needsReset() && !resetPending_.exchange(true))
