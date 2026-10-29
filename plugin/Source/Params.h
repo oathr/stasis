@@ -58,7 +58,8 @@ inline const std::array<const char*, 14> kDivisionNames = {"1/32", "1/16T", "1/1
 inline const std::array<const char*, 9> kModules = {"shape", "derez", "pitch", "stretch", "echo", "space", "focus", "air", "color"};
 
 // MOTION: 12 LFO lanes, each wired to one parameter. At full depth (and MOTION 100 %)
-// a lane moves its knob ±25 % of its travel around where the user left it.
+// a lane moves its knob ±50 % of its travel around where the user left it. Every lane
+// starts at depth 0: it does nothing (and costs nothing) until the user raises it.
 struct Lane {
     const char* target;  // parameter id
     const char* label;
@@ -66,12 +67,12 @@ struct Lane {
     float rateHz, depth;
 };
 inline const std::array<Lane, 12> kLanes = {{
-    {"derez_crush", "CRUSH", 9, 0.08f, 0.25f},     {"stretch_factor", "STRETCH", 8, 0.02f, 0.3f},
-    {"echo_fdbk", "FEEDBACK", 6, 0.05f, 0.2f},     {"echo_mix", "REPEATS", 7, 0.12f, 0.3f},
-    {"space_size", "SIZE", 7, 0.015f, 0.5f},       {"space_decay", "DECAY", 9, 0.01f, 0.3f},
-    {"space_tone", "TONE", 0, 0.03f, 0.4f},        {"shimmer_depth", "SHIMMER", 6, 0.04f, 0.6f},
-    {"space_width", "WIDTH", 1, 0.06f, 0.4f},      {"color_lpf", "FILTER", 11, 0.18f, 0.3f},
-    {"tonal", "TONAL", 9, 0.025f, 0.4f},           {"out", "VOLUME", 0, 0.025f, 0.15f},
+    {"derez_crush", "CRUSH", 9, 0.10f, 0.0f},      {"stretch_factor", "STRETCH", 8, 0.03f, 0.0f},
+    {"echo_fdbk", "FEEDBACK", 6, 0.06f, 0.0f},     {"echo_mix", "REPEATS", 7, 0.20f, 0.0f},
+    {"space_size", "SIZE", 7, 0.03f, 0.0f},        {"space_decay", "DECAY", 9, 0.02f, 0.0f},
+    {"space_tone", "TONE", 0, 0.08f, 0.0f},        {"shimmer_depth", "SHIMMER", 6, 0.05f, 0.0f},
+    {"space_width", "WIDTH", 1, 0.07f, 0.0f},      {"color_lpf", "FILTER", 11, 0.12f, 0.0f},
+    {"tonal", "TONAL", 9, 0.04f, 0.0f},            {"out", "VOLUME", 0, 0.05f, 0.0f},
 }};
 inline const std::array<const char*, 12> kShapeNames = {"SINE", "TRI", "SAW+", "SAW-", "SQUARE", "S&H", "SLEW", "R-SINE", "DRUNK", "PERLIN", "CHAOS", "BREATH"};
 inline float laneRateHz(float t) { return 0.001f * std::pow(20000.0f, t); }  // 0.001 .. 20 Hz
@@ -153,7 +154,7 @@ inline const std::vector<Spec>& all() {
         {"tonal_place", "Tonal Place", Kind::Choice, 1.0f, {"Pre space", "Post space"}},
         // MOTION
         {"motion_on", "Motion On", Kind::Bool, 1.0f},
-        {"motion_amount", "Motion Amount", Kind::Float, 0.6f, {}, pct},
+        {"motion_amount", "Motion Amount", Kind::Float, 1.0f, {}, pct},
         {"motion_drift", "Motion Drift", Kind::Float, 0.5f, {}, [](float t) { return fmt("x%.2f", driftScale(t)); }},
     };
     static const std::vector<Spec> withLanes = [] {

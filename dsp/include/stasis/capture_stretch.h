@@ -17,9 +17,10 @@ namespace stasis {
 //  CAPTURE  capture() freezes the last `captureSeconds`; that passage is then
 //           stretched in an endless loop, whatever comes in afterwards.
 //
-// Overlap: 4 frames (hop = window/4). Each frame has its own random phases, so every
-// partial's level changes a little from frame to frame; with 2 frames that flutter is
-// 2.3 dB (a grainy tremolo at ~3 Hz), with 4 it is 0.45 dB: smooth, as in PaulXStretch.
+// Overlap: 4 frames (hop = window/4), so each frame fades in and out over a full
+// window. Every frame has its own random phases (that is PaulStretch: no transients,
+// no echo of the input); a click comes out as a smooth swell of noise (crest factor
+// ~8, see `stasis_render --analyse`).
 //
 // Latency: about a window and a quarter (frames are computed one hop ahead), on the wet
 // path only.
@@ -195,7 +196,7 @@ private:
             }
             case 2:
             case 3: {  // random phases, half of the bins per stage
-                const int from = stage == 2 ? 1 : half / 2, to = stage == 2 ? half / 2 : half;
+                const int from = step == 2 ? 1 : half / 2, to = step == 2 ? half / 2 : half;
                 for (int k = from; k < to; ++k) {
                     // Unpack the two channels from z, keep their magnitudes and their phase
                     // difference (the stereo image), give the pair a new random phase.
@@ -209,7 +210,7 @@ private:
                     spec_[size_t(k)] = newL + Fft::Complex(0.0f, 1.0f) * newR;
                     spec_[size_t(size_ - k)] = std::conj(newL) + Fft::Complex(0.0f, 1.0f) * std::conj(newR);
                 }
-                if (stage == 3) spec_[0] = spec_[size_t(half)] = 0.0f;
+                if (step == 3) spec_[0] = spec_[size_t(half)] = 0.0f;
                 break;
             }
             case 5: {  // overlap-add; the first hop is the next output

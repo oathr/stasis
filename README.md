@@ -81,11 +81,11 @@ Inspiré du DeRez d'Airwindows, mais au lieu de changer la hauteur de façon cha
 La fondamentale vient de la note MIDI la plus grave tenue, sinon La2 (110 Hz). Mesure : 100 % de l'énergie reste juste, contre 9 à 77 % pour un DeRez classique.
 
 ### 04 · STRETCH — PaulStretch en temps réel
-Étirement extrême par trames FFT de 32768 points à phases aléatoires, 4 trames superposées : le niveau de chaque note ne varie que de 0,45 dB d'une trame à l'autre (2,3 dB avec 2 trames, ce qui donnait un tremblement granuleux).
+Étirement extrême par trames FFT de 32768 points à phases aléatoires (PaulStretch), 4 trames superposées. Un test vérifie qu'un clic ressort en souffle lisse et jamais en répétitions (`stasis_render --analyse`).
 
 | Contrôle | Effet |
 |---|---|
-| `SMEAR` / `CAPTURE` | SMEAR suit l'entrée en direct, au ralenti. CAPTURE fige les dernières secondes et les étire en boucle |
+| `SMEAR` / `CAPTURE` | SMEAR rejoue l'entrée au ralenti (×8 : une seconde jouée dure huit secondes). CAPTURE fige les dernières secondes et les étire en boucle |
 | `⟳` | Recapture les dernières secondes |
 | `FACTOR` | Étirement ×1 à ×1000 |
 | `LOOP` | Durée capturée (1 à 30 s) |
@@ -144,13 +144,13 @@ Les notes suivies s'allument sur le clavier du module.
 Séparation mesurée : rapport notes/bruit de +7,6 dB en entrée → **+17,1 dB** à fond TONAL, **−1,8 dB** à fond NOISE.
 
 ### 10 · MOTION — 12 LFO qui font respirer le son
-Chaque ligne fait bouger un potard autour de la position choisie, au plus de ±25 % de sa course : CRUSH, STRETCH, FEEDBACK, REPEATS, SIZE, DECAY, TONE, SHIMMER, WIDTH, FILTER, TONAL, VOLUME.
+Chaque ligne fait bouger un potard autour de la position choisie, au plus de ±50 % de sa course : CRUSH, STRETCH, FEEDBACK, REPEATS, SIZE, DECAY, TONE, SHIMMER, WIDTH, FILTER, TONAL, VOLUME.
 
 | Contrôle | Effet |
 |---|---|
 | `RATE` | 0,001 à 20 Hz |
 | Forme | Un clic passe à la suivante : sinus, triangle, scies, carré, S&H, slew, random sine, drunk, Perlin, chaos (Lorenz), breath |
-| `DEPTH` | Amplitude de la ligne |
+| `DEPTH` | Amplitude de la ligne (0 % par défaut : la ligne est inactive) |
 | `MOTION` / `DRIFT` | Profondeur globale, vitesse globale (×0,25 à ×4) |
 
 Les tracés montrent les vraies valeurs des LFO du moteur.

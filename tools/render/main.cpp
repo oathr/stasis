@@ -779,6 +779,29 @@ void analyseTonal(float fs) {
     }
 }
 
+// STRETCH must turn a click into a smooth swell of noise, never into repeated clicks
+// (a frame that keeps its original phases replays the input: an echo).
+void analyseStretch(float fs) {
+    CaptureStretch cs;
+    cs.prepare(fs);
+    cs.setParams({CaptureStretch::Mode::Smear, 2.0f, 4.0f});
+    const int total = int(6.0f * fs);
+    std::vector<float> out(static_cast<size_t>(total)), in(kBlock), l(kBlock), r(kBlock);
+    for (int n = 0; n < total; n += kBlock) {
+        for (int i = 0; i < kBlock; ++i) in[size_t(i)] = n + i == int(fs) ? 1.0f : 0.0f;
+        cs.process(in.data(), in.data(), l.data(), r.data(), kBlock);
+        std::copy(l.begin(), l.end(), out.begin() + n);
+    }
+    double sum = 0.0;
+    float peak = 0.0f;
+    for (int i = int(2.0f * fs); i < int(4.5f * fs); ++i) {
+        sum += double(out[size_t(i)]) * out[size_t(i)];
+        peak = std::max(peak, std::abs(out[size_t(i)]));
+    }
+    const double rms = std::sqrt(sum / (2.5 * fs));
+    std::printf("\nSTRETCH click test: crest factor %.1f (smooth noise < 12, echoes of the click > 50)\n", peak / rms);
+}
+
 // What the AUTO detector hears over time, against what is really played.
 void analyseKeys(float fs) {
     std::printf("\nAUTO key detection (no MIDI):\n");
@@ -816,6 +839,7 @@ int main(int argc, char** argv) {
             analyseDerez(48000.0f);
             analyseTuning(48000.0f);
             analyseTonal(48000.0f);
+            analyseStretch(48000.0f);
             return 0;
         }
         if (i + 1 < argc && arg == "--input") inputPath = argv[++i];

@@ -485,13 +485,17 @@ Règle : **chaque phase se termine par des écoutes et des mesures** (CPU, IR, n
   - COLOR : BASS, BODY, MUD, HARSH, AIR + LOW CUT / HIGH CUT ;
   - MOTION dans le moteur : 12 LFO, cibles CRUSH, STRETCH, FEEDBACK, REPEATS, SIZE, DECAY, TONE, SHIMMER, WIDTH, FILTER, TONAL, VOLUME (±25 % de la course au maximum) ;
   - 30 presets (ECHO / REVERB / AMBIENT), aussi exposés comme programmes VST3 ;
-  - STRETCH à 4 trames superposées (fluctuation 0,45 dB au lieu de 2,3 dB), bouton ⟳ de recapture ;
+  - STRETCH à 4 trames superposées, bouton ⟳ de recapture ;
   - ECHO sans wow ni flutter.
 - **v0.3** :
   - SHAPE (tilt, drive ADAA calé à −12 dBFS, harmoniques paires), PITCH (phase vocoder ±24 st + décaleur de fréquence ±50 Hz, réjection 43–49 dB), AIR (souffle qui suit l'enveloppe, largeur M/S, lo-fi) : tous les modules sont actifs ;
   - DEREZ : curseur en demi-tons au lieu des boutons ;
   - DRY/WET global à 100 % par défaut, grand et étiqueté ;
   - limiteur de sécurité invisible (−0,3 dBFS, attaque instantanée) et garde anti-NaN qui coupe et réinitialise le moteur.
+- **v0.3.1** :
+  - **bug STRETCH corrigé** : depuis le découpage en étapes, la moitié basse du spectre (< 12 kHz) gardait ses phases d'origine, donc chaque trame rejouait l'entrée, ce qui donnait un écho. Test ajouté : un clic doit ressortir en souffle (facteur de crête 8, contre 121 avec le bug). La mesure « 0,45 dB de fluctuation » publiée avant était faussée par ce bug ; avec des phases vraiment aléatoires, le niveau de chaque note fluctue d'environ 4,5 dB, comme dans tout PaulStretch ;
+  - modules éteints = zéro calcul (dont la détection de notes de FOCUS et les LFO de MOTION) ;
+  - MOTION : amplitude ±50 %, toutes les lignes à DEPTH 0 % par défaut (une ligne à 0 ne calcule rien) ; arc et point orange sur chaque potard modulé, survol d'une ligne = potard cible entouré.
 - **Reste à faire** :
   - embarquer les polices (aujourd'hui chargées depuis Google Fonts : sans réseau, l'interface passe sur des polices de secours).
 
