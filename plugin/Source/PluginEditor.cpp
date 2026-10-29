@@ -78,6 +78,10 @@ juce::WebBrowserComponent::Options StasisEditor::createOptions(Relays& relays) {
                            if (args.size() >= 2) processor_.setLaneTarget(int(args[0]), args[1].toString());
                            complete(juce::var());
                        })
+                       .withNativeFunction("panic", [this](const juce::Array<juce::var>&, auto complete) {
+                           processor_.panic();
+                           complete(juce::var());
+                       })
                        .withNativeFunction("setOrder", [this](const juce::Array<juce::var>& args, auto complete) {
                            juce::StringArray names;
                            if (!args.isEmpty())

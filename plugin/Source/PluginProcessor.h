@@ -41,6 +41,11 @@ public:
 
     // MOTION mapping: the parameter id each of the 12 lanes moves ("" = none).
     juce::StringArray getLaneTargets() const;
+
+    // PANIC: silence now, flush every tail and buffer (reverb, echo, stretch, capture,
+    // held notes), release FREEZE. Settings, order and mapping stay. Message thread.
+    void panic();
+    void resetEngine();  // flush only (used by panic and by the NaN guard)
     void setLaneTarget(int lane, const juce::String& id);  // ignores ids MOTION may not move
 
     juce::AudioProcessorValueTreeState apvts;

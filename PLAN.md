@@ -500,6 +500,10 @@ Règle : **chaque phase se termine par des écoutes et des mesures** (CPU, IR, n
   - MOTION assignable : 12 lignes vides par défaut (sauf la 1, sur le DRY / WET global), cible choisie dans une liste par module ou par TOUCH (armer, puis cliquer un potard) ; assignations sauvegardées avec l'état ;
   - DEPTH = part de la course totale du potard : valeur = réglage + depth × (lfo − réglage) ;
   - plus de sélection de texte dans l'interface ; cartes alignées sur le visualiseur et MOTION, fil de chaîne dans les marges.
+- **v0.5** :
+  - STRETCH : mode BLUR (défaut), un pad continu du présent, spectre moyenné sur FACTOR/8 secondes ; SMEAR et CAPTURE restent ;
+  - bouton PANIC ;
+  - flèches ◂ ▸ dans la tranche noire de chaque module.
 - **Reste à faire** :
   - embarquer les polices (aujourd'hui chargées depuis Google Fonts : sans réseau, l'interface passe sur des polices de secours).
 

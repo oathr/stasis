@@ -109,7 +109,7 @@ inline const std::vector<Spec>& all() {
         {"derez_mix", "Derez Mix", Kind::Float, 0.7f, {}, pct},
         // STRETCH
         {"stretch_on", "Stretch On", Kind::Bool, 0.0f},
-        {"stretch_mode", "Stretch Mode", Kind::Choice, 0.0f, {"Smear", "Capture"}},
+        {"stretch_mode", "Stretch Mode", Kind::Choice, 0.0f, {"Blur", "Smear", "Capture"}},
         {"stretch_grab", "Stretch Recapture", Kind::Bool, 0.0f},  // a press freezes the last LOOP seconds again
         {"stretch_factor", "Stretch Factor", Kind::Float, 0.3f, {}, [](float t) { return fmt("x%.0f", stretchFactor(t)); }},
         {"stretch_loop", "Stretch Loop", Kind::Float, 0.4f, {}, [](float t) { return fmt("%.1f s", captureSeconds(t)); }},

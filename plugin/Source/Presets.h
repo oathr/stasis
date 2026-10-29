@@ -46,7 +46,7 @@ inline const std::vector<Preset>& all() {
                                     {"derez_on", 1}, {"derez_interval", 0.75f}, {"derez_crush", .5f}, {"derez_mix", .5f},
                                     {"space_type", 2}, {"space_decay", .48f}, {"space_mix", .3f}},
          "shape,pitch,stretch,echo,derez,space,focus,air,color"},
-        {"ECHO", "Slow Motion", {{"stretch_on", 1}, {"stretch_factor", .2f}, {"stretch_mix", .5f},
+        {"ECHO", "Slow Motion", {{"stretch_on", 1}, {"stretch_mode", 1}, {"stretch_factor", .2f}, {"stretch_mix", .5f},
                                  {"echo_div", 11 / 13.f}, {"echo_fdbk", .6f}, {"echo_mix", .45f},
                                  {"space_type", 0}, {"space_size", .4f}, {"space_decay", .3f}, {"space_mix", .3f}}},
         {"ECHO", "Shimmer Delay", {{"echo_div", 9 / 13.f}, {"echo_fdbk", .6f}, {"echo_mix", .5f},
@@ -84,7 +84,7 @@ inline const std::vector<Preset>& all() {
         // ------------------------------------------------------------- AMBIENT
         {"AMBIENT", "Glacier", {{"stretch_on", 1}, {"stretch_factor", .43f}, {"stretch_mix", .7f}, {"echo_on", 0},
                                 {"space_type", 3}, {"space_decay", .82f}, {"space_mix", .6f}, {"tonal", .8f}}},
-        {"AMBIENT", "Frozen Orchard", {{"stretch_on", 1}, {"stretch_mode", 1}, {"stretch_factor", .57f}, {"stretch_loop", .41f}, {"stretch_mix", .8f},
+        {"AMBIENT", "Frozen Orchard", {{"stretch_on", 1}, {"stretch_mode", 2}, {"stretch_factor", .57f}, {"stretch_loop", .41f}, {"stretch_mix", .8f},
                                        {"echo_on", 0}, {"space_type", 2}, {"space_decay", .66f}, {"space_mix", .5f}, {"color_air", .6f}}},
         {"AMBIENT", "Dust & Breath", {{"derez_on", 1}, {"derez_interval", 0.5f}, {"derez_crush", .7f}, {"derez_bits", .71f}, {"derez_mix", .3f},
                                       {"echo_on", 0}, {"space_type", 3}, {"space_decay", .71f}, {"space_mix", .6f},
@@ -106,7 +106,7 @@ inline const std::vector<Preset>& all() {
                                    {"echo_sync", 0}, {"echo_time", .95f}, {"echo_fdbk", .5f}, {"echo_mix", .35f},
                                    {"space_type", 3}, {"space_decay", .92f}, {"space_mix", .7f},
                                    {"color_mud", .7f}, {"color_harsh", .5f}}},
-        {"AMBIENT", "Infinite Drone", {{"stretch_on", 1}, {"stretch_mode", 1}, {"stretch_factor", .83f}, {"stretch_loop", .61f}, {"stretch_mix", 1},
+        {"AMBIENT", "Infinite Drone", {{"stretch_on", 1}, {"stretch_mode", 2}, {"stretch_factor", .83f}, {"stretch_loop", .61f}, {"stretch_mix", 1},
                                        {"echo_on", 0}, {"space_type", 3}, {"space_decay", 1}, {"space_mix", .6f},
                                        {"tonal", .7f}, {"tonal_place", 0}}},
     };

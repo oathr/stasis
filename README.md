@@ -37,13 +37,14 @@ IN ─┬───────────────────────�
 MIDI IN ─────────┴─────────────────────────────────────┘ (DEREZ, FOCUS)
 ```
 
-- **L'ordre se choisit** : on attrape une carte par sa tranche verticale et on la dépose ailleurs, ou on utilise les flèches ◂ ▸ de la carte. Un fil relie les modules dans l'ordre de traitement ; le petit carré numéroté à l'entrée de chaque carte donne sa place. L'ordre est sauvegardé avec le projet et avec les presets.
+- **L'ordre se choisit** : on attrape une carte par sa tranche verticale noire et on la dépose ailleurs, ou on utilise les flèches ◂ ▸ en haut de cette tranche. Un fil relie les modules dans l'ordre de traitement ; le petit carré numéroté à l'entrée de chaque carte donne sa place. L'ordre est sauvegardé avec le projet et avec les presets.
 - Par défaut, le crunch et l'étirement nourrissent l'écho, qui nourrit la reverb.
 - Le visualiseur, en haut, montre le spectre réel du wet.
 - Chaque module a un interrupteur (le carré en bas de sa tranche) avec un fondu de 30 ms, sans clic.
 - `DRY / WET` (en haut, 100 % par défaut) dose le wet par rapport au dry, `OUTPUT` règle le niveau de sortie (±12 dB).
 - **Limiteur de sécurité invisible** en toute fin : rien ne dépasse −0,3 dBFS, et si un bug produisait des valeurs aberrantes (NaN), la sortie se coupe 0,25 s et le moteur se réinitialise. Les oreilles ne risquent rien.
 - `FREEZE` fige la reverb : la queue tient indéfiniment, sans dériver.
+- `PANIC` (rouge, en haut à droite) : silence immédiat, vide toutes les queues et mémoires (reverb, écho, stretch, capture, notes tenues) et relâche FREEZE. Les réglages, l'ordre et MOTION ne bougent pas.
 
 ## Les modules
 
@@ -85,7 +86,9 @@ La fondamentale vient de la note MIDI la plus grave tenue, sinon La2 (110 Hz). M
 
 | Contrôle | Effet |
 |---|---|
-| `SMEAR` / `CAPTURE` | SMEAR rejoue l'entrée au ralenti (×8 : une seconde jouée dure huit secondes). CAPTURE fige les dernières secondes et les étire en boucle |
+| `BLUR` (défaut) | Un pad continu **du présent** : le spectre est moyenné sur une mémoire de FACTOR/8 secondes (×8 → 1 s, ×80 → 10 s, ×1000 → 2 min). Les notes montent et s'éteignent en douceur, sans fin ni saut |
+| `SMEAR` | Rejoue l'entrée au ralenti (×8 : une seconde jouée dure huit secondes) ; prend du retard sur le jeu |
+| `CAPTURE` | Fige les dernières secondes et les étire en boucle |
 | `⟳` | Recapture les dernières secondes |
 | `FACTOR` | Étirement ×1 à ×1000 |
 | `LOOP` | Durée capturée (1 à 30 s) |

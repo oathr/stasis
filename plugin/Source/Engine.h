@@ -51,6 +51,9 @@ public:
         limiterRelease_ = smoothingCoef(0.15f, sampleRate);
         mute_ = 0;
         needsReset_.store(false);
+        notes_ = NoteSet{};
+        derez_ = PitchedDerez{};
+        focus_ = ResonantFocus{};
         derez_.prepare(sampleRate);
         derez_.setRoot(110.0f);  // A2, when no MIDI note is held
         stretch_.prepare(sampleRate);
@@ -235,7 +238,7 @@ private:
         const int mode = int(v(values, iStretchMode));
         if (changed({iStretchMode, iFactor, iLoop})) {
             CaptureStretch::Params p;
-            p.mode = mode == 1 ? CaptureStretch::Mode::Capture : CaptureStretch::Mode::Smear;
+            p.mode = mode == 2 ? CaptureStretch::Mode::Capture : mode == 1 ? CaptureStretch::Mode::Smear : CaptureStretch::Mode::Blur;
             p.stretch = stretchFactor(v(values, iFactor));
             p.captureSeconds = captureSeconds(v(values, iLoop));
             stretch_.setParams(p);
@@ -243,7 +246,7 @@ private:
         // Switching to CAPTURE, or pressing RECAPTURE, freezes the last LOOP seconds.
         static const int iGrab = indexOf("stretch_grab");
         const bool grab = v(values, iGrab) > 0.5f;
-        if (mode == 1 && ((stretchMode_ != 1 && stretchMode_ != -1) || (grab && !grab_))) stretch_.capture();
+        if (mode == 2 && ((stretchMode_ != 2 && stretchMode_ != -1) || (grab && !grab_))) stretch_.capture();
         stretchMode_ = mode;
         grab_ = grab;
 
