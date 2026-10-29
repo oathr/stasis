@@ -114,6 +114,8 @@ public:
 
     // The 12 MOTION lanes, -1..1 (for the UI traces).
     float laneValue(int lane) const { return laneValues_[size_t(lane)].load(std::memory_order_relaxed); }
+    // Where each lane has moved its target knob right now (0..1), for the UI.
+    float laneTarget(int lane) const { return laneTargets_[size_t(lane)].load(std::memory_order_relaxed); }
 
     // Pitch classes FOCUS is following (MIDI, or what AUTO hears). Bit n = class n.
     uint16_t focusClasses() const { return focusClasses_.load(std::memory_order_relaxed); }
@@ -124,22 +126,33 @@ private:
     float v(const float* values, int index) const { return values[index]; }
 
     // MOTION: each lane moves its target parameter around the user's setting, at most
-    // ±25 % of the knob's travel (depth 100 %, MOTION 100 %).
+    // ±50 % of the knob's travel (depth 100 %, MOTION 100 %).
     const float* modulate(const float* values, int n) {
         static const int iOn = params::indexOf("motion_on"), iAmount = params::indexOf("motion_amount"), iDrift = params::indexOf("motion_drift");
-        std::copy(values, values + modulated_.size(), modulated_.begin());
         const bool on = values[iOn] > 0.5f;
+        if (!on) {  // MOTION off: nothing runs, the parameters pass as they are
+            if (motionWasOn_) for (auto& v : laneValues_) v.store(0.0f, std::memory_order_relaxed);
+            motionWasOn_ = false;
+            return values;
+        }
+        motionWasOn_ = true;
+        std::copy(values, values + modulated_.size(), modulated_.begin());
         const float amount = values[iAmount], drift = params::driftScale(values[iDrift]);
         for (size_t i = 0; i < lanes_.size(); ++i) {
+            const float depth = values[laneDepth_[i]];
+            if (depth <= 0.0f) {  // a lane at 0 % does not run
+                laneValues_[i].store(0.0f, std::memory_order_relaxed);
+                continue;
+            }
             Lfo& lfo = lanes_[i];
             lfo.setRate(params::laneRateHz(values[laneRate_[i]]) * drift);
             lfo.setShape(values[laneShape_[i]]);
             const float x = lfo.advance(n);
-            laneValues_[i].store(on ? x : 0.0f, std::memory_order_relaxed);
-            if (!on) continue;
+            laneValues_[i].store(x, std::memory_order_relaxed);
             float& target = modulated_[size_t(laneTarget_[i])];
-            target = std::clamp(target + 0.25f * amount * values[laneDepth_[i]] * x, 0.0f, 1.0f);
+            target = std::clamp(target + 0.5f * amount * depth * x, 0.0f, 1.0f);
         }
+        for (size_t i = 0; i < lanes_.size(); ++i) laneTargets_[i].store(modulated_[size_t(laneTarget_[i])], std::memory_order_relaxed);
         return modulated_.data();
     }
 
@@ -362,7 +375,10 @@ private:
         std::copy(left, left + n, wetL);
         std::copy(right, right + n, wetR);
 
-        if (focusAuto_) {
+        // FOCUS listens only while it is on (the key detector is an FFT every 1024 samples).
+        if (!on_[kFocus]) {
+            focusClasses_.store(0, std::memory_order_relaxed);
+        } else if (focusAuto_) {
             keys_.analyse(left, right, n);
             focus_.setScale(keys_.pitchClasses());
             focusClasses_.store(keys_.pitchClasses(), std::memory_order_relaxed);
@@ -469,8 +485,9 @@ private:
     std::atomic<uint64_t> order_{defaultOrder()};
     std::array<Lfo, 12> lanes_;
     std::array<int, 12> laneTarget_{}, laneRate_{}, laneShape_{}, laneDepth_{};
-    std::array<std::atomic<float>, 12> laneValues_{};
+    std::array<std::atomic<float>, 12> laneValues_{}, laneTargets_{};
     std::vector<float> modulated_;
+    bool motionWasOn_ = false;
 };
 
 }  // namespace stasis

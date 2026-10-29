@@ -205,6 +205,8 @@ header { display: grid; grid-template-columns: auto 1fr auto; align-items: cente
 .cursor .fill { position: absolute; top: calc(50% - 1.5px); height: 3px; background: var(--accent); }
 .cursor .thumb { position: absolute; top: 3px; width: 6px; height: 12px; margin-left: -3px; background: currentColor; color: var(--ink); }
 .cursor .val { color: var(--ink); font-weight: 500; text-align: right; }
+.cursor .ghost { display: none; position: absolute; top: 5px; width: 4px; height: 8px; margin-left: -2px; background: var(--spark); }
+.knob.mod-focus svg, .cursor.mod-focus { outline: 1px dashed var(--spark); outline-offset: 3px; }
 .pitch-cursor { grid-template-columns: auto 1fr auto 40px; }
 .pitch-cursor .track { background: repeating-linear-gradient(90deg, var(--line) 0 1px, transparent 1px calc(100% / 4)) center / 100% 7px no-repeat; }  /* ticks every octave */
 
@@ -352,7 +354,7 @@ const bridge = {
     document.documentElement.classList.add('plugin');
     for (const id of this.controls.keys()) this.listen(id);
     window.__JUCE__.backend.addEventListener('stasis_spectrum', bands => { live.spectrum = bands; });
-    window.__JUCE__.backend.addEventListener('stasis_motion', values => { live.lanes = values; });
+    window.__JUCE__.backend.addEventListener('stasis_motion', m => { live.lanes = m.lanes; live.targets = m.targets; });
     window.__JUCE__.backend.addEventListener('stasis_status', s => live.status(s));
   },
 };
@@ -369,6 +371,7 @@ const live = {
   },
 };
 
+const knobsById = {};  // id → knob element, for MOTION's markers
 function knob(k, opts = {}) {
   const small = !!opts.small;
   const el = document.createElement('div');
@@ -380,6 +383,8 @@ function knob(k, opts = {}) {
       <path class="sec" fill="var(--accent)"/>
       <circle cx="22" cy="22" r="${small ? 7 : 5.5}" fill="var(--hub)"/>
       <line class="idx" stroke="var(--hub)" stroke-width="${small ? 3 : 1.8}" stroke-linecap="square"/>
+      <path class="modarc" fill="none" stroke="var(--spark)" stroke-width="2" display="none"/>
+      <circle class="moddot" r="2.4" fill="var(--spark)" display="none"/>
     </svg><div class="v"></div><div class="l">${k.l}</div>`;
   let t = k.t;
   const draw = () => {
@@ -399,6 +404,18 @@ function knob(k, opts = {}) {
   el.addEventListener('pointerup', () => { if (k.id) bridge.drag(k.id, false); });
   el.addEventListener('dblclick', () => change(k.t));
   if (k.id) { t = bridge.value(k.id, k.t); bridge.register(k.id, 'slider', v => { t = v; draw(); k.on && k.on(t); }); }
+  // MOTION: an arc from where the knob is set to where the LFO has moved it, and a dot.
+  const ring = r + 4.5, arc = el.querySelector('.modarc'), dot = el.querySelector('.moddot');
+  el.value = () => t;
+  el.showMod = m => {
+    if (m === null) { arc.setAttribute('display', 'none'); dot.setAttribute('display', 'none'); return; }
+    const a = A0 + ARC * Math.min(t, m), b = A0 + ARC * Math.max(t, m);
+    const [x0, y0] = polar(ring, a), [x1, y1] = polar(ring, b), [dx, dy] = polar(ring, A0 + ARC * m);
+    arc.setAttribute('d', `M${x0.toFixed(2)} ${y0.toFixed(2)}A${ring} ${ring} 0 ${b - a > 180 ? 1 : 0} 1 ${x1.toFixed(2)} ${y1.toFixed(2)}`);
+    dot.setAttribute('cx', dx.toFixed(2)); dot.setAttribute('cy', dy.toFixed(2));
+    arc.setAttribute('display', ''); dot.setAttribute('display', '');
+  };
+  if (k.id) knobsById[k.id] = el;
   draw();
   return el;
 }
@@ -443,6 +460,11 @@ function cursor(left, right, value, id, opts = {}) {
   track.addEventListener('pointerup', () => { if (id) bridge.drag(id, false); });
   track.addEventListener('dblclick', () => { v = 0; draw(); send(); });
   if (id) bridge.register(id, 'slider', t => { v = t * 2 - 1; draw(); });
+  // MOTION: a ghost thumb where the LFO has moved the cursor.
+  const ghost = document.createElement('div'); ghost.className = 'ghost'; track.append(ghost);
+  el.value = () => (v + 1) / 2;
+  el.showMod = m => { ghost.style.display = m === null ? 'none' : 'block'; if (m !== null) ghost.style.left = (m * 100) + '%'; };
+  if (id) knobsById[id] = el;
   draw();
   return el;
 }
@@ -532,7 +554,7 @@ const MODS = {
             sub.append(knobRow([{ id: 'shimmer_depth', l: 'Depth', t: state.shimmer, f: pct, on: v => state.shimmer = v }, { id: 'shimmer_pitch', l: 'Pitch', t: .75, f: bip(' st', 24) },
                                 { id: 'space_width', l: 'Width', t: .67, f: t => Math.round(150 * t) + '%' }]));
             b.append(sub); } },
-  motion: { n: '10', name: 'MOTION',  code: '12 LFO · each moves one knob ±25 % around your setting', build: b => buildMotion(b) },
+  motion: { n: '10', name: 'MOTION',  code: '12 LFO · each moves one knob up to ±50 % · hover a lane to see which', build: b => buildMotion(b) },
 };
 
 function buildCard(el) {
@@ -677,9 +699,12 @@ function shapeIcon(i) {
   return `<svg viewBox="0 0 18 12"><polyline points="${pts.map(p => p.join(',')).join(' ')}" fill="none" stroke="currentColor" stroke-width="1.1"/></svg>`;
 }
 // Same lanes as Params.h (kLanes): target label, shape, rate (Hz), depth.
-const LANES = [['CRUSH', 9, .08, .25], ['STRETCH', 8, .02, .3], ['FEEDBACK', 6, .05, .2], ['REPEATS', 7, .12, .3], ['SIZE', 7, .015, .5], ['DECAY', 9, .01, .3],
-               ['TONE', 0, .03, .4], ['SHIMMER', 6, .04, .6], ['WIDTH', 1, .06, .4], ['FILTER', 11, .18, .3], ['TONAL', 9, .025, .4], ['VOLUME', 0, .025, .15]];
+const LANES = [['CRUSH', 9, .10, 0], ['STRETCH', 8, .03, 0], ['FEEDBACK', 6, .06, 0], ['REPEATS', 7, .20, 0], ['SIZE', 7, .03, 0], ['DECAY', 9, .02, 0],
+               ['TONE', 0, .08, 0], ['SHIMMER', 6, .05, 0], ['WIDTH', 1, .07, 0], ['FILTER', 11, .12, 0], ['TONAL', 9, .04, 0], ['VOLUME', 0, .05, 0]];
 const laneId = (i, what) => `m${String(i + 1).padStart(2, '0')}_${what}`;
+const LANE_TARGETS = ['derez_crush', 'stretch_factor', 'echo_fdbk', 'echo_mix', 'space_size', 'space_decay', 'space_tone', 'shimmer_depth', 'space_width', 'color_lpf', 'tonal', 'out'];
+// Hovering a lane outlines the knob it moves.
+const focusTarget = (i, on) => knobsById[LANE_TARGETS[i]]?.classList.toggle('mod-focus', on);
 const lanes = [];
 const rateLabel = t => { const hz = .001 * Math.pow(20000, t); return (hz < 1 ? hz.toFixed(hz < .1 ? 3 : 2) : hz.toFixed(1)) + ' Hz'; };
 function buildMotion(b) {
@@ -693,6 +718,8 @@ function buildMotion(b) {
       const lane = { shape, rate, depth, f: lfoFactory(idx + 1), hist: new Array(170).fill(0) };
       const row = document.createElement('div'); row.className = 'lane cols';
       row.innerHTML = `<span class="i">${String(idx + 1).padStart(2, '0')}</span><span class="n">${name}</span>`;
+      row.onmouseenter = () => focusTarget(idx, true);
+      row.onmouseleave = () => focusTarget(idx, false);
       row.append(knob({ id: laneId(idx, 'rate'), l: 'rate', t: Math.log(rate / .001) / Math.log(20000), f: rateLabel, on: t => lane.rate = .001 * Math.pow(20000, t) }, { small: true }));
       const sh = document.createElement('div'); sh.className = 'shape'; sh.title = 'Clic : forme suivante';
       const paint = () => sh.innerHTML = shapeIcon(lane.shape) + SHAPES[lane.shape];
@@ -705,7 +732,7 @@ function buildMotion(b) {
     wrap.append(list); body.append(wrap);
   }
   const macros = document.createElement('div'); macros.className = 'macros';
-  macros.append(knob({ id: 'motion_amount', l: 'Motion', t: .6, f: pct, on: t => state.motion = t }, { stack: true }),
+  macros.append(knob({ id: 'motion_amount', l: 'Motion', t: 1, f: pct, on: t => state.motion = t }, { stack: true }),
                 knob({ id: 'motion_drift', l: 'Drift', t: .5, f: t => '×' + Math.pow(4, t * 2 - 1).toFixed(2), on: t => state.drift = Math.pow(4, t * 2 - 1) }, { stack: true }));
   const st = document.createElement('div'); st.className = 'status';
   st.id = 'status';
@@ -904,6 +931,15 @@ function drawLanes() {
     l.hist.forEach((y, i) => { const px = i / (l.hist.length - 1) * w, py = h / 2 - y * (h / 2 - 2); i ? ctx.lineTo(px, py) : ctx.moveTo(px, py); });
     ctx.stroke(); ctx.globalAlpha = 1;
     ctx.fillStyle = acc; ctx.beginPath(); ctx.arc(w - 2.5, h / 2 - v * (h / 2 - 2), 2.5, 0, Math.PI * 2); ctx.fill();
+  });
+  // Show on each target knob where MOTION has moved it (plugin: the engine's own value).
+  const on = !document.querySelector('[data-mod="motion"]').classList.contains('off');
+  LANE_TARGETS.forEach((id, i) => {
+    const k = knobsById[id]; if (!k) return;
+    if (!on) return k.showMod(null);
+    const m = live.targets ? live.targets[i]
+      : Math.max(0, Math.min(1, k.value() + .5 * state.motion * lanes[i].depth * lanes[i].f(lanes[i].shape, 0)));
+    k.showMod(Math.abs(m - k.value()) < .004 ? null : m);
   });
 }
 

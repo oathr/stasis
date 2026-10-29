@@ -138,9 +138,16 @@ void StasisEditor::resized() { webView_.setBounds(getLocalBounds()); }
 
 void StasisEditor::timerCallback() {
     sendSpectrum();
-    juce::Array<juce::var> lanes;
-    for (int i = 0; i < 12; ++i) lanes.add(processor_.engine.laneValue(i));
-    webView_.emitEventIfBrowserIsVisible("stasis_motion", lanes);
+    // MOTION: each lane's LFO value and where it has moved its knob.
+    juce::Array<juce::var> lanes, targets;
+    for (int i = 0; i < 12; ++i) {
+        lanes.add(processor_.engine.laneValue(i));
+        targets.add(processor_.engine.laneTarget(i));
+    }
+    auto* motion = new juce::DynamicObject();
+    motion->setProperty("lanes", lanes);
+    motion->setProperty("targets", targets);
+    webView_.emitEventIfBrowserIsVisible("stasis_motion", juce::var(motion));
     if (++statusCounter_ % 10 == 0) {
         auto* status = new juce::DynamicObject();
         status->setProperty("cpu", processor_.cpuLoad.load() * 100.0f);
