@@ -1,0 +1,47 @@
+# Builds the VST3 on Windows (priority target) and macOS, runs the host stress test,
+# and uploads the plugins as downloadable artifacts.
+name: build
+
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # WebView2 SDK, linked statically: nothing extra to install on the user's PC
+      # (the WebView2 runtime ships with Windows 10/11).
+      - name: WebView2 SDK
+        run: nuget install Microsoft.Web.WebView2 -OutputDirectory "${{ runner.temp }}\webview2"
+
+      - name: Configure
+        run: cmake -S . -B build -G "Visual Studio 17 2022" -A x64 -DSTASIS_BUILD_RENDER=OFF -DJUCE_WEBVIEW2_PACKAGE_LOCATION="${{ runner.temp }}\webview2"
+
+      - name: Build
+        run: cmake --build build --config Release --target Stasis_VST3 stasis_hosttest --parallel
+
+      - name: Host stress test
+        run: build\plugin\stasis_hosttest_artefacts\Release\stasis_hosttest.exe build\plugin\Stasis_artefacts\Release\VST3\STASIS.vst3 --no-timing
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: STASIS-VST3-Windows
+          path: build/plugin/Stasis_artefacts/Release/VST3/STASIS.vst3
+
+  macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure
+        run: cmake -S . -B build -G Xcode -DSTASIS_BUILD_RENDER=OFF -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64"
+      - name: Build
+        run: cmake --build build --config Release --target Stasis_VST3 stasis_hosttest
+      - name: Host stress test
+        run: build/plugin/stasis_hosttest_artefacts/Release/stasis_hosttest build/plugin/Stasis_artefacts/Release/VST3/STASIS.vst3 --no-timing
+      - uses: actions/upload-artifact@v4
+        with:
+          name: STASIS-VST3-macOS
+          path: build/plugin/Stasis_artefacts/Release/VST3/STASIS.vst3

@@ -99,6 +99,8 @@ header { display: grid; grid-template-columns: auto 1fr auto; align-items: cente
 .card.dark .spine { border-right: 1px solid var(--dark-line); }
 .card .spine .power { width: 10px; height: 10px; border: 1.5px solid var(--on-dark); cursor: pointer; background: var(--on-dark); }
 .card.off .spine .power { background: none; }
+.card.soon .body { opacity: .35; pointer-events: none; }
+.card.soon .spine .power { visibility: hidden; }
 .card.off .body { opacity: .3; }
 .card .body { padding: 12px 14px 12px; display: flex; flex-direction: column; gap: 10px; overflow: hidden; min-width: 0; transition: opacity .2s; }
 .card.dark { background: var(--dark); color: var(--on-dark); --muted: var(--on-dark-muted); --line: var(--dark-line); --ink: var(--on-dark); }
@@ -259,6 +261,68 @@ function ticks() {
   return d;
 }
 const TICKS = ticks();
+
+// ---------- plugin bridge ----------
+// In the plugin (window.__JUCE__), each control with an `id` is bound to the parameter
+// of the same name: moves go to the host, automation and presets come back. In a plain
+// browser the page works on its own. Values: knobs 0..1, toggles true/false, choices index.
+const bridge = {
+  controls: new Map(), values: new Map(), listening: new Set(), juce: null,
+  register(id, kind, apply) {
+    this.controls.set(id, { kind, apply });
+    if (this.values.has(id)) apply(this.values.get(id));
+    if (this.juce) this.listen(id);
+  },
+  value(id, fallback) { return this.values.has(id) ? this.values.get(id) : fallback; },
+  state(id) {
+    const kind = this.controls.get(id).kind, J = this.juce;
+    return kind === 'slider' ? J.getSliderState(id) : kind === 'toggle' ? J.getToggleState(id) : J.getComboBoxState(id);
+  },
+  send(id, v) {
+    this.values.set(id, v);
+    if (!this.juce || !this.controls.has(id)) return;
+    const kind = this.controls.get(id).kind, st = this.state(id);
+    if (kind === 'slider') st.setNormalisedValue(v); else if (kind === 'toggle') st.setValue(!!v); else st.setChoiceIndex(v);
+  },
+  drag(id, started) {
+    if (!this.juce || !this.controls.has(id) || this.controls.get(id).kind !== 'slider') return;
+    started ? this.state(id).sliderDragStarted() : this.state(id).sliderDragEnded();
+  },
+  listen(id) {
+    if (this.listening.has(id)) return;
+    this.listening.add(id);
+    const kind = this.controls.get(id).kind, st = this.state(id);
+    const update = () => {
+      if (kind === 'choice' && !st.properties.choices.length) return;  // not described yet
+      const v = kind === 'slider' ? st.getNormalisedValue() : kind === 'toggle' ? st.getValue() : st.getChoiceIndex();
+      this.values.set(id, v);
+      this.controls.get(id).apply(v);
+    };
+    st.valueChangedEvent.addListener(update);
+    st.propertiesChangedEvent.addListener(update);
+    update();
+  },
+  connect(J) {
+    this.juce = J;
+    document.documentElement.classList.add('plugin');
+    for (const id of this.controls.keys()) this.listen(id);
+    window.__JUCE__.backend.addEventListener('stasis_spectrum', bands => { live.spectrum = bands; });
+    window.__JUCE__.backend.addEventListener('stasis_status', s => live.status(s));
+  },
+};
+const live = {
+  spectrum: null,
+  status(s) {
+    const names = ['C', 'C♯', 'D', 'D♯', 'E', 'F', 'F♯', 'G', 'G♯', 'A', 'A♯', 'B'];
+    const on = names.filter((_, i) => s.classes & (1 << i));
+    document.querySelectorAll('.keys div').forEach((d, i) => d.classList.toggle('on', !!(s.classes & (1 << i))));
+    const st = document.getElementById('status');
+    if (st) st.innerHTML = `CPU <b>${s.cpu.toFixed(1)}%</b><br>LATENCY <b>0 SMP</b><br>MIDI <b>${on.join(' ') || '—'}</b>`;
+    const sr = document.getElementById('srate');
+    if (sr && s.sampleRate) sr.textContent = (s.sampleRate / 1000).toFixed(1).replace('.0', '') + ' KHZ';
+  },
+};
+
 function knob(k, opts = {}) {
   const small = !!opts.small;
   const el = document.createElement('div');
@@ -280,13 +344,15 @@ function knob(k, opts = {}) {
     el.querySelector('.v').textContent = k.f(t);
   };
   let startY = 0, startT = 0;
-  el.addEventListener('pointerdown', e => { startY = e.clientY; startT = t; el.setPointerCapture(e.pointerId); });
+  const change = v => { t = v; draw(); k.on && k.on(t); if (k.id) bridge.send(k.id, t); };
+  el.addEventListener('pointerdown', e => { startY = e.clientY; startT = t; el.setPointerCapture(e.pointerId); if (k.id) bridge.drag(k.id, true); });
   el.addEventListener('pointermove', e => {
     if (!el.hasPointerCapture(e.pointerId)) return;
-    t = Math.min(1, Math.max(0, startT + (startY - e.clientY) / (e.shiftKey ? 600 : 150)));
-    draw(); k.on && k.on(t);
+    change(Math.min(1, Math.max(0, startT + (startY - e.clientY) / (e.shiftKey ? 600 : 150))));
   });
-  el.addEventListener('dblclick', () => { t = k.t; draw(); k.on && k.on(t); });
+  el.addEventListener('pointerup', () => { if (k.id) bridge.drag(k.id, false); });
+  el.addEventListener('dblclick', () => change(k.t));
+  if (k.id) { t = bridge.value(k.id, k.t); bridge.register(k.id, 'slider', v => { t = v; draw(); k.on && k.on(t); }); }
   draw();
   return el;
 }
@@ -295,18 +361,22 @@ const lin = (a, b, unit = '', d = 0) => t => (a + (b - a) * t).toFixed(d) + unit
 const expo = (a, b, unit = '', d = 1) => t => (a * Math.pow(b / a, t)).toFixed(d) + unit;
 const bip = (unit = '', s = 1, d = 0) => t => { const v = (t * 2 - 1) * s; return (v >= 0 ? '+' : '') + v.toFixed(d) + unit; };
 
-function seg(options, active, onPick) {
+function seg(options, active, onPick, id) {
   const el = document.createElement('div'); el.className = 'seg';
+  let current = -1;
+  const show = i => { el.querySelectorAll('button').forEach((x, j) => x.setAttribute('aria-pressed', j === i)); if (i !== current) { current = i; onPick && onPick(i); } };
   options.forEach((o, i) => {
     const b = document.createElement('button');
     b.textContent = o; b.setAttribute('aria-pressed', i === active);
-    b.onclick = () => { el.querySelectorAll('button').forEach(x => x.setAttribute('aria-pressed', x === b)); onPick && onPick(i); };
+    b.onclick = () => { show(i); if (id) bridge.send(id, i); };
     el.appendChild(b);
   });
+  current = active;
+  if (id) bridge.register(id, 'choice', show);
   return el;
 }
 // Bipolar horizontal cursor (-1 .. +1), drag to move, double-click to centre.
-function cursor(left, right, value) {
+function cursor(left, right, value, id) {
   const el = document.createElement('div'); el.className = 'cursor';
   el.innerHTML = `<span>${left}</span><div class="track"><div class="fill"></div><div class="thumb"></div></div><span>${right}</span><span class="val"></span>`;
   const track = el.querySelector('.track');
@@ -318,10 +388,13 @@ function cursor(left, right, value) {
     fill.style.left = Math.min(x, 50) + '%'; fill.style.width = Math.abs(x - 50) + '%';
     el.querySelector('.val').textContent = (v >= 0 ? '+' : '') + v.toFixed(2);
   };
-  const set = e => { const r = track.getBoundingClientRect(); v = Math.max(-1, Math.min(1, ((e.clientX - r.left) / r.width) * 2 - 1)); draw(); };
-  track.addEventListener('pointerdown', e => { track.setPointerCapture(e.pointerId); set(e); });
+  const send = () => { if (id) bridge.send(id, (v + 1) / 2); };
+  const set = e => { const r = track.getBoundingClientRect(); v = Math.max(-1, Math.min(1, ((e.clientX - r.left) / r.width) * 2 - 1)); draw(); send(); };
+  track.addEventListener('pointerdown', e => { track.setPointerCapture(e.pointerId); if (id) bridge.drag(id, true); set(e); });
   track.addEventListener('pointermove', e => { if (track.hasPointerCapture(e.pointerId)) set(e); });
-  track.addEventListener('dblclick', () => { v = 0; draw(); });
+  track.addEventListener('pointerup', () => { if (id) bridge.drag(id, false); });
+  track.addEventListener('dblclick', () => { v = 0; draw(); send(); });
+  if (id) bridge.register(id, 'slider', t => { v = t * 2 - 1; draw(); });
   draw();
   return el;
 }
@@ -329,8 +402,8 @@ function cursor(left, right, value) {
 // or after it (the tail itself is filtered).
 function tonalRow() {
   const el = document.createElement('div'); el.className = 'tonal-row';
-  const where = seg(['Pre', 'Post'], 1); where.title = 'Before or after SPACE';
-  el.append(cursor('NOISE', 'TONAL', .4), where);
+  const where = seg(['Pre', 'Post'], 1, null, 'tonal_place'); where.title = 'Before or after SPACE';
+  el.append(cursor('NOISE', 'TONAL', 0, 'tonal'), where);
   return el;
 }
 function knobRow(list, opts) { const row = document.createElement('div'); row.className = 'knobs'; list.forEach(k => row.appendChild(knob(k, opts))); return row; }
@@ -339,39 +412,46 @@ function knobRow(list, opts) { const row = document.createElement('div'); row.cl
 const state = { size: .9, decay: .75, tone: .45, shimmer: .5, freeze: false, stretch: .6, motion: .6, drift: 1 };
 
 // ---------- modules ----------
+// Modules that exist in the audio engine (the others are design only for now).
+const LIVE_MODS = ['derez', 'stretch', 'echo', 'space', 'focus', 'color'];
 const MODS = {
   shape:  { n: '01', name: 'SHAPE',   code: 'Pre · tilt / drive', build: b => b.append(knobRow([
             { l: 'Tilt', t: .5, f: bip(' dB', 6, 1) }, { l: 'Drive', t: .2, f: pct }, { l: 'Harm', t: .3, f: pct }])) },
   derez:  { n: '02', name: 'DEREZ',   code: 'Tuned · root A2', build: b => {
             const strip = document.createElement('div'); strip.className = 'intervals';
-            ['-24','-12','-7','-1','0','+1','+7','+12','+24'].forEach(v => { const x = document.createElement('button'); x.textContent = v; x.setAttribute('aria-pressed', v === '-12');
-              x.onclick = () => strip.querySelectorAll('button').forEach(y => y.setAttribute('aria-pressed', y === x)); strip.appendChild(x); });
-            b.append(strip, knobRow([{ l: 'Crush', t: .6, f: t => 'n=' + Math.round(32 * Math.pow(2 / 32, t)) }, { l: 'Bits', t: .55, f: lin(16, 2, '', 1) }, { l: 'Mix', t: .7, f: pct }])); } },
+            const show = i => strip.querySelectorAll('button').forEach((y, j) => y.setAttribute('aria-pressed', j === i));
+            ['-24','-12','-7','-1','0','+1','+7','+12','+24'].forEach((v, i) => { const x = document.createElement('button'); x.textContent = v; x.setAttribute('aria-pressed', v === '-12');
+              x.onclick = () => { show(i); bridge.send('derez_interval', i); }; strip.appendChild(x); });
+            bridge.register('derez_interval', 'choice', show);
+            b.append(strip, knobRow([{ id: 'derez_crush', l: 'Crush', t: .6, f: t => 'n=' + Math.round(32 * Math.pow(2 / 32, t)) },
+                                     { id: 'derez_bits', l: 'Bits', t: .55, f: lin(16, 2, '', 1) }, { id: 'derez_mix', l: 'Mix', t: .7, f: pct }])); } },
   pitch:  { n: '03', name: 'PITCH',   code: 'Phase vocoder', build: b => b.append(knobRow([
             { l: 'Semi', t: .5, f: bip(' st', 24) }, { l: 'Formant', t: .5, f: bip('', 12, 1) }, { l: 'Shift', t: .5, f: bip(' Hz', 50, 0) }])) },
-  stretch:{ n: '04', name: 'STRETCH', code: 'Capture · 30 s', build: b => b.append(seg(['Paul', 'Freeze', 'Cloud'], 0),
-            knobRow([{ l: 'Factor', t: .6, f: t => '×' + Math.round(Math.pow(1000, t)), on: v => state.stretch = v },
-                     { l: 'Window', t: .7, f: expo(.1, 4, ' s', 2) }, { l: 'Smear', t: .4, f: pct }, { l: 'Mix', t: .5, f: pct }])) },
+  stretch:{ n: '04', name: 'STRETCH', code: 'Paul · capture 30 s', build: b => b.append(seg(['Smear', 'Capture'], 0, null, 'stretch_mode'),
+            knobRow([{ id: 'stretch_factor', l: 'Factor', t: .3, f: t => '×' + Math.round(Math.pow(1000, t)), on: v => state.stretch = v },
+                     { id: 'stretch_loop', l: 'Loop', t: .4, f: expo(1, 30, ' s', 1) }, { id: 'stretch_mix', l: 'Mix', t: .5, f: pct }])) },
   echo:   { n: '05', name: 'ECHO',    code: 'Tape · ping-pong · 80 bpm', build: b => {
             // SYNC: TIME snaps to divisions of the host tempo (straight, dotted, triplet)
             const DIVS = ['1/32', '1/16T', '1/16', '1/16.', '1/8T', '1/8', '1/8.', '1/4T', '1/4', '1/4.', '1/2T', '1/2', '1/2.', '1/1'];
             let row = null;
             const knobs = sync => knobRow([
-              { l: 'Time', t: sync ? 9 / 13 : .55, f: sync ? (t => DIVS[Math.round(t * (DIVS.length - 1))]) : expo(20, 2500, ' ms', 0) },
-              { l: 'Fdbk', t: .6, f: pct }, { l: 'Wow', t: .4, f: pct }, { l: 'Mix', t: .35, f: pct }]);
-            const modes = seg(['Tape', 'Digi', 'Diffuse', 'BBD'], 0);
-            const sync = seg(['Free', 'Sync'], 1, i => { const next = knobs(i === 1); row.replaceWith(next); row = next; });
+              sync ? { id: 'echo_div', l: 'Time', t: 9 / 13, f: t => DIVS[Math.round(t * (DIVS.length - 1))] }
+                   : { id: 'echo_time', l: 'Time', t: .55, f: expo(20, 2500, ' ms', 0) },
+              { id: 'echo_fdbk', l: 'Fdbk', t: .6, f: pct }, { id: 'echo_wow', l: 'Wow', t: .4, f: pct }, { id: 'echo_mix', l: 'Mix', t: .35, f: pct }]);
+            const modes = seg(['Mono', 'Ping-pong'], 1, null, 'echo_mode');
             row = knobs(true);
+            const sync = seg(['Free', 'Sync'], 1, i => { const next = knobs(i === 1); row.replaceWith(next); row = next; }, 'echo_sync');
             b.append(modes, sync, row); } },
   focus:  { n: '07', name: 'FOCUS',   code: 'MIDI · 0 latency', build: b => {
             const keys = document.createElement('div'); keys.className = 'keys';
             ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'].forEach(k => { const d = document.createElement('div'); d.textContent = k.replace('#', '♯');
               if (['C','E','G','A','B'].includes(k)) d.classList.add('on'); keys.appendChild(d); });
-            b.append(seg(['Key', 'Harm', 'Auto'], 0), keys, knobRow([{ l: 'Focus', t: .6, f: pct }, { l: 'Depth', t: .9, f: pct }, { l: 'Mix', t: 1, f: pct }])); } },
+            b.append(seg(['Key', 'Harm', 'Auto'], 0, null, 'focus_mode'), keys,
+                     knobRow([{ id: 'focus_amount', l: 'Focus', t: .6, f: pct }, { id: 'focus_depth', l: 'Depth', t: .9, f: pct }, { id: 'focus_mix', l: 'Mix', t: 1, f: pct }])); } },
   air:    { n: '08', name: 'AIR',     code: 'Breath · width', build: b => b.append(knobRow([
             { l: 'Breath', t: .3, f: pct }, { l: 'Width', t: .66, f: lin(0, 150, '%') }, { l: 'Lo-fi', t: .1, f: pct }])) },
   color:  { n: '09', name: 'COLOR',   code: 'Final · wet only', build: b => b.append(knobRow([
-            { l: 'Bass', t: .35, f: bip('', 1, 2) }, { l: 'Mud', t: .8, f: t => t.toFixed(2) }, { l: 'Air', t: .65, f: bip('', 1, 2) }]),
+            { id: 'color_bass', l: 'Bass', t: .5, f: bip('', 1, 2) }, { id: 'color_mud', l: 'Mud', t: .5, f: t => t.toFixed(2) }, { id: 'color_air', l: 'Air', t: .5, f: bip('', 1, 2) }]),
             tonalRow()) },
   space:  { n: '06', name: 'SPACE',   code: 'FDN-16 · diffuse-8 · cathedral', build: b => {
             const body = document.createElement('div'); body.className = 'space-body';
@@ -379,14 +459,15 @@ const MODS = {
               <div><span>T −14.0 S</span><span id="hudRt" class="acc">RT60 25.0 S</span></div>
               <div><span>20 HZ ↑ 12 KHZ · TIME ←</span><span id="hudState">LIVE</span></div></div></div>`;
             const side = document.createElement('div'); side.style.cssText = 'display:flex;flex-direction:column;gap:9px';
-            b.append(seg(['Room', 'Plate', 'Hall', 'Cathedral', 'Shimmer', '80s', 'Spectral', 'Modal'], 3));
-            side.append(knobRow([{ l: 'Size', t: state.size, f: t => t.toFixed(2), on: v => state.size = v },
-                       { l: 'Decay', t: state.decay, f: t => t > .98 ? '∞' : (0.5 * Math.pow(120, t)).toFixed(1) + ' s', on: v => state.decay = v },
-                       { l: 'Tone', t: state.tone, f: pct, on: v => state.tone = v },
-                       { l: 'Mod', t: .5, f: pct }, { l: 'Pre', t: .3, f: expo(1, 500, ' ms', 0) }, { l: 'Mix', t: .6, f: pct }]));
+            b.append(seg(['Room', 'Plate', 'Hall', 'Cathedral'], 3, null, 'space_type'));
+            side.append(knobRow([{ id: 'space_size', l: 'Size', t: state.size, f: t => t.toFixed(2), on: v => state.size = v },
+                       { id: 'space_decay', l: 'Decay', t: state.decay, f: t => t > .98 ? '∞' : (0.5 * Math.pow(120, t)).toFixed(1) + ' s', on: v => state.decay = v },
+                       { id: 'space_tone', l: 'Tone', t: state.tone, f: pct, on: v => state.tone = v },
+                       { id: 'space_mod', l: 'Mod', t: .5, f: pct }, { id: 'space_pre', l: 'Pre', t: .3, f: expo(1, 500, ' ms', 0) }, { id: 'space_mix', l: 'Mix', t: .6, f: pct }]));
             const sub = document.createElement('div'); sub.className = 'sub';
             sub.innerHTML = '<div class="title"><span>SHIMMER</span><span>PHASE VOCODER</span></div>';
-            sub.append(knobRow([{ l: 'Depth', t: state.shimmer, f: pct, on: v => state.shimmer = v }, { l: 'Pitch', t: .75, f: bip(' st', 24) }, { l: 'Width', t: .8, f: pct }]));
+            sub.append(knobRow([{ id: 'shimmer_depth', l: 'Depth', t: state.shimmer, f: pct, on: v => state.shimmer = v }, { id: 'shimmer_pitch', l: 'Pitch', t: .75, f: bip(' st', 24) },
+                                { id: 'space_width', l: 'Width', t: .67, f: t => Math.round(150 * t) + '%' }]));
             side.append(sub); body.append(side); b.append(body); } },
   motion: { n: '10', name: 'MOTION',  code: '12 LFO · control rate · shapes morph', build: b => buildMotion(b) },
 };
@@ -394,7 +475,10 @@ const MODS = {
 function buildCard(el) {
   const m = MODS[el.dataset.mod];
   el.innerHTML = `<div class="spine"><div class="num">${m.n}</div><div class="label">${m.name}</div><div class="power" title="On / off"></div></div><div class="body"></div>`;
-  el.querySelector('.power').onclick = () => el.classList.toggle('off');
+  const power = el.querySelector('.power'), powerId = el.dataset.mod + '_on';
+  power.onclick = () => { el.classList.toggle('off'); bridge.send(powerId, !el.classList.contains('off')); };
+  if (LIVE_MODS.includes(el.dataset.mod)) bridge.register(powerId, 'toggle', on => el.classList.toggle('off', !on));
+  else el.classList.add('soon');  // not in the audio engine yet
   const body = el.querySelector('.body');
   const top = document.createElement('div'); top.className = 'top';
   top.innerHTML = `<div class="code">${m.code}</div>${icon(el.dataset.mod)}`;
@@ -467,6 +551,7 @@ function buildMotion(b) {
   macros.append(knob({ l: 'Motion', t: .6, f: pct, on: t => state.motion = t }, { stack: true }),
                 knob({ l: 'Drift', t: .5, f: t => '×' + Math.pow(4, t * 2 - 1).toFixed(2), on: t => state.drift = Math.pow(4, t * 2 - 1) }, { stack: true }));
   const st = document.createElement('div'); st.className = 'status';
+  st.id = 'status';
   st.innerHTML = 'CPU <b>2.1%</b><br>LATENCY <b>0 SMP</b><br>MIDI <b>A C E G B</b>';
   macros.append(st); body.append(macros); b.append(body);
 }
@@ -474,7 +559,7 @@ function buildMotion(b) {
 // ---------- build ----------
 document.querySelectorAll('[data-mod]').forEach(buildCard);
 const gk = document.getElementById('globalKnobs');
-gk.append(knob({ l: 'Mix', t: .5, f: pct }, { small: true }), knob({ l: 'Out', t: .5, f: bip(' dB', 12, 1) }, { small: true }));
+gk.append(knob({ id: 'mix', l: 'Mix', t: .5, f: pct }, { small: true }), knob({ id: 'out', l: 'Out', t: .5, f: bip(' dB', 12, 1) }, { small: true }));
 
 const THEMES = { signal: ['#121210', '#3D6DFF'], sky: ['#B4C8E1', '#13244B'], print: ['#2D5BCB', '#0A0E18'], ochre: ['#D7D6C9', '#E1A92D'], peach: ['#EEE2D2', '#A56BF0'] };
 const themes = document.getElementById('themes');
@@ -514,7 +599,9 @@ function stepPreset(d) {
 document.getElementById('prev').onclick = () => stepPreset(-1);
 document.getElementById('next').onclick = () => stepPreset(1);
 const freezeBtn = document.getElementById('freeze');
-freezeBtn.onclick = () => { state.freeze = !state.freeze; freezeBtn.setAttribute('aria-pressed', state.freeze); glitch(); };
+const showFreeze = on => { if (on !== state.freeze) glitch(); state.freeze = on; freezeBtn.setAttribute('aria-pressed', on); };
+freezeBtn.onclick = () => { showFreeze(!state.freeze); bridge.send('freeze', state.freeze); };
+bridge.register('freeze', 'toggle', showFreeze);
 
 // ---------- SPACE visual: halftone spectrogram scrolling right → left ----------
 // Each column is the spectrum of the moment (log frequency, bottom = low), drawn as
@@ -536,6 +623,14 @@ function resizeViz() {
 function column(t) {
   const col = new Float32Array(rows);
   col.odd = (colIndex++) & 1;  // stagger belongs to the column, so it never flips when the paper scrolls
+  if (live.spectrum) {  // plugin: the real wet output, bottom = low
+    const sp = live.spectrum, last = sp.length - 1;
+    for (let y = 0; y < rows; y++) {
+      const pos = (1 - y / rows) * last, i = Math.floor(pos), f = pos - i;
+      col[y] = sp[i] * (1 - f) + sp[Math.min(i + 1, last)] * f;
+    }
+    return col;
+  }
   for (let y = 0; y < rows; y++) {
     const midi = 30 + (1 - y / rows) * 88;  // ~23 Hz .. 12 kHz
     let v = 0;
@@ -628,6 +723,10 @@ addEventListener('resize', fit); fit();
 resizeViz();
 for (let k = 0; k < 400; k++) drawViz();  // start with a tail already on the paper
 (function loop(now) { drawViz(now); drawLanes(); requestAnimationFrame(loop); })();
+</script>
+<script type="module">
+// In the plugin only: load JUCE's bridge (served by the plugin) and bind the controls.
+if (window.__JUCE__) bridge.connect(await import('./juce/index.js'));
 </script>
 </body>
 </html>
