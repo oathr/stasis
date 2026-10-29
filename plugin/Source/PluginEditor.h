@@ -23,6 +23,7 @@ private:
     static Relays createRelays();
     juce::WebBrowserComponent::Options createOptions(Relays&);
     void sendOrder();
+    void applyLayout(bool keepScale);
 
     void timerCallback() override;
     void sendSpectrum();
@@ -37,7 +38,7 @@ private:
     std::vector<float> samples_, window_;
     std::vector<stasis::Fft::Complex> spectrum_;
     stasis::Fft fft_;
-    int statusCounter_ = 0;
+    int statusCounter_ = 0, layoutWidth_ = 0;
     uint32_t grainCursor_ = 0;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(StasisEditor)

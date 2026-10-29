@@ -7,6 +7,7 @@
 namespace {
 
 constexpr int kWidth = 1340, kHeight = 934;  // the page's own layout size, scaled to fit
+constexpr int kSideWidth = 1558, kSideHeight = 814;  // the same, visualizer on the right (page 1744 x 976)
 constexpr int kBands = 96;                     // spectrum rows sent to the visual (MIDI 30 .. 118)
 
 std::optional<juce::WebBrowserComponent::Resource> getResource(const juce::String& url) {
@@ -78,6 +79,13 @@ juce::WebBrowserComponent::Options StasisEditor::createOptions(Relays& relays) {
                            if (args.size() >= 2) processor_.setLaneTarget(int(args[0]), args[1].toString());
                            complete(juce::var());
                        })
+                       // Visualizer on top or on the side: the window takes the page's proportions.
+                       .withNativeFunction("getLayout", [this](const juce::Array<juce::var>&, auto complete) { complete(processor_.layout); })
+                       .withNativeFunction("setLayout", [this](const juce::Array<juce::var>& args, auto complete) {
+                           processor_.layout = !args.isEmpty() && args[0].toString() == "side" ? "side" : "top";
+                           applyLayout(true);
+                           complete(juce::var());
+                       })
                        .withNativeFunction("panic", [this](const juce::Array<juce::var>&, auto complete) {
                            processor_.panic();
                            complete(juce::var());
@@ -135,9 +143,7 @@ StasisEditor::StasisEditor(StasisProcessor& p)
     webView_.goToURL(juce::WebBrowserComponent::getResourceProviderRoot());
 
     setResizable(true, true);
-    setResizeLimits(kWidth / 2, kHeight / 2, kWidth * 3 / 2, kHeight * 3 / 2);
-    getConstrainer()->setFixedAspectRatio(double(kWidth) / kHeight);
-    setSize(kWidth * 4 / 5, kHeight * 4 / 5);
+    applyLayout(false);
     startTimerHz(30);
 }
 
@@ -145,6 +151,17 @@ StasisEditor::~StasisEditor() {
     stopTimer();
     processor_.onOrderChanged = nullptr;
     processor_.onPresetChanged = nullptr;
+}
+
+// Window limits and proportions for the current layout. keepScale: same zoom as now.
+void StasisEditor::applyLayout(bool keepScale) {
+    const bool side = processor_.layout == "side";
+    const int w = side ? kSideWidth : kWidth, h = side ? kSideHeight : kHeight;
+    const double scale = keepScale && layoutWidth_ > 0 ? double(getWidth()) / layoutWidth_ : 0.8;
+    layoutWidth_ = w;
+    setResizeLimits(w / 2, h / 2, w * 3 / 2, h * 3 / 2);
+    getConstrainer()->setFixedAspectRatio(double(w) / h);
+    setSize(int(w * scale), int(h * scale));
 }
 
 void StasisEditor::sendOrder() {

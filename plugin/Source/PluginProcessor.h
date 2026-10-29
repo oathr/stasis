@@ -45,6 +45,10 @@ public:
     // PANIC: silence now, flush every tail and buffer (reverb, echo, stretch, capture,
     // held notes), release FREEZE. Settings, order and mapping stay. Message thread.
     void panic();
+
+    // Where the visualizer sits: "top" (default) or "side" (a column on the right, for
+    // short screens). Part of the state; the editor sizes its window from it.
+    juce::String layout = "top";
     void resetEngine();  // flush only (used by panic and by the NaN guard)
     void setLaneTarget(int lane, const juce::String& id);  // ignores ids MOTION may not move
 

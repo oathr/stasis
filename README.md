@@ -42,6 +42,9 @@ MIDI IN ─────────┴──────────────
 - Le visualiseur, en haut, montre le spectre réel du wet.
 - Chaque module a un interrupteur (le carré en bas de sa tranche) avec un fondu de 30 ms, sans clic.
 - `DRY / WET` (en haut, 100 % par défaut) dose le wet par rapport au dry, `OUTPUT` règle le niveau de sortie (±12 dB).
+- `OFFSET` élargit le wet : son canal droit arrive 0 à 25 ms après le gauche (effet Haas, comme le mode offset d'Arturia). Le dry n'est pas touché ; à 0, rien n'est calculé.
+- `⏻` (BYPASS) : la sortie redevient l'entrée intacte, avec un fondu de 30 ms ; le rack s'assombrit. Les effets continuent de tourner dessous, les queues ne se figent pas.
+- Le bouton à gauche des thèmes place le visualiseur **en haut** ou **sur le côté** (pour un écran peu haut : la fenêtre perd 13 % de hauteur ; dans la colonne, le temps descend). Le choix est sauvegardé avec le projet.
 - **Limiteur de sécurité invisible** en toute fin : rien ne dépasse −0,3 dBFS, et si un bug produisait des valeurs aberrantes (NaN), la sortie se coupe 0,25 s et le moteur se réinitialise. Les oreilles ne risquent rien.
 - `FREEZE` fige la reverb : la queue tient indéfiniment, sans dériver.
 - `PANIC` (rouge, en haut à droite) : silence immédiat, vide toutes les queues et mémoires (reverb, écho, stretch, capture, notes tenues) et relâche FREEZE. Les réglages, l'ordre et MOTION ne bougent pas.
@@ -72,7 +75,7 @@ Tous les types sauf TAPE tournent suréchantillonnés ×2 ; repliement mesuré �
 |---|---|
 | `SEMI` | Transposition −24 … +24 demi-tons (phase vocoder, justesse ±0,5 Hz à 440 Hz) |
 | `SHIFT` | Décalage de fréquence ±50 Hz (réglage fin au centre) : toutes les fréquences bougent du même nombre de Hz, de battements lents (±1 Hz) au métallique. Bande parasite −43 à −49 dB |
-| `MIX` | Dosage |
+| `MIX` | Dosage, vraiment moitié-moitié à 50 % : la voix transposée est ramenée au niveau d'entrée (le vocodeur perdait 4 dB en montant, 6 dB en descendant) et la partie directe est retardée d'autant que le vocodeur, pour un intervalle propre plutôt qu'une note suivie de son écho. Mesuré : 0,100 / 0,100 à +12, −12 et en SHIFT |
 
 ### AIR — matière et largeur
 | Contrôle | Effet |
@@ -88,8 +91,8 @@ Inspiré du DeRez d'Airwindows, mais au lieu de changer la hauteur de façon cha
 | Contrôle | Effet |
 |---|---|
 | Curseur `−24 … +24` | Hauteur du repliement, au demi-ton (repères à chaque octave) |
-| `CRUSH` | Force de la réduction (n = rapport à la fondamentale) |
-| `BITS` | Profondeur, de 16 à 2 bits |
+| `RATE` | Fréquence de la réduction (n = rapport à la fondamentale). Comme dans DeRez : **en haut = propre**, plus on descend, plus ça écrase |
+| `BITS` | Profondeur : en haut 16 bits (propre), en bas 2 bits |
 | `SMOOTH` | Douceur : à 0 %, l'escalier brut et les marches de bits nettes (ça grésille) ; vers 100 %, les paliers sont reliés en pente, les marches de bits deviennent douces et un passe-bas 12 dB/oct suit la fréquence du crush. 70 % par défaut. Mesure (220 Hz qui s'éteint, énergie au-dessus de 4 kHz) : −22 dB à 0 %, −60 dB à 70 %, −68 dB à 100 % (le son propre : −71 dB) |
 | `MIX` | Dosage |
 
@@ -160,11 +163,11 @@ Les notes suivies s'allument sur le clavier du module.
 ### 09 · COLOR — finition du wet
 | Contrôle | Effet |
 |---|---|
-| `BASS` | Shelf ±9 dB à 120 Hz (en négatif, un passe-haut s'ajoute) |
-| `BODY` | Cloche ±6 dB à 180 Hz : la chaleur du pad, sous la boue |
-| `MUD` | Coupe 200–600 Hz, en partie **dynamique** : elle ne se creuse que si cette zone domine |
-| `HARSH` | Même principe à 2–5 kHz : adoucit le verre des shimmers et des pads brillants |
-| `AIR` | Shelf ±8 dB à 6 kHz |
+| `BASS` | Shelf ±18 dB à 120 Hz (en négatif, un passe-haut s'ajoute) |
+| `BODY` | Cloche ±12 dB à 180 Hz : la chaleur du pad, sous la boue |
+| `MUD` | Coupe 200–600 Hz (jusqu'à −24 dB), en partie **dynamique** : elle ne se creuse que si cette zone domine |
+| `HARSH` | Même principe à 2–5 kHz (jusqu'à −20 dB) : adoucit le verre des shimmers et des pads brillants |
+| `AIR` | Shelf ±16 dB à 6 kHz |
 | `LOW CUT` / `HIGH CUT` | Passe-haut 20 Hz – 1 kHz, passe-bas 1 – 20 kHz (12 dB/oct, *off* aux extrémités) |
 | `NOISE ◂▸ TONAL` | À droite : ne garde que les notes. À gauche : ne garde que le souffle et la texture. Double-clic pour recentrer |
 | `PRE` / `POST` | TONAL avant la reverb (elle reconstruit sa queue avec ce qui reste) ou après (on filtre la queue elle-même) |
@@ -179,14 +182,14 @@ Chaque ligne fait bouger **le potard de ton choix**. Par défaut, seule la ligne
 | Cible | Clic sur le nom : liste des potards, rangée par module dans l'ordre de la chaîne (GLOBAL, SHAPE, DEREZ… COLOR), ou *Empty* |
 | `◎` TOUCH | Arme la ligne : tous les potards assignables s'entourent, un clic sur l'un d'eux l'assigne (Échap pour annuler) |
 | `RATE` | 0,001 à 20 Hz |
-| Forme | Un clic passe à la suivante : sinus, triangle, scies, carré, S&H, slew, random sine, drunk, Perlin, chaos (Lorenz), breath |
+| Forme | Un clic ouvre le menu des formes, avec leur dessin : sinus, triangle, scies, carré, S&H, slew, random sine, drunk, Perlin, chaos (Lorenz), breath |
 | `DEPTH` | Part de la course **totale** du potard que la ligne balaie : à 100 %, il va de 0 à 100 % ; à 0 % (par défaut), la ligne ne fait rien et ne calcule rien |
 | `MOTION` / `DRIFT` | Profondeur globale, vitesse globale (×0,25 à ×4) |
 
 Le potard modulé affiche un arc et un point orange qui suivent le LFO ; survoler une ligne entoure sa cible. Les assignations sont sauvegardées avec le projet.
 
 ## Presets
-60 presets d'usine, en trois familles de 20. Chacun arrive avec ses propres modulations MOTION (2 ou 3 lignes lentes, assorties au son), et une bonne partie utilise GRAIN. Clic sur le nom du preset pour ouvrir la liste, ‹ › pour passer au suivant. Ils apparaissent aussi comme *programmes* VST3 dans l'hôte.
+60 presets d'usine, en trois familles de 20. Chacun arrive avec ses propres modulations MOTION (2 ou 3 lignes lentes, assorties au son), et une bonne partie utilise GRAIN. Clic sur le nom du preset pour ouvrir la liste, ‹ › pour passer au suivant. Ils apparaissent aussi comme *programmes* VST3 dans l'hôte. Charger un preset vide d'abord toutes les queues (comme PANIC) : on entend le nouveau preset seul.
 
 | ECHO | REVERB | AMBIENT |
 |---|---|---|

@@ -51,6 +51,8 @@ public:
         air_.prepare(sampleRate);
         limiterGain_ = 1.0f;
         limiterRelease_ = smoothingCoef(0.15f, sampleRate);
+        offsetLine_.fill(0.0f);
+        offsetPos_ = 0;
         mute_ = 0;
         needsReset_.store(false);
         notes_ = NoteSet{};
@@ -183,7 +185,8 @@ private:
     void update(const float* values, float bpm) {
         using namespace params;
         static const auto& specs = all();
-        static const int iMix = indexOf("mix"), iOut = indexOf("out"), iFreeze = indexOf("freeze");
+        static const int iMix = indexOf("mix"), iOut = indexOf("out"), iFreeze = indexOf("freeze"), iBypass = indexOf("bypass"),
+                         iOffset = indexOf("offset");
         static const int iDerezOn = indexOf("derez_on"), iInterval = indexOf("derez_interval"), iCrush = indexOf("derez_crush"),
                          iBits = indexOf("derez_bits"), iDerezMix = indexOf("derez_mix"), iDerezSmooth = indexOf("derez_smooth");
         static const int iStretchOn = indexOf("stretch_on"), iFactor = indexOf("stretch_factor"), iStretchMix = indexOf("stretch_mix");
@@ -219,10 +222,10 @@ private:
         on_[kPitch] = v(values, iPitchOn) > 0.5f;
         on_[kAir] = v(values, iAirOn) > 0.5f;
         mix_[kShape] = mix_[kAir] = 1.0f;
-        mix_[kPitch] = v(values, iPitchMix);
+        mix_[kPitch] = 1.0f;  // PITCH blends inside (aligned with the vocoder's latency)
         if (changed({iTilt, iDrive, iHarm, iShapeType}))
             shape_.setParams({2.0f * v(values, iTilt) - 1.0f, v(values, iDrive), v(values, iHarm), Shape::Type(std::clamp(int(v(values, iShapeType)), 0, 5))});
-        if (changed({iSemi, iShift})) pitch_.setParams({pitchSemitones(v(values, iSemi)), shiftHz(v(values, iShift))});
+        if (changed({iSemi, iShift, iPitchMix})) pitch_.setParams({pitchSemitones(v(values, iSemi)), shiftHz(v(values, iShift)), v(values, iPitchMix)});
         if (changed({iBreath, iWidthAir, iLofi, iAirSmooth}))
             air_.setParams({v(values, iBreath), v(values, iWidthAir), v(values, iLofi), airSmoothMs(v(values, iAirSmooth)) / 1000.0f});
         static const int iGrainOn = indexOf("grain_on"), iAlgo = indexOf("grain_algo"), iEnv = indexOf("grain_env"), iDensity = indexOf("grain_density"),
@@ -253,6 +256,8 @@ private:
         mix_[kColor] = 1.0f;
         mixTarget_ = v(values, iMix);
         outTarget_ = dbToGain((2.0f * v(values, iOut) - 1.0f) * 12.0f);
+        bypassTarget_ = v(values, iBypass) > 0.5f ? 1.0f : 0.0f;
+        offsetTarget_ = offsetMs(v(values, iOffset)) * 0.001f * sampleRate_;
         tonalBalance_ = 2.0f * v(values, iTonal) - 1.0f;
         tonalPre_ = v(values, iPlace) < 0.5f;
         freeze_ = v(values, iFreeze) > 0.5f;
@@ -260,7 +265,7 @@ private:
         if (changed({iInterval, iCrush, iBits, iDerezSmooth})) {
             PitchedDerez::Params p;
             p.interval = derezSemitones(v(values, iInterval));
-            p.crush = v(values, iCrush);
+            p.crush = derezCrush(v(values, iCrush));
             p.bits = derezBits(v(values, iBits));
             p.smooth = v(values, iDerezSmooth);
             p.mix = 1.0f;  // the module ramp does the mix
@@ -454,8 +459,23 @@ private:
         for (int i = 0; i < n; ++i) {
             mixGain_ += (mixTarget_ - mixGain_) * rampCoef_;
             outGain_ += (outTarget_ - outGain_) * rampCoef_;
+            // OFFSET: the wet's right channel slightly late (fractional, glides when moved).
+            float wr = wetR[i];
+            offsetSamples_ += (offsetTarget_ - offsetSamples_) * rampCoef_;
+            offsetLine_[size_t(offsetPos_)] = wr;
+            if (offsetSamples_ > 0.01f) {
+                const float at = float(offsetPos_) - offsetSamples_ + float(kOffsetSize);
+                const int i0 = int(at) % kOffsetSize, i1 = (i0 + 1) % kOffsetSize;
+                const float frac = at - std::floor(at);
+                wr = offsetLine_[size_t(i0)] + frac * (offsetLine_[size_t(i1)] - offsetLine_[size_t(i0)]);
+            }
+            offsetPos_ = (offsetPos_ + 1) % kOffsetSize;
             float l = outGain_ * (left[i] + mixGain_ * (wetL[i] - left[i]));
-            float r = outGain_ * (right[i] + mixGain_ * (wetR[i] - right[i]));
+            float r = outGain_ * (right[i] + mixGain_ * (wr - right[i]));
+            // BYPASS: back to the untouched input (30 ms ramp); the chain keeps running.
+            bypassGain_ += (bypassTarget_ - bypassGain_) * rampCoef_;
+            l += bypassGain_ * (left[i] - l);
+            r += bypassGain_ * (right[i] - r);
             safety(l, r);
             left[i] = l;
             right[i] = r;
@@ -515,6 +535,10 @@ private:
     std::array<bool, kModules> on_{};
     std::array<float, kModules> mix_{}, moduleGain_{};
     float rampCoef_ = 0.001f, mixTarget_ = 0.5f, mixGain_ = -1.0f, outTarget_ = 1.0f, outGain_ = 1.0f;
+    float bypassTarget_ = 0.0f, bypassGain_ = 0.0f, offsetTarget_ = 0.0f, offsetSamples_ = 0.0f;
+    static constexpr int kOffsetSize = 8192;  // > 25 ms at 192 kHz
+    std::array<float, kOffsetSize> offsetLine_{};
+    int offsetPos_ = 0;
     float tonalBalance_ = 0.0f, tonalGain_ = -1.0f, lastBpm_ = 0.0f;
     bool tonalPre_ = false, freeze_ = false, plateSelected_ = false, focusAuto_ = false;
 

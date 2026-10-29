@@ -3,9 +3,11 @@
 // parameter, MIDI, freeze, state save/restore. Fails on NaN/Inf, runaway levels or
 // a block that takes longer than real time.
 //
-//   stasis_hosttest path/to/STASIS.vst3 [--no-timing]
+//   stasis_hosttest path/to/STASIS.vst3 [--no-timing] [--checks]
 //
 // --no-timing reports CPU without failing on it (shared CI machines are noisy).
+// --checks runs only the targeted measurements (FOCUS, GRAIN, PITCH, DEREZ…), not the
+// stress test and the presets.
 
 #include <juce_audio_processors/juce_audio_processors.h>
 
@@ -28,7 +30,11 @@ int main(int argc, char** argv) {
         return 2;
     }
 
-    const bool timing = !(argc > 2 && juce::String(argv[2]) == "--no-timing");
+    bool timing = true, checksOnly = false;
+    for (int a = 2; a < argc; ++a) {
+        timing = timing && juce::String(argv[a]) != "--no-timing";
+        checksOnly = checksOnly || juce::String(argv[a]) == "--checks";
+    }
     juce::AudioPluginFormatManager formats;
     formats.addFormat(new juce::VST3PluginFormat());
     juce::OwnedArray<juce::PluginDescription> found;
@@ -45,6 +51,7 @@ int main(int argc, char** argv) {
     juce::MemoryBlock savedState;
 
     for (const double sampleRate : {44100.0, 48000.0, 96000.0}) {
+        if (checksOnly) break;
         for (const int blockSize : {64, 480, 512, 1024, 2048}) {
             juce::String error;
             auto plugin = formats.createPluginInstance(*found[0], sampleRate, blockSize, error);
@@ -116,8 +123,8 @@ int main(int argc, char** argv) {
     {
         juce::String error;
         auto plugin = formats.createPluginInstance(*found[0], 48000.0, 512, error);
-        std::printf("\nPresets (%d):\n", plugin->getNumPrograms());
-        for (int p = 0; p < plugin->getNumPrograms(); ++p) {
+        if (!checksOnly) std::printf("\nPresets (%d):\n", plugin->getNumPrograms());
+        for (int p = 0; p < (checksOnly ? 0 : plugin->getNumPrograms()); ++p) {
             plugin->setPlayConfigDetails(2, 2, 48000.0, 512);
             plugin->prepareToPlay(48000.0, 512);
             plugin->setCurrentProgram(p);
@@ -283,6 +290,97 @@ int main(int argc, char** argv) {
             return db;
         };
         derezRun(0.0f, 0.0f);
+        // OFFSET and BYPASS: every module off so the wet is the input. OFFSET at the top
+        // must delay the right channel by 25 ms; BYPASS must give the input back untouched.
+        {
+            auto global = formats.createPluginInstance(*found[0], 48000.0, 512, error);
+            global->setPlayConfigDetails(2, 2, 48000.0, 512);
+            global->prepareToPlay(48000.0, 512);
+            const auto setG = [&](const juce::String& name, float value) {
+                for (auto* p : global->getParameters())
+                    if (p->getName(64) == name) return p->setValueNotifyingHost(value);
+                fail("no parameter " + name);
+            };
+            setG("Echo On", 0.0f), setG("Space On", 0.0f), setG("Color On", 0.0f), setG("Stereo Offset", 1.0f);
+            juce::AudioBuffer<float> buffer(2, 512);
+            juce::MidiBuffer midi;
+            // Let OFFSET's 30 ms glide settle, then one click on both channels.
+            int peakL = -1, peakR = -1;
+            for (int b = 0, s = 0; b < 200; ++b) {
+                buffer.clear();
+                if (b == 100) buffer.setSample(0, 0, 0.5f), buffer.setSample(1, 0, 0.5f);
+                global->processBlock(buffer, midi);
+                for (int i = 0; i < 512; ++i, ++s) {
+                    if (peakL < 0 && std::abs(buffer.getSample(0, i)) > 0.1f) peakL = s;
+                    if (peakR < 0 && std::abs(buffer.getSample(1, i)) > 0.1f) peakR = s;
+                }
+            }
+            const double offsetMs = (peakR - peakL) / 48.0;
+            std::printf("\nOFFSET at the top: right channel %+.1f ms after the left (expected +25.0)\n", offsetMs);
+            if (std::abs(offsetMs - 25.0) > 0.5) fail("OFFSET does not delay the right channel by 25 ms");
+
+            setG("Stereo Offset", 0.0f), setG("Space On", 1.0f), setG("Echo On", 1.0f), setG("Bypass", 1.0f);
+            double diff = 0.0;
+            for (int b = 0, s = 0; b < 200; ++b) {
+                for (int i = 0; i < 512; ++i, ++s) {
+                    const float v = 0.2f * float(std::sin(2.0 * juce::MathConstants<double>::pi * 330.0 * s / 48000.0));
+                    buffer.setSample(0, i, v), buffer.setSample(1, i, v);
+                }
+                juce::AudioBuffer<float> input(buffer);
+                global->processBlock(buffer, midi);
+                if (b > 20)
+                    for (int i = 0; i < 512; ++i) diff = std::max(diff, double(std::abs(buffer.getSample(0, i) - input.getSample(0, i))));
+            }
+            std::printf("BYPASS: largest difference from the input %.6f\n", diff);
+            if (diff > 1.0e-4) fail("BYPASS does not give the input back");
+            global->releaseResources();
+        }
+
+        // PITCH MIX at 50 %: a 440 Hz tone in, PITCH alone; the original and the moved
+        // component must come out at the same level (0 dB between them). Goertzel over
+        // one second, so 440 and 446 Hz are told apart.
+        std::printf("\nPITCH mix 50 %% (440 Hz in):\n");
+        const auto pitchRun = [&](float semiT, float shiftT, double movedHz, const char* what) {
+            auto pitch = formats.createPluginInstance(*found[0], 48000.0, 512, error);
+            pitch->setPlayConfigDetails(2, 2, 48000.0, 512);
+            pitch->prepareToPlay(48000.0, 512);
+            const auto setP = [&](const juce::String& name, float value) {
+                for (auto* p : pitch->getParameters())
+                    if (p->getName(64) == name) return p->setValueNotifyingHost(value);
+                fail("no parameter " + name);
+            };
+            setP("Echo On", 0.0f), setP("Space On", 0.0f), setP("Color On", 0.0f), setP("Pitch On", 1.0f), setP("Pitch Mix", 0.5f);
+            setP("Pitch Semitones", semiT), setP("Pitch Shift", shiftT);
+            juce::AudioBuffer<float> buffer(2, 512);
+            juce::MidiBuffer midi;
+            std::vector<float> tail;
+            const int blocks = int(3.0 * 48000 / 512);
+            for (int b = 0, s = 0; b < blocks; ++b) {
+                for (int i = 0; i < 512; ++i, ++s) {
+                    const float v = 0.2f * float(std::sin(2.0 * juce::MathConstants<double>::pi * 440.0 * s / 48000.0));
+                    buffer.setSample(0, i, v), buffer.setSample(1, i, v);
+                }
+                pitch->processBlock(buffer, midi);
+                if (b >= blocks - int(48000 / 512)) tail.insert(tail.end(), buffer.getReadPointer(0), buffer.getReadPointer(0) + 512);
+            }
+            const auto amp = [&](double hz) {  // amplitude of a frequency over the tail
+                double re = 0.0, im = 0.0;
+                for (size_t i = 0; i < tail.size(); ++i) {
+                    const double a = 2.0 * juce::MathConstants<double>::pi * hz * double(i) / 48000.0;
+                    re += tail[i] * std::cos(a), im += tail[i] * std::sin(a);
+                }
+                return 2.0 * std::sqrt(re * re + im * im) / double(tail.size());
+            };
+            const double original = amp(440.0), moved = amp(movedHz);
+            std::printf("  %-14s original %5.3f   moved %5.3f   (%+5.1f dB)   input 0.200\n", what, original, moved, 20.0 * std::log10((moved + 1e-12) / (original + 1e-12)));
+            pitch->releaseResources();
+            return 20.0 * std::log10((moved + 1e-12) / (original + 1e-12));
+        };
+        const double upOctave = pitchRun(0.75f, 0.5f, 880.0, "+12 st");
+        const double shifted = pitchRun(0.5f, 0.75f, 440.0 + 50.0 * 0.125, "shift +6.25 Hz");
+        const double downOctave = pitchRun(0.25f, 0.5f, 220.0, "-12 st");
+        if (std::abs(upOctave) > 1.5 || std::abs(shifted) > 1.5 || std::abs(downOctave) > 1.5) fail("PITCH MIX 50 % is not half and half");
+
         const double raw = derezRun(0.0f), soft = derezRun(0.7f), softest = derezRun(1.0f);
         if (soft > raw - 6.0 || softest > soft) fail("DEREZ SMOOTH does not remove the grit");
     }

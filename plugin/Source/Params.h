@@ -42,17 +42,19 @@ inline float echoTimeMs(float t) { return 20.0f * std::pow(125.0f, t); }
 inline int echoDivision(float t) { return int(std::lround(t * 13.0f)); }
 inline float decaySeconds(float t) { return t > 0.98f ? INFINITY : 0.5f * std::pow(120.0f, t); }
 inline float predelayMs(float t) { return std::pow(500.0f, t); }
-inline float derezBits(float t) { return 16.0f - 14.0f * t; }
+inline float derezBits(float t) { return 2.0f + 14.0f * t; }  // knob up = clean (16 bits), down = 2 bits
 inline float highpassHz(float t) { return t <= 0.0f ? 0.0f : 20.0f * std::pow(50.0f, t); }      // off, 20 Hz .. 1 kHz
 inline float lowpassHz(float t) { return t >= 1.0f ? 0.0f : 1000.0f * std::pow(20.0f, t); }     // 1 kHz .. 20 kHz, off
 inline float derezSemitones(float t) { return std::round((2.0f * t - 1.0f) * 24.0f); }
 inline float grainDensity(float t) { return 0.5f * std::pow(80.0f, t); }  // 0.5 .. 40 grains per second
 inline float grainSizeMs(float t) { return 20.0f * std::pow(100.0f, t); }   // 20 ms .. 2 s
+inline float offsetMs(float t) { return 25.0f * t * t; }  // 0 .. 25 ms, fine near 0
 inline float airSmoothMs(float t) { return 20.0f * std::pow(50.0f, t); }    // 20 ms .. 1 s (BREATH's envelope)
 inline float pitchSemitones(float t) { return std::round((2.0f * t - 1.0f) * 24.0f); }
 // ±50 Hz with fine control near 0 (cubic): ±1 Hz beats live in the middle of the travel.
 inline float shiftHz(float t) { const float x = 2.0f * t - 1.0f; return 50.0f * x * x * x; }
-inline int derezMultiple(float t) { return int(std::lround(32.0f * std::pow(2.0f / 32.0f, t))); }
+inline float derezCrush(float t) { return 1.0f - t; }  // RATE knob up = clean, down = brutal (PitchedDerez's crush amount)
+inline int derezMultiple(float t) { return int(std::lround(32.0f * std::pow(2.0f / 32.0f, derezCrush(t)))); }
 
 inline const std::array<const char*, 14> kDivisionNames = {"1/32", "1/16T", "1/16", "1/16.", "1/8T", "1/8", "1/8.",
                                                            "1/4T", "1/4",   "1/4.", "1/2T",  "1/2", "1/2.", "1/1"};
@@ -95,6 +97,9 @@ inline const std::vector<Spec>& all() {
         {"mix", "Dry / Wet", Kind::Float, 1.0f, {}, pct},
         {"out", "Output", Kind::Float, 0.5f, {}, [](float t) { return bip(t, 12.0f, " dB"); }},
         {"freeze", "Freeze", Kind::Bool, 0.0f},
+        {"bypass", "Bypass", Kind::Bool, 0.0f},
+        // OFFSET: the wet's right channel a few ms behind the left (Haas): width without touching the dry.
+        {"offset", "Stereo Offset", Kind::Float, 0.0f, {}, [](float t) { return t <= 0.0f ? std::string("off") : fmt("%.1f ms", double(offsetMs(t))); }},
         // SHAPE
         {"shape_on", "Shape On", Kind::Bool, 0.0f},
         {"shape_type", "Shape Type", Kind::Choice, 0.0f, {"Tape", "Tube", "Fold", "Rectify", "Slew", "Bloom"}},
@@ -131,8 +136,8 @@ inline const std::vector<Spec>& all() {
         // DEREZ (before SPACE)
         {"derez_on", "Derez On", Kind::Bool, 0.0f},
         {"derez_interval", "Derez Interval", Kind::Float, 0.25f, {}, [](float t) { return fmt("%+.0f st", double(derezSemitones(t))); }},
-        {"derez_crush", "Derez Crush", Kind::Float, 0.6f, {}, [](float t) { return "n=" + std::to_string(derezMultiple(t)); }},
-        {"derez_bits", "Derez Bits", Kind::Float, 0.55f, {}, [](float t) { return fmt("%.1f", derezBits(t)); }},
+        {"derez_crush", "Derez Rate", Kind::Float, 0.4f, {}, [](float t) { return "n=" + std::to_string(derezMultiple(t)); }},
+        {"derez_bits", "Derez Bits", Kind::Float, 0.45f, {}, [](float t) { return fmt("%.1f", derezBits(t)); }},
         {"derez_smooth", "Derez Smooth", Kind::Float, 0.7f, {}, pct},
         {"derez_mix", "Derez Mix", Kind::Float, 0.7f, {}, pct},
         // STRETCH
@@ -170,8 +175,8 @@ inline const std::vector<Spec>& all() {
         {"color_on", "Color On", Kind::Bool, 1.0f},
         {"color_bass", "Color Bass", Kind::Float, 0.5f, {}, [](float t) { return bip(t, 1.0f, "", "%+.2f"); }},
         {"color_body", "Color Body", Kind::Float, 0.5f, {}, [](float t) { return bip(t, 1.0f, "", "%+.2f"); }},
-        {"color_mud", "Color Mud", Kind::Float, 0.5f, {}, [](float t) { return fmt("%.2f", t); }},
-        {"color_harsh", "Color Harsh", Kind::Float, 0.3f, {}, [](float t) { return fmt("%.2f", t); }},
+        {"color_mud", "Color Mud", Kind::Float, 0.25f, {}, [](float t) { return fmt("%.2f", t); }},
+        {"color_harsh", "Color Harsh", Kind::Float, 0.15f, {}, [](float t) { return fmt("%.2f", t); }},
         {"color_air", "Color Air", Kind::Float, 0.5f, {}, [](float t) { return bip(t, 1.0f, "", "%+.2f"); }},
         {"color_hpf", "Color Low Cut", Kind::Float, 0.0f, {}, [](float t) { return t <= 0.0f ? std::string("off") : fmt("%.0f Hz", highpassHz(t)); }},
         {"color_lpf", "Color High Cut", Kind::Float, 1.0f, {}, [](float t) { return t >= 1.0f ? std::string("off") : lowpassHz(t) >= 1000.0f ? fmt("%.1f kHz", lowpassHz(t) / 1000.0) : fmt("%.0f Hz", lowpassHz(t)); }},

@@ -70,18 +70,28 @@ private:
 };
 
 // PITCH: transposition (phase vocoder, -24..+24 semitones) then frequency shift
-// (-50..+50 Hz). The module's MIX blends it with what comes in.
-// Latency: one FFT window (2048) when transposing, on the wet path only.
+// (-50..+50 Hz), blended with what comes in by MIX.
+//  - The transposed voice is brought back to the input's level (the vocoder loses
+//    ~4 dB going up and halves its gain going down, a safety it needs inside SHIMMER).
+//  - While transposing, the direct part is delayed by the vocoder's latency, so MIX
+//    blends two aligned voices: at 50 % a clean interval, not a note and its echo.
+// Latency: one FFT window (2048) while transposing, on the wet path only.
 class Pitch {
 public:
     struct Params {
         float semitones = 0.0f;
         float shiftHz = 0.0f;
+        float mix = 1.0f;
     };
 
     void prepare(float sampleRate) {
         for (auto& s : shifters_) s.prepare(sampleRate, 2048, 4);
         frequency_.prepare(sampleRate);
+        levelCoef_ = smoothingCoef(0.3f, sampleRate);
+        for (auto& d : dry_) d.assign(size_t(shifters_[0].latencySamples()), 0.0f);
+        dryPos_ = 0;
+        inPower_ = outPower_ = 0.0f;
+        gain_ = 1.0f;
         setParams(params_);
     }
 
@@ -93,19 +103,44 @@ public:
 
     void process(const float* inL, const float* inR, float* outL, float* outR, int numSamples) {
         const bool transpose = std::abs(params_.semitones) > 1.0e-3f;
-        for (int n = 0; n < numSamples; ++n) {
-            // The shifters always run, so their latency never changes under the user.
-            const float l = shifters_[0].process(inL[n]), r = shifters_[1].process(inR[n]);
-            outL[n] = transpose ? l : inL[n];
-            outR[n] = transpose ? r : inR[n];
+        const float mix = std::clamp(params_.mix, 0.0f, 1.0f);
+        for (int done = 0; done < numSamples; done += kChunk) {
+            const int n = std::min(kChunk, numSamples - done);
+            const float* in[2] = {inL + done, inR + done};
+            float* out[2] = {outL + done, outR + done};
+            for (int i = 0; i < n; ++i) {
+                // The shifters always run, so their latency never changes under the user.
+                const float l = shifters_[0].process(in[0][i]), r = shifters_[1].process(in[1][i]);
+                const float delayedL = dry_[0][size_t(dryPos_)], delayedR = dry_[1][size_t(dryPos_)];
+                dry_[0][size_t(dryPos_)] = in[0][i], dry_[1][size_t(dryPos_)] = in[1][i];
+                dryPos_ = (dryPos_ + 1) % int(dry_[0].size());
+                if (transpose) {
+                    // Level match: what came in (aligned) against what the vocoder gives.
+                    inPower_ += levelCoef_ * (0.5f * (delayedL * delayedL + delayedR * delayedR) - inPower_);
+                    outPower_ += levelCoef_ * (0.5f * (l * l + r * r) - outPower_);
+                    const float target = outPower_ > 1.0e-10f ? std::clamp(std::sqrt(inPower_ / outPower_), 1.0f, 4.0f) : gain_;
+                    gain_ += levelCoef_ * (target - gain_);
+                    direct_[0][size_t(i)] = delayedL, direct_[1][size_t(i)] = delayedR;
+                    out[0][i] = l * gain_, out[1][i] = r * gain_;
+                } else {
+                    direct_[0][size_t(i)] = in[0][i], direct_[1][size_t(i)] = in[1][i];
+                    out[0][i] = in[0][i], out[1][i] = in[1][i];
+                }
+            }
+            if (std::abs(params_.shiftHz) > 1.0e-3f) frequency_.process(out[0], out[1], out[0], out[1], n);
+            for (int c = 0; c < 2; ++c)
+                for (int i = 0; i < n; ++i) out[c][i] = direct_[c][size_t(i)] + mix * (out[c][i] - direct_[c][size_t(i)]);
         }
-        if (std::abs(params_.shiftHz) > 1.0e-3f) frequency_.process(outL, outR, outL, outR, numSamples);
     }
 
 private:
+    static constexpr int kChunk = 256;
     Params params_;
     SpectralPitchShifter shifters_[2];
     FrequencyShifter frequency_;
+    std::vector<float> dry_[2];
+    std::array<std::array<float, kChunk>, 2> direct_{};
+    int dryPos_ = 0;
+    float levelCoef_ = 0.001f, inPower_ = 0.0f, outPower_ = 0.0f, gain_ = 1.0f;
 };
-
 }  // namespace stasis
