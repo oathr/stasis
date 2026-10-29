@@ -185,7 +185,7 @@ Chaque ligne fait bouger **le potard de ton choix**. Par défaut, seule la ligne
 Le potard modulé affiche un arc et un point orange qui suivent le LFO ; survoler une ligne entoure sa cible. Les assignations sont sauvegardées avec le projet.
 
 ## Presets
-30 presets d'usine, en trois familles. Clic sur le nom du preset pour ouvrir la liste, ‹ › pour passer au suivant. Ils apparaissent aussi comme *programmes* VST3 dans l'hôte.
+60 presets d'usine, en trois familles de 20. Chacun arrive avec ses propres modulations MOTION (2 ou 3 lignes lentes, assorties au son), et une bonne partie utilise GRAIN. Clic sur le nom du preset pour ouvrir la liste, ‹ › pour passer au suivant. Ils apparaissent aussi comme *programmes* VST3 dans l'hôte.
 
 | ECHO | REVERB | AMBIENT |
 |---|---|---|
@@ -199,6 +199,16 @@ Le potard modulé affiche un arc et un point orange qui suivent le LFO ; survole
 | Shimmer Delay | Dark Matter | Northern Lights |
 | Triplet Rain | Focused Choir | Slow Bloom |
 | Echoes of the Room | Bottomless | Infinite Drone |
+| Grain Bells | Grain Cathedral | Music Box Fog |
+| Tape Stutter | Crystal Hall | Pentatonic Rain |
+| Warped Reel | Shimmer Grains | Hexagon Field |
+| Dotted Haze | Breathing Room | Glass Rain |
+| Slapback Tube | Velvet Plate | Minor Constellation |
+| Fifth Echoes | Ghost Choir | Breathing Pad |
+| Frequency Drift | Dirty Tails | Cloud Chamber |
+| Granular Delay Cloud | Halo Infinity | Fourths Drift |
+| Answering Machine | Metal Room | Lunar Tape |
+| Long Goodbye | Sub Cavern | Distant Signals |
 
 
 ## Installation
@@ -250,7 +260,7 @@ Chaque `push` lance [`.github/workflows/build.yml`](.github/workflows/build.yml)
 |---|---|
 | [`dsp/include/stasis/`](dsp/include/stasis) | Cœur DSP en C++20, header-only, **sans dépendance** : reverbs, écho, stretch, DeRez, FOCUS, COLOR, TONAL, LFO, FFT |
 | [`plugin/Source/Params.h`](plugin/Source/Params.h) | La table des paramètres (dont les 12 lignes de MOTION), partagée par l'hôte, l'interface et le moteur |
-| [`plugin/Source/Presets.h`](plugin/Source/Presets.h) | Les 30 presets d'usine |
+| [`plugin/Source/Presets.h`](plugin/Source/Presets.h) | Les 60 presets d'usine |
 | [`plugin/Source/Engine.h`](plugin/Source/Engine.h) | La chaîne audio complète, indépendante de JUCE |
 | [`plugin/Source/Plugin*.cpp`](plugin/Source) | Processeur JUCE (MIDI, tempo, état) et éditeur WebView |
 | [`design/mockup.html`](design/mockup.html) | L'interface : une page HTML embarquée dans le plugin. Ouverte dans un navigateur, elle fonctionne seule (maquette interactive, 5 thèmes) |
@@ -268,7 +278,7 @@ L'interface et l'hôte se parlent par les relais Web de JUCE 8 : chaque contrôl
 ./build/plugin/stasis_hosttest_artefacts/Release/stasis_hosttest build/plugin/Stasis_artefacts/Release/VST3/STASIS.vst3
 ```
 
-Le testeur d'hôte joue 12 s de son par configuration (44,1 / 48 / 96 kHz, buffers de 64 à 2048), avec de l'automation aléatoire, du MIDI et une sauvegarde/relecture de l'état, puis passe les 30 presets (la queue doit sonner, rester finie et sous 0 dBFS). Résultats sur Apple Silicon :
+Le testeur d'hôte joue 12 s de son par configuration (44,1 / 48 / 96 kHz, buffers de 64 à 2048), avec de l'automation aléatoire, du MIDI et une sauvegarde/relecture de l'état, puis passe les 60 presets (la queue doit sonner, rester finie et sous 0 dBFS). Résultats sur Apple Silicon :
 
 | Mesure | Résultat |
 |---|---|
@@ -283,7 +293,7 @@ Les modules à FFT longue répartissent leur calcul sur plusieurs blocs audio : 
 - [x] **Phase 0** — prototypes et mesures de tous les algorithmes clés
 - [x] **Phase 1** — plugin VST3 (Windows prioritaire), interface intégrée, tests, CI
 - [ ] Polices embarquées dans le plugin (aujourd'hui chargées depuis Google Fonts)
-- [x] Ordre des modules au choix, 30 presets, MOTION, COLOR à 5 bandes + filtres
+- [x] Ordre des modules au choix, 60 presets, MOTION, COLOR à 5 bandes + filtres
 - [x] SHAPE, PITCH, AIR ; limiteur de sécurité
 - [ ] Reverbs expérimentales : Spectral, Modal, Bloom, 80s
 - [ ] AU, CLAP ; signature et installeurs

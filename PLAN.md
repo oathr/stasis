@@ -484,7 +484,7 @@ Règle : **chaque phase se termine par des écoutes et des mesures** (CPU, IR, n
   - ordre des modules libre (glisser la tranche, ou ◂ ▸), fil de chaîne numéroté, visualiseur séparé ;
   - COLOR : BASS, BODY, MUD, HARSH, AIR + LOW CUT / HIGH CUT ;
   - MOTION dans le moteur : 12 LFO, cibles CRUSH, STRETCH, FEEDBACK, REPEATS, SIZE, DECAY, TONE, SHIMMER, WIDTH, FILTER, TONAL, VOLUME (±25 % de la course au maximum) ;
-  - 30 presets (ECHO / REVERB / AMBIENT), aussi exposés comme programmes VST3 ;
+  - 60 presets (ECHO / REVERB / AMBIENT), aussi exposés comme programmes VST3 ;
   - STRETCH à 4 trames superposées, bouton ⟳ de recapture ;
   - ECHO sans wow ni flutter.
 - **v0.3** :

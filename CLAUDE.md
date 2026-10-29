@@ -29,7 +29,7 @@ signature viendront plus tard.
   a dit, on le dit franchement à l'utilisateur.
 - Rendus et mesures DSP : `stasis_render` (`--analyse` pour les mesures).
 - Test d'hôte : `stasis_hosttest <STASIS.vst3>` charge le VST3 comme un DAW (44,1 / 48 /
-  96 kHz, buffers de 64 à 2048, automation aléatoire, MIDI, état, les 30 presets).
+  96 kHz, buffers de 64 à 2048, automation aléatoire, MIDI, état, les 60 presets).
   `--no-timing` pour une machine chargée.
 - Un commit par changement cohérent, message en anglais, terminé par la ligne
   `Co-Authored-By` habituelle. Dépôt : https://github.com/oathr/stasis (privé),
@@ -41,7 +41,7 @@ signature viendront plus tard.
 | `dsp/include/stasis/*.h` | Cœur DSP, C++20, header-only, sans dépendance |
 | `plugin/Source/Params.h` | Table de tous les paramètres (hôte, interface, moteur) |
 | `plugin/Source/Engine.h` | Chaîne audio sans JUCE : ordre libre, MOTION, limiteur de sécurité |
-| `plugin/Source/Presets.h` | 30 presets ECHO / REVERB / AMBIENT |
+| `plugin/Source/Presets.h` | 60 presets ECHO / REVERB / AMBIENT (20 chacun), avec leurs modulations MOTION |
 | `plugin/Source/Plugin*.cpp` | Processeur JUCE 8 et éditeur WebView |
 | `design/mockup.html` | **L'interface** : page HTML embarquée dans le plugin (et maquette dans un navigateur) |
 | `plugin/HostTest/` | Le testeur d'hôte |

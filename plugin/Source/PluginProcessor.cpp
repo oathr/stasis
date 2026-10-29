@@ -136,17 +136,29 @@ const juce::String StasisProcessor::getProgramName(int index) {
     return juce::String(list[size_t(index)].category) + " / " + list[size_t(index)].name;
 }
 
-// Every parameter goes back to its default, then the preset's own values apply.
+// Every parameter goes back to its default, then the preset's own values apply. MOTION
+// lanes 1, 2, 3… take the preset's modulations; the others go back to their defaults.
 void StasisProcessor::applyPreset(int index) {
+    using stasis::params::laneId;
     const auto& list = stasis::presets::all();
     if (index < 0 || index >= int(list.size())) return;
     const auto& preset = list[size_t(index)];
+    std::vector<std::pair<std::string, float>> values(preset.values.begin(), preset.values.end());
+    for (size_t lane = 0; lane < preset.motion.size() && lane < 12; ++lane) {
+        const auto& mod = preset.motion[lane];
+        values.push_back({laneId(int(lane), "rate"), stasis::params::laneRateT(mod.hz)});
+        values.push_back({laneId(int(lane), "shape"), float(mod.shape)});
+        values.push_back({laneId(int(lane), "depth"), mod.depth});
+    }
     for (const auto& spec : stasis::params::all()) {
         float value = spec.defaultValue;
-        for (const auto& [id, v] : preset.values)
+        for (const auto& [id, v] : values)
             if (spec.id == id) value = v;
         if (auto* param = apvts.getParameter(spec.id.c_str())) param->setValueNotifyingHost(param->convertTo0to1(value));
     }
+    for (int lane = 0; lane < 12; ++lane)
+        setLaneTarget(lane, lane < int(preset.motion.size()) ? juce::String(preset.motion[size_t(lane)].target)
+                                                             : juce::String(stasis::params::kDefaultTargets[size_t(lane)]));
     const juce::String order(preset.order);
     setModuleOrder(juce::StringArray::fromTokens(order.isEmpty() ? juce::String(stasis::params::kDefaultOrderNames) : order, ",", ""));
     currentPreset_ = index;
