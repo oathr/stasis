@@ -31,13 +31,15 @@ VST3 · Windows & macOS · JUCE 8 · v0.1 (en développement)
 ## La chaîne
 
 ```
-IN ─┬────────────────────────────────────────────────────────────────────────────┬─ MIX ─ OUT
-    └ DEREZ ► STRETCH ► ECHO ► [TONAL pre] ► SPACE ► FOCUS ► COLOR ► [TONAL post] ┘
-                                                     ▲
-MIDI IN ─────────────────────────────────────────────┘ (FOCUS, DEREZ)
+IN ─┬───────────────────────────────────────────────────────────────────────────┬─ MIX ─ OUT
+    └ SHAPE ► DEREZ ► PITCH ► STRETCH ► ECHO ► SPACE ► FOCUS ► AIR ► COLOR ► [TONAL] ┘
+                 ▲                                     ▲
+MIDI IN ─────────┴─────────────────────────────────────┘ (DEREZ, FOCUS)
 ```
 
-- L'ordre est fixe, choisi pour l'ambient : le crunch et l'étirement nourrissent l'écho, qui nourrit la reverb.
+- **L'ordre se choisit** : on attrape une carte par sa tranche verticale et on la dépose ailleurs, ou on utilise les flèches ◂ ▸ de la carte. Un fil relie les modules dans l'ordre de traitement ; le petit carré numéroté à l'entrée de chaque carte donne sa place. L'ordre est sauvegardé avec le projet et avec les presets.
+- Par défaut, le crunch et l'étirement nourrissent l'écho, qui nourrit la reverb.
+- Le visualiseur, en haut, montre le spectre réel du wet.
 - Chaque module a un interrupteur (le carré en bas de sa tranche) avec un fondu de 30 ms, sans clic.
 - `MIX` (en haut) dose le wet par rapport au dry, `OUT` règle le niveau de sortie (±12 dB).
 - `FREEZE` fige la reverb : la queue tient indéfiniment, sans dériver.
@@ -57,25 +59,25 @@ Inspiré du DeRez d'Airwindows, mais au lieu de changer la hauteur de façon cha
 La fondamentale vient de la note MIDI la plus grave tenue, sinon La2 (110 Hz). Mesure : 100 % de l'énergie reste juste, contre 9 à 77 % pour un DeRez classique.
 
 ### 04 · STRETCH — PaulStretch en temps réel
-Étirement extrême par trames FFT de 32768 points à phases aléatoires.
+Étirement extrême par trames FFT de 32768 points à phases aléatoires, 4 trames superposées : le niveau de chaque note ne varie que de 0,45 dB d'une trame à l'autre (2,3 dB avec 2 trames, ce qui donnait un tremblement granuleux).
 
 | Contrôle | Effet |
 |---|---|
 | `SMEAR` / `CAPTURE` | SMEAR suit l'entrée en direct, au ralenti. CAPTURE fige les dernières secondes et les étire en boucle |
+| `⟳` | Recapture les dernières secondes |
 | `FACTOR` | Étirement ×1 à ×1000 |
 | `LOOP` | Durée capturée (1 à 30 s) |
 | `MIX` | Dosage |
 
-Pour recapturer, repasser en SMEAR puis en CAPTURE.
 
 ### 05 · ECHO — écho à bande
-Wow, flutter, saturation (tanh anti-repliement), filtres de bande et souffle dans la boucle. Les changements de temps glissent comme une bande qui change de vitesse.
+Saturation (tanh anti-repliement), filtres de bande et souffle dans la boucle, sans wow ni flutter : les répétitions restent justes. Les changements de temps glissent comme une bande qui change de vitesse.
 
 | Contrôle | Effet |
 |---|---|
 | `MONO` / `PING-PONG` | Répétitions au centre ou alternées gauche/droite |
 | `FREE` / `SYNC` | Temps libre (20 ms – 2,5 s) ou calé sur le tempo de l'hôte (1/32 à 1/1, pointées, triolets) |
-| `TIME`, `FDBK`, `WOW` | Temps, réinjection, instabilité de la bande |
+| `TIME`, `FDBK` | Temps, réinjection |
 | `MIX` | Niveau des répétitions |
 
 ### 06 · SPACE — les reverbs
@@ -109,15 +111,48 @@ Les notes suivies s'allument sur le clavier du module.
 | Contrôle | Effet |
 |---|---|
 | `BASS` | Shelf ±9 dB à 120 Hz (en négatif, un passe-haut s'ajoute) |
+| `BODY` | Cloche ±6 dB à 180 Hz : la chaleur du pad, sous la boue |
 | `MUD` | Coupe 200–600 Hz, en partie **dynamique** : elle ne se creuse que si cette zone domine |
+| `HARSH` | Même principe à 2–5 kHz : adoucit le verre des shimmers et des pads brillants |
 | `AIR` | Shelf ±8 dB à 6 kHz |
+| `LOW CUT` / `HIGH CUT` | Passe-haut 20 Hz – 1 kHz, passe-bas 1 – 20 kHz (12 dB/oct, *off* aux extrémités) |
 | `NOISE ◂▸ TONAL` | À droite : ne garde que les notes. À gauche : ne garde que le souffle et la texture. Double-clic pour recentrer |
 | `PRE` / `POST` | TONAL avant la reverb (elle reconstruit sa queue avec ce qui reste) ou après (on filtre la queue elle-même) |
 
 Séparation mesurée : rapport notes/bruit de +7,6 dB en entrée → **+17,1 dB** à fond TONAL, **−1,8 dB** à fond NOISE.
 
+### 10 · MOTION — 12 LFO qui font respirer le son
+Chaque ligne fait bouger un potard autour de la position choisie, au plus de ±25 % de sa course : CRUSH, STRETCH, FEEDBACK, REPEATS, SIZE, DECAY, TONE, SHIMMER, WIDTH, FILTER, TONAL, VOLUME.
+
+| Contrôle | Effet |
+|---|---|
+| `RATE` | 0,001 à 20 Hz |
+| Forme | Un clic passe à la suivante : sinus, triangle, scies, carré, S&H, slew, random sine, drunk, Perlin, chaos (Lorenz), breath |
+| `DEPTH` | Amplitude de la ligne |
+| `MOTION` / `DRIFT` | Profondeur globale, vitesse globale (×0,25 à ×4) |
+
+Les tracés montrent les vraies valeurs des LFO du moteur.
+
 ### Bientôt
-`SHAPE` (tilt, drive), `PITCH` (transposition, formants), `AIR` (souffle, largeur) et `MOTION` (12 LFO assignés aux paramètres clés) sont dessinés mais pas encore dans le moteur audio : ils apparaissent grisés.
+`SHAPE` (tilt, drive), `PITCH` (transposition, formants) et `AIR` (souffle, largeur) sont dessinés mais pas encore dans le moteur audio : ils apparaissent grisés. Ils prennent quand même leur place dans la chaîne.
+
+## Presets
+30 presets d'usine, en trois familles. Clic sur le nom du preset pour ouvrir la liste, ‹ › pour passer au suivant. Ils apparaissent aussi comme *programmes* VST3 dans l'hôte.
+
+| ECHO | REVERB | AMBIENT |
+|---|---|---|
+| Tape Memory | Cathedral 25 | Glacier |
+| Dub Wash | Endless Hall | Frozen Orchard |
+| Broken Cassette | Glass Plate | Dust & Breath |
+| Ping-Pong Garden | Small Room Halo | Tuned Ruins |
+| Infinite Tape | Shimmer Cascade | Pure Tones |
+| Octave Repeats | Fifth Heaven | Monastery Tape |
+| Slow Motion | Underworld | Sub Tide |
+| Shimmer Delay | Dark Matter | Northern Lights |
+| Triplet Rain | Focused Choir | Slow Bloom |
+| Echoes of the Room | Bottomless | Infinite Drone |
+
+Les presets en CAPTURE (Frozen Orchard, Infinite Drone) figent ce qui vient d'être joué : jouer quelques secondes, puis appuyer sur `⟳`.
 
 ## Installation
 
@@ -167,7 +202,8 @@ Chaque `push` lance [`.github/workflows/build.yml`](.github/workflows/build.yml)
 | Dossier | Contenu |
 |---|---|
 | [`dsp/include/stasis/`](dsp/include/stasis) | Cœur DSP en C++20, header-only, **sans dépendance** : reverbs, écho, stretch, DeRez, FOCUS, COLOR, TONAL, LFO, FFT |
-| [`plugin/Source/Params.h`](plugin/Source/Params.h) | La table des 44 paramètres, partagée par l'hôte, l'interface et le moteur |
+| [`plugin/Source/Params.h`](plugin/Source/Params.h) | La table des paramètres (dont les 12 lignes de MOTION), partagée par l'hôte, l'interface et le moteur |
+| [`plugin/Source/Presets.h`](plugin/Source/Presets.h) | Les 30 presets d'usine |
 | [`plugin/Source/Engine.h`](plugin/Source/Engine.h) | La chaîne audio complète, indépendante de JUCE |
 | [`plugin/Source/Plugin*.cpp`](plugin/Source) | Processeur JUCE (MIDI, tempo, état) et éditeur WebView |
 | [`design/mockup.html`](design/mockup.html) | L'interface : une page HTML embarquée dans le plugin. Ouverte dans un navigateur, elle fonctionne seule (maquette interactive, 5 thèmes) |
@@ -185,7 +221,7 @@ L'interface et l'hôte se parlent par les relais Web de JUCE 8 : chaque contrôl
 ./build/plugin/stasis_hosttest_artefacts/Release/stasis_hosttest build/plugin/Stasis_artefacts/Release/VST3/STASIS.vst3
 ```
 
-Le testeur d'hôte joue 12 s de son par configuration (44,1 / 48 / 96 kHz, buffers de 64 à 2048), avec de l'automation aléatoire, du MIDI et une sauvegarde/relecture de l'état. Résultats sur Apple Silicon :
+Le testeur d'hôte joue 12 s de son par configuration (44,1 / 48 / 96 kHz, buffers de 64 à 2048), avec de l'automation aléatoire, du MIDI et une sauvegarde/relecture de l'état, puis passe les 30 presets (la queue doit sonner, rester finie et sous 0 dBFS). Résultats sur Apple Silicon :
 
 | Mesure | Résultat |
 |---|---|
@@ -200,8 +236,7 @@ Les modules à FFT longue répartissent leur calcul sur plusieurs blocs audio : 
 - [x] **Phase 0** — prototypes et mesures de tous les algorithmes clés
 - [x] **Phase 1** — plugin VST3 (Windows prioritaire), interface intégrée, tests, CI
 - [ ] Polices embarquées dans le plugin (aujourd'hui chargées depuis Google Fonts)
-- [ ] Bouton de recapture pour STRETCH, presets
-- [ ] MOTION : 12 LFO (12 formes, dont Perlin, chaos de Lorenz, « breath »)
+- [x] Ordre des modules au choix, 30 presets, MOTION, COLOR à 5 bandes + filtres
 - [ ] SHAPE, PITCH, AIR
 - [ ] Reverbs expérimentales : Spectral, Modal, Bloom, 80s
 - [ ] AU, CLAP ; signature et installeurs

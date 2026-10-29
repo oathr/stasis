@@ -3,6 +3,7 @@
 #include <stasis/capture_stretch.h>
 #include <stasis/color.h>
 #include <stasis/key_detector.h>
+#include <stasis/lfo.h>
 #include <stasis/note_set.h>
 #include <stasis/pitched_derez.h>
 #include <stasis/plate_reverb.h>
@@ -21,8 +22,11 @@ namespace stasis {
 // The whole effect, without any framework: the plugin feeds it parameter values
 // (as stored by the host), MIDI notes, the tempo, and audio.
 //
-//  IN ─┬─────────────────────────────────────────────────────────────────────────┬─ MIX ─ OUT
-//      └ DEREZ ► STRETCH ► ECHO ► [TONAL pre] ► SPACE ► FOCUS ► COLOR ► [TONAL post] ┘
+//  IN ─┬──────────────────────────────────────────────────────────────┬─ MIX ─ OUT
+//      └ modules in the order the user chose ─ [TONAL post]              ┘
+//
+// Default order: SHAPE DEREZ PITCH STRETCH ECHO SPACE FOCUS AIR COLOR. TONAL sits
+// right before SPACE (PRE) or at the very end (POST), wherever SPACE is.
 //
 // The dry path is never delayed. Modules with latency (STRETCH, TONAL) only delay the
 // wet, where it is musically invisible, so the plugin reports zero latency.
@@ -44,6 +48,14 @@ public:
         color_.prepare(sampleRate);
         tonal_.prepare(sampleRate);
         for (auto& b : buffers_) b.assign(kMaxBlock, 0.0f);
+        modulated_.assign(params::all().size(), 0.0f);
+        for (size_t i = 0; i < lanes_.size(); ++i) {
+            lanes_[i].prepare(sampleRate, uint32_t(i + 1) * 7919u);
+            laneTarget_[i] = params::indexOf(params::kLanes[i].target);
+            laneRate_[i] = params::indexOf(params::laneId(int(i), "rate"));
+            laneShape_[i] = params::indexOf(params::laneId(int(i), "shape"));
+            laneDepth_[i] = params::indexOf(params::laneId(int(i), "depth"));
+        }
         rampCoef_ = smoothingCoef(0.03f, sampleRate);
         for (auto& g : moduleGain_) g = 0.0f;
         tonalGain_ = mixGain_ = outGain_ = -1.0f;  // snap on the first block
@@ -68,7 +80,7 @@ public:
     void process(const float* values, float bpm, float* left, float* right, int numSamples) {
         for (int start = 0; start < numSamples; start += kMaxBlock) {
             const int n = std::min(kMaxBlock, numSamples - start);
-            update(values, bpm);
+            update(modulate(values, n), bpm);
             processBlock(left + start, right + start, n);
         }
     }
@@ -80,6 +92,19 @@ public:
         const int w = visualWrite_.load(std::memory_order_acquire);
         for (int i = 0; i < kVisualSize; ++i) dest[i] = visual_[size_t((w + i) % kVisualSize)];
     }
+    // Processing order: slot k holds the index (in params::kModules) of the module
+    // that runs k-th, 4 bits per slot. Any thread may set it.
+    static uint64_t defaultOrder() {
+        uint64_t order = 0;
+        for (uint64_t i = 0; i < params::kModules.size(); ++i) order |= i << (4 * i);
+        return order;
+    }
+    void setOrder(uint64_t order) { order_.store(order, std::memory_order_relaxed); }
+    uint64_t order() const { return order_.load(std::memory_order_relaxed); }
+
+    // The 12 MOTION lanes, -1..1 (for the UI traces).
+    float laneValue(int lane) const { return laneValues_[size_t(lane)].load(std::memory_order_relaxed); }
+
     // Pitch classes FOCUS is following (MIDI, or what AUTO hears). Bit n = class n.
     uint16_t focusClasses() const { return focusClasses_.load(std::memory_order_relaxed); }
 
@@ -87,6 +112,26 @@ private:
     enum Module { kDerez, kStretch, kEcho, kSpace, kFocus, kColor, kModules };
 
     float v(const float* values, int index) const { return values[index]; }
+
+    // MOTION: each lane moves its target parameter around the user's setting, at most
+    // ±25 % of the knob's travel (depth 100 %, MOTION 100 %).
+    const float* modulate(const float* values, int n) {
+        static const int iOn = params::indexOf("motion_on"), iAmount = params::indexOf("motion_amount"), iDrift = params::indexOf("motion_drift");
+        std::copy(values, values + modulated_.size(), modulated_.begin());
+        const bool on = values[iOn] > 0.5f;
+        const float amount = values[iAmount], drift = params::driftScale(values[iDrift]);
+        for (size_t i = 0; i < lanes_.size(); ++i) {
+            Lfo& lfo = lanes_[i];
+            lfo.setRate(params::laneRateHz(values[laneRate_[i]]) * drift);
+            lfo.setShape(values[laneShape_[i]]);
+            const float x = lfo.advance(n);
+            laneValues_[i].store(on ? x : 0.0f, std::memory_order_relaxed);
+            if (!on) continue;
+            float& target = modulated_[size_t(laneTarget_[i])];
+            target = std::clamp(target + 0.25f * amount * values[laneDepth_[i]] * x, 0.0f, 1.0f);
+        }
+        return modulated_.data();
+    }
 
     // Push the parameters to the modules, only those that changed (some setParams
     // recompute filters and gains).
@@ -99,13 +144,14 @@ private:
         static const int iStretchOn = indexOf("stretch_on"), iStretchMode = indexOf("stretch_mode"), iFactor = indexOf("stretch_factor"),
                          iLoop = indexOf("stretch_loop"), iStretchMix = indexOf("stretch_mix");
         static const int iEchoOn = indexOf("echo_on"), iEchoMode = indexOf("echo_mode"), iSync = indexOf("echo_sync"), iTime = indexOf("echo_time"),
-                         iDiv = indexOf("echo_div"), iFdbk = indexOf("echo_fdbk"), iWow = indexOf("echo_wow"), iEchoMix = indexOf("echo_mix");
+                         iDiv = indexOf("echo_div"), iFdbk = indexOf("echo_fdbk"), iEchoMix = indexOf("echo_mix");
         static const int iSpaceOn = indexOf("space_on"), iType = indexOf("space_type"), iSize = indexOf("space_size"), iDecay = indexOf("space_decay"),
                          iTone = indexOf("space_tone"), iMod = indexOf("space_mod"), iPre = indexOf("space_pre"), iSpaceMix = indexOf("space_mix"),
                          iShimmer = indexOf("shimmer_depth"), iShimmerPitch = indexOf("shimmer_pitch"), iWidth = indexOf("space_width");
         static const int iFocusOn = indexOf("focus_on"), iFocusMode = indexOf("focus_mode"), iAmount = indexOf("focus_amount"),
                          iFocusDepth = indexOf("focus_depth"), iFocusMix = indexOf("focus_mix");
-        static const int iColorOn = indexOf("color_on"), iBass = indexOf("color_bass"), iMud = indexOf("color_mud"), iAir = indexOf("color_air"),
+        static const int iColorOn = indexOf("color_on"), iBass = indexOf("color_bass"), iBody = indexOf("color_body"), iMud = indexOf("color_mud"),
+                         iHarsh = indexOf("color_harsh"), iAir = indexOf("color_air"), iHpf = indexOf("color_hpf"), iLpf = indexOf("color_lpf"),
                          iTonal = indexOf("tonal"), iPlace = indexOf("tonal_place");
 
         const auto changed = [&](std::initializer_list<int> ids) {
@@ -149,11 +195,14 @@ private:
             p.captureSeconds = captureSeconds(v(values, iLoop));
             stretch_.setParams(p);
         }
-        // Switching to CAPTURE freezes the last LOOP seconds.
-        if (mode == 1 && stretchMode_ != 1 && stretchMode_ != -1) stretch_.capture();
+        // Switching to CAPTURE, or pressing RECAPTURE, freezes the last LOOP seconds.
+        static const int iGrab = indexOf("stretch_grab");
+        const bool grab = v(values, iGrab) > 0.5f;
+        if (mode == 1 && ((stretchMode_ != 1 && stretchMode_ != -1) || (grab && !grab_))) stretch_.capture();
         stretchMode_ = mode;
+        grab_ = grab;
 
-        if (changed({iEchoMode, iSync, iTime, iDiv, iFdbk, iWow}) || std::abs(bpm - lastBpm_) > 1.0e-3f) {
+        if (changed({iEchoMode, iSync, iTime, iDiv, iFdbk}) || std::abs(bpm - lastBpm_) > 1.0e-3f) {
             static constexpr TapeEcho::Division kDivisions[] = {
                 TapeEcho::Division::ThirtySecond, TapeEcho::Division::SixteenthTriplet, TapeEcho::Division::Sixteenth,
                 TapeEcho::Division::SixteenthDotted, TapeEcho::Division::EighthTriplet, TapeEcho::Division::Eighth,
@@ -167,8 +216,8 @@ private:
             p.timeMs = echoTimeMs(v(values, iTime));
             p.division = kDivisions[std::clamp(echoDivision(v(values, iDiv)), 0, 13)];
             p.feedback = v(values, iFdbk);
-            p.wow = v(values, iWow);
-            p.flutter = 0.75f * v(values, iWow);
+            p.wow = 0.0f;  // a steady tape: no wow or flutter, the repeats stay in tune
+            p.flutter = 0.0f;
             echo_.setParams(p);
             lastBpm_ = bpm;
         }
@@ -221,7 +270,17 @@ private:
             focus_.setParams(p);
         }
 
-        if (changed({iBass, iMud, iAir})) color_.setParams({2.0f * v(values, iBass) - 1.0f, v(values, iMud), 2.0f * v(values, iAir) - 1.0f});
+        if (changed({iBass, iBody, iMud, iHarsh, iAir, iHpf, iLpf})) {
+            Color::Params p;
+            p.bass = 2.0f * v(values, iBass) - 1.0f;
+            p.body = 2.0f * v(values, iBody) - 1.0f;
+            p.mud = v(values, iMud);
+            p.harsh = v(values, iHarsh);
+            p.air = 2.0f * v(values, iAir) - 1.0f;
+            p.highpassHz = highpassHz(v(values, iHpf));
+            p.lowpassHz = lowpassHz(v(values, iLpf));
+            color_.setParams(p);
+        }
         tonal_.setParams({tonalBalance_, 0.5f, 1.0f});
 
         std::copy(values, values + specs.size(), last_.begin());
@@ -291,13 +350,21 @@ private:
             focusClasses_.store(notes_.pitchClasses(), std::memory_order_relaxed);
         }
 
-        runModule(kDerez, wetL, wetR, n, [&](auto... a) { derez_.process(a...); });
-        runModule(kStretch, wetL, wetR, n, [&](auto... a) { stretch_.process(a...); });
-        runModule(kEcho, wetL, wetR, n, [&](auto... a) { echo_.process(a...); });
-        if (tonalPre_) runTonal(wetL, wetR, n);
-        runModule(kSpace, wetL, wetR, n, [&](auto... a) { plateSelected_ ? plate_.process(a...) : space_.process(a...); });
-        runModule(kFocus, wetL, wetR, n, [&](auto... a) { focus_.process(a...); });
-        runModule(kColor, wetL, wetR, n, [&](auto... a) { color_.process(a...); });
+        const uint64_t order = order_.load(std::memory_order_relaxed);
+        for (size_t slot = 0; slot < params::kModules.size(); ++slot) {
+            switch (int((order >> (4 * slot)) & 15)) {
+                case 1: runModule(kDerez, wetL, wetR, n, [&](auto... a) { derez_.process(a...); }); break;
+                case 3: runModule(kStretch, wetL, wetR, n, [&](auto... a) { stretch_.process(a...); }); break;
+                case 4: runModule(kEcho, wetL, wetR, n, [&](auto... a) { echo_.process(a...); }); break;
+                case 5:
+                    if (tonalPre_) runTonal(wetL, wetR, n);
+                    runModule(kSpace, wetL, wetR, n, [&](auto... a) { plateSelected_ ? plate_.process(a...) : space_.process(a...); });
+                    break;
+                case 6: runModule(kFocus, wetL, wetR, n, [&](auto... a) { focus_.process(a...); }); break;
+                case 8: runModule(kColor, wetL, wetR, n, [&](auto... a) { color_.process(a...); }); break;
+                default: break;  // SHAPE, PITCH, AIR: not in the engine yet
+            }
+        }
         if (!tonalPre_) runTonal(wetL, wetR, n);
 
         if (mixGain_ < 0.0f) {
@@ -336,10 +403,16 @@ private:
     float tonalBalance_ = 0.0f, tonalGain_ = -1.0f, lastBpm_ = 0.0f;
     bool tonalPre_ = false, freeze_ = false, plateSelected_ = false, focusAuto_ = false;
     int stretchMode_ = -1;
+    bool grab_ = false;
 
     std::array<float, kVisualSize> visual_{};
     std::atomic<int> visualWrite_{0};
     std::atomic<uint16_t> focusClasses_{0};
+    std::atomic<uint64_t> order_{defaultOrder()};
+    std::array<Lfo, 12> lanes_;
+    std::array<int, 12> laneTarget_{}, laneRate_{}, laneShape_{}, laneDepth_{};
+    std::array<std::atomic<float>, 12> laneValues_{};
+    std::vector<float> modulated_;
 };
 
 }  // namespace stasis

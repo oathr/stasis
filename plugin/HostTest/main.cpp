@@ -111,6 +111,48 @@ int main(int argc, char** argv) {
             plugin->releaseResources();
         }
     }
+    // Every factory preset: 4 s of a chord in, 4 s of silence; the tail must ring, stay
+    // finite and stay under 0 dBFS.
+    {
+        juce::String error;
+        auto plugin = formats.createPluginInstance(*found[0], 48000.0, 512, error);
+        std::printf("\nPresets (%d):\n", plugin->getNumPrograms());
+        for (int p = 0; p < plugin->getNumPrograms(); ++p) {
+            plugin->setPlayConfigDetails(2, 2, 48000.0, 512);
+            plugin->prepareToPlay(48000.0, 512);
+            plugin->setCurrentProgram(p);
+            juce::AudioBuffer<float> buffer(2, 512);
+            juce::MidiBuffer midi;
+            double tail = 0.0;
+            float peak = 0.0f;
+            bool finite = true;
+            const int blocks = int(8.0 * 48000 / 512);
+            for (int b = 0; b < blocks; ++b) {
+                for (int c = 0; c < 2; ++c)
+                    for (int i = 0; i < 512; ++i) {
+                        const double t = double(b * 512 + i) / 48000.0;
+                        float v = 0.0f;
+                        if (b < blocks / 2)
+                            for (const double f : {220.0, 261.63, 329.63}) v += 0.08f * float(std::sin(2.0 * juce::MathConstants<double>::pi * f * t));
+                        buffer.setSample(c, i, v);
+                    }
+                plugin->processBlock(buffer, midi);
+                for (int c = 0; c < 2; ++c)
+                    for (int i = 0; i < 512; ++i) {
+                        const float v = buffer.getSample(c, i);
+                        finite = finite && std::isfinite(v);
+                        peak = std::max(peak, std::abs(v));
+                        if (b >= blocks / 2) tail += double(v) * v;
+                    }
+            }
+            const double tailDb = 10.0 * std::log10(tail / (blocks / 2 * 512 * 2) + 1.0e-20);
+            std::printf("  %2d  %-30s  peak %+5.1f dBFS   tail %6.1f dB\n", p + 1, plugin->getProgramName(p).toRawUTF8(),
+                        20.0 * std::log10(std::max(peak, 1.0e-9f)), tailDb);
+            if (!finite) fail("preset " + plugin->getProgramName(p) + ": non-finite output");
+            if (peak > 1.0f) fail("preset " + plugin->getProgramName(p) + ": clips");
+            plugin->releaseResources();
+        }
+    }
     std::printf(failures == 0 ? "ALL TESTS PASSED\n" : "%d FAILURE(S)\n", failures);
     return failures == 0 ? 0 : 1;
 }

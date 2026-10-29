@@ -2,6 +2,8 @@
 
 #include <BinaryData.h>
 
+#include "Presets.h"
+
 namespace {
 
 constexpr int kWidth = 1340, kHeight = 934;  // the page's own layout size, scaled to fit
@@ -27,9 +29,9 @@ StasisEditor::Relays StasisEditor::createRelays() {
     Relays r;
     for (const Spec& s : all()) {
         switch (s.kind) {
-            case Kind::Float: r.sliders.push_back(std::make_unique<juce::WebSliderRelay>(s.id)); break;
-            case Kind::Bool: r.toggles.push_back(std::make_unique<juce::WebToggleButtonRelay>(s.id)); break;
-            case Kind::Choice: r.combos.push_back(std::make_unique<juce::WebComboBoxRelay>(s.id)); break;
+            case Kind::Float: r.sliders.push_back(std::make_unique<juce::WebSliderRelay>(s.id.c_str())); break;
+            case Kind::Bool: r.toggles.push_back(std::make_unique<juce::WebToggleButtonRelay>(s.id.c_str())); break;
+            case Kind::Choice: r.combos.push_back(std::make_unique<juce::WebComboBoxRelay>(s.id.c_str())); break;
         }
     }
     return r;
@@ -41,7 +43,39 @@ juce::WebBrowserComponent::Options StasisEditor::createOptions(Relays& relays) {
                        .withWinWebView2Options(juce::WebBrowserComponent::Options::WinWebView2{}.withUserDataFolder(
                            juce::File::getSpecialLocation(juce::File::tempDirectory).getChildFile("STASIS")))
                        .withNativeIntegrationEnabled()
-                       .withResourceProvider(getResource);
+                       .withResourceProvider(getResource)
+                       // Module order: the page asks for it on load and sends every change.
+                       .withNativeFunction("getOrder", [this](const juce::Array<juce::var>&, auto complete) {
+                           juce::Array<juce::var> names;
+                           for (const auto& n : processor_.getModuleOrder()) names.add(n);
+                           complete(names);
+                       })
+                       // Presets: the list (category, name), and loading one by index.
+                       .withNativeFunction("getPresets", [this](const juce::Array<juce::var>&, auto complete) {
+                           juce::Array<juce::var> list;
+                           for (const auto& p : stasis::presets::all()) {
+                               auto* item = new juce::DynamicObject();
+                               item->setProperty("category", p.category);
+                               item->setProperty("name", p.name);
+                               list.add(juce::var(item));
+                           }
+                           auto* result = new juce::DynamicObject();
+                           result->setProperty("list", list);
+                           result->setProperty("current", processor_.getCurrentProgram());
+                           complete(juce::var(result));
+                       })
+                       .withNativeFunction("loadPreset", [this](const juce::Array<juce::var>& args, auto complete) {
+                           if (!args.isEmpty()) processor_.applyPreset(int(args[0]));
+                           complete(juce::var());
+                       })
+                       .withNativeFunction("setOrder", [this](const juce::Array<juce::var>& args, auto complete) {
+                           juce::StringArray names;
+                           if (!args.isEmpty())
+                               if (const auto* list = args[0].getArray())
+                                   for (const auto& n : *list) names.add(n.toString());
+                           processor_.setModuleOrder(names);
+                           complete(juce::var());
+                       });
     for (auto& s : relays.sliders) options = options.withOptionsFrom(*s);
     for (auto& t : relays.toggles) options = options.withOptionsFrom(*t);
     for (auto& c : relays.combos) options = options.withOptionsFrom(*c);
@@ -53,7 +87,7 @@ StasisEditor::StasisEditor(StasisProcessor& p)
     using namespace stasis::params;
     size_t si = 0, ti = 0, ci = 0;
     for (const Spec& s : all()) {
-        auto& param = *p.apvts.getParameter(s.id);
+        auto& param = *p.apvts.getParameter(s.id.c_str());
         switch (s.kind) {
             case Kind::Float:
                 sliderAttachments_.push_back(std::make_unique<juce::WebSliderParameterAttachment>(param, *relays_.sliders[si++], nullptr));
@@ -74,6 +108,10 @@ StasisEditor::StasisEditor(StasisProcessor& p)
     for (int i = 0; i < size; ++i) window_[size_t(i)] = 0.5f - 0.5f * std::cos(stasis::kTwoPi * float(i) / float(size));
     fft_.prepare(size);
 
+    // A preset or project load changes the order: show it.
+    processor_.onOrderChanged = [this] { sendOrder(); };
+    processor_.onPresetChanged = [this] { webView_.emitEventIfBrowserIsVisible("stasis_preset", processor_.getCurrentProgram()); };
+
     addAndMakeVisible(webView_);
     webView_.goToURL(juce::WebBrowserComponent::getResourceProviderRoot());
 
@@ -84,12 +122,25 @@ StasisEditor::StasisEditor(StasisProcessor& p)
     startTimerHz(30);
 }
 
-StasisEditor::~StasisEditor() { stopTimer(); }
+StasisEditor::~StasisEditor() {
+    stopTimer();
+    processor_.onOrderChanged = nullptr;
+    processor_.onPresetChanged = nullptr;
+}
+
+void StasisEditor::sendOrder() {
+    juce::Array<juce::var> names;
+    for (const auto& n : processor_.getModuleOrder()) names.add(n);
+    webView_.emitEventIfBrowserIsVisible("stasis_order", names);
+}
 
 void StasisEditor::resized() { webView_.setBounds(getLocalBounds()); }
 
 void StasisEditor::timerCallback() {
     sendSpectrum();
+    juce::Array<juce::var> lanes;
+    for (int i = 0; i < 12; ++i) lanes.add(processor_.engine.laneValue(i));
+    webView_.emitEventIfBrowserIsVisible("stasis_motion", lanes);
     if (++statusCounter_ % 10 == 0) {
         auto* status = new juce::DynamicObject();
         status->setProperty("cpu", processor_.cpuLoad.load() * 100.0f);
