@@ -21,14 +21,23 @@ public:
     bool producesMidi() const override { return false; }
     double getTailLengthSeconds() const override { return 30.0; }
 
-    int getNumPrograms() override { return 1; }
-    int getCurrentProgram() override { return 0; }
-    void setCurrentProgram(int) override {}
-    const juce::String getProgramName(int) override { return {}; }
+    // Factory presets (Presets.h) are the host's programs too.
+    int getNumPrograms() override;
+    int getCurrentProgram() override { return currentPreset_; }
+    void setCurrentProgram(int index) override { applyPreset(index); }
+    const juce::String getProgramName(int index) override;
+    void applyPreset(int index);
+    std::function<void()> onPresetChanged;  // message thread, set by the editor
     void changeProgramName(int, const juce::String&) override {}
 
     void getStateInformation(juce::MemoryBlock& destData) override;
     void setStateInformation(const void* data, int sizeInBytes) override;
+
+    // Module order, as names from stasis::params::kModules. setModuleOrder ignores
+    // anything that is not a full permutation.
+    juce::StringArray getModuleOrder() const;
+    void setModuleOrder(const juce::StringArray& names);
+    std::function<void()> onOrderChanged;  // message thread, set by the editor
 
     juce::AudioProcessorValueTreeState apvts;
     stasis::Engine engine;
@@ -37,6 +46,8 @@ public:
 private:
     std::vector<std::atomic<float>*> raw_;
     std::vector<float> values_;
+    int currentPreset_ = 0;
 
+    JUCE_DECLARE_WEAK_REFERENCEABLE(StasisProcessor)
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(StasisProcessor)
 };

@@ -17,7 +17,11 @@ namespace stasis {
 //  CAPTURE  capture() freezes the last `captureSeconds`; that passage is then
 //           stretched in an endless loop, whatever comes in afterwards.
 //
-// Latency: about one window and a half (frames are computed one hop ahead), on the wet
+// Overlap: 4 frames (hop = window/4). Each frame has its own random phases, so every
+// partial's level changes a little from frame to frame; with 2 frames that flutter is
+// 2.3 dB (a grainy tremolo at ~3 Hz), with 4 it is 0.45 dB: smooth, as in PaulXStretch.
+//
+// Latency: about a window and a quarter (frames are computed one hop ahead), on the wet
 // path only.
 //
 // Real-time cost: a frame (one 32768-point FFT each way, for both channels at once)
@@ -34,10 +38,10 @@ public:
         float captureSeconds = 4.0f;   // length of the frozen loop in CAPTURE mode
     };
 
-    void prepare(float sampleRate, int windowSize = 32768, float bufferSeconds = 32.0f) {
+    void prepare(float sampleRate, int windowSize = 32768, float bufferSeconds = 32.0f, int overlap = 4) {
         sampleRate_ = sampleRate;
         size_ = windowSize;
-        hop_ = windowSize / 2;
+        hop_ = windowSize / overlap;
         fft_.prepare(windowSize);
         const size_t length = size_t(bufferSeconds * sampleRate);
         for (int c = 0; c < 2; ++c) {
@@ -57,7 +61,12 @@ public:
             synthesis_[size_t(i)] = std::sin(kPi * x);
             sumSq += double(analysis_[size_t(i)]) * analysis_[size_t(i)];
         }
-        gain_ = float(1.0 / std::sqrt(sumSq / size_));
+        // Frames have random phases, so they add in power: normalise by the synthesis
+        // window's power summed over the overlapping frames.
+        double synthPower = 0.0;
+        for (int i = 0; i < size_; ++i) synthPower += double(synthesis_[size_t(i)]) * synthesis_[size_t(i)];
+        synthPower /= hop_;
+        gain_ = float(1.0 / std::sqrt(sumSq / size_) / std::sqrt(synthPower));
         // Random phases come from a table of unit vectors: no trigonometry per bin.
         for (size_t i = 0; i < kPhases; ++i) phases_[i] = std::polar(1.0f, kTwoPi * float(i) / float(kPhases));
         written_ = 0;

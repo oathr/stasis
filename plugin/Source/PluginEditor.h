@@ -21,7 +21,8 @@ private:
         std::vector<std::unique_ptr<juce::WebComboBoxRelay>> combos;
     };
     static Relays createRelays();
-    static juce::WebBrowserComponent::Options createOptions(Relays&);
+    juce::WebBrowserComponent::Options createOptions(Relays&);
+    void sendOrder();
 
     void timerCallback() override;
     void sendSpectrum();

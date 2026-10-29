@@ -19,8 +19,8 @@ namespace stasis::params {
 enum class Kind { Float, Bool, Choice };
 
 struct Spec {
-    const char* id;
-    const char* name;
+    std::string id;
+    std::string name;
     Kind kind;
     float defaultValue;                      // 0..1, false/true, or choice index
     std::vector<std::string> choices = {};   // Choice only
@@ -43,10 +43,38 @@ inline int echoDivision(float t) { return int(std::lround(t * 13.0f)); }
 inline float decaySeconds(float t) { return t > 0.98f ? INFINITY : 0.5f * std::pow(120.0f, t); }
 inline float predelayMs(float t) { return std::pow(500.0f, t); }
 inline float derezBits(float t) { return 16.0f - 14.0f * t; }
+inline float highpassHz(float t) { return t <= 0.0f ? 0.0f : 20.0f * std::pow(50.0f, t); }      // off, 20 Hz .. 1 kHz
+inline float lowpassHz(float t) { return t >= 1.0f ? 0.0f : 1000.0f * std::pow(20.0f, t); }     // 1 kHz .. 20 kHz, off
 inline int derezMultiple(float t) { return int(std::lround(32.0f * std::pow(2.0f / 32.0f, t))); }
 
 inline const std::array<const char*, 14> kDivisionNames = {"1/32", "1/16T", "1/16", "1/16.", "1/8T", "1/8", "1/8.",
                                                            "1/4T", "1/4",   "1/4.", "1/2T",  "1/2", "1/2.", "1/1"};
+// The modules of the chain, in their default order. The order is part of the state
+// (not a parameter): the UI changes it, the engine reads it.
+inline const std::array<const char*, 9> kModules = {"shape", "derez", "pitch", "stretch", "echo", "space", "focus", "air", "color"};
+
+// MOTION: 12 LFO lanes, each wired to one parameter. At full depth (and MOTION 100 %)
+// a lane moves its knob ±25 % of its travel around where the user left it.
+struct Lane {
+    const char* target;  // parameter id
+    const char* label;
+    int shape;           // LfoShape index
+    float rateHz, depth;
+};
+inline const std::array<Lane, 12> kLanes = {{
+    {"derez_crush", "CRUSH", 9, 0.08f, 0.25f},     {"stretch_factor", "STRETCH", 8, 0.02f, 0.3f},
+    {"echo_fdbk", "FEEDBACK", 6, 0.05f, 0.2f},     {"echo_mix", "REPEATS", 7, 0.12f, 0.3f},
+    {"space_size", "SIZE", 7, 0.015f, 0.5f},       {"space_decay", "DECAY", 9, 0.01f, 0.3f},
+    {"space_tone", "TONE", 0, 0.03f, 0.4f},        {"shimmer_depth", "SHIMMER", 6, 0.04f, 0.6f},
+    {"space_width", "WIDTH", 1, 0.06f, 0.4f},      {"color_lpf", "FILTER", 11, 0.18f, 0.3f},
+    {"tonal", "TONAL", 9, 0.025f, 0.4f},           {"out", "VOLUME", 0, 0.025f, 0.15f},
+}};
+inline const std::array<const char*, 12> kShapeNames = {"SINE", "TRI", "SAW+", "SAW-", "SQUARE", "S&H", "SLEW", "R-SINE", "DRUNK", "PERLIN", "CHAOS", "BREATH"};
+inline float laneRateHz(float t) { return 0.001f * std::pow(20000.0f, t); }  // 0.001 .. 20 Hz
+inline float laneRateT(float hz) { return std::log(hz / 0.001f) / std::log(20000.0f); }
+inline float driftScale(float t) { return std::pow(4.0f, 2.0f * t - 1.0f); }  // ×0.25 .. ×4
+inline std::string laneId(int lane, const char* what) { return (lane < 9 ? "m0" : "m") + std::to_string(lane + 1) + "_" + what; }
+
 inline const std::array<float, 9> kIntervals = {-24, -12, -7, -1, 0, 1, 7, 12, 24};
 
 inline const std::vector<Spec>& all() {
@@ -64,6 +92,7 @@ inline const std::vector<Spec>& all() {
         // STRETCH
         {"stretch_on", "Stretch On", Kind::Bool, 0.0f},
         {"stretch_mode", "Stretch Mode", Kind::Choice, 0.0f, {"Smear", "Capture"}},
+        {"stretch_grab", "Stretch Recapture", Kind::Bool, 0.0f},  // a press freezes the last LOOP seconds again
         {"stretch_factor", "Stretch Factor", Kind::Float, 0.3f, {}, [](float t) { return fmt("x%.0f", stretchFactor(t)); }},
         {"stretch_loop", "Stretch Loop", Kind::Float, 0.4f, {}, [](float t) { return fmt("%.1f s", captureSeconds(t)); }},
         {"stretch_mix", "Stretch Mix", Kind::Float, 0.5f, {}, pct},
@@ -74,7 +103,6 @@ inline const std::vector<Spec>& all() {
         {"echo_time", "Echo Time", Kind::Float, 0.55f, {}, [](float t) { return fmt("%.0f ms", echoTimeMs(t)); }},
         {"echo_div", "Echo Division", Kind::Float, 9.0f / 13.0f, {}, [](float t) { return std::string(kDivisionNames[size_t(echoDivision(t))]); }},
         {"echo_fdbk", "Echo Feedback", Kind::Float, 0.6f, {}, pct},
-        {"echo_wow", "Echo Wow", Kind::Float, 0.4f, {}, pct},
         {"echo_mix", "Echo Mix", Kind::Float, 0.35f, {}, pct},
         // SPACE
         {"space_on", "Space On", Kind::Bool, 1.0f},
@@ -97,19 +125,41 @@ inline const std::vector<Spec>& all() {
         // COLOR + TONAL
         {"color_on", "Color On", Kind::Bool, 1.0f},
         {"color_bass", "Color Bass", Kind::Float, 0.5f, {}, [](float t) { return bip(t, 1.0f, "", "%+.2f"); }},
+        {"color_body", "Color Body", Kind::Float, 0.5f, {}, [](float t) { return bip(t, 1.0f, "", "%+.2f"); }},
         {"color_mud", "Color Mud", Kind::Float, 0.5f, {}, [](float t) { return fmt("%.2f", t); }},
+        {"color_harsh", "Color Harsh", Kind::Float, 0.3f, {}, [](float t) { return fmt("%.2f", t); }},
         {"color_air", "Color Air", Kind::Float, 0.5f, {}, [](float t) { return bip(t, 1.0f, "", "%+.2f"); }},
+        {"color_hpf", "Color Low Cut", Kind::Float, 0.0f, {}, [](float t) { return t <= 0.0f ? std::string("off") : fmt("%.0f Hz", highpassHz(t)); }},
+        {"color_lpf", "Color High Cut", Kind::Float, 1.0f, {}, [](float t) { return t >= 1.0f ? std::string("off") : lowpassHz(t) >= 1000.0f ? fmt("%.1f kHz", lowpassHz(t) / 1000.0) : fmt("%.0f Hz", lowpassHz(t)); }},
         {"tonal", "Tonal / Noise", Kind::Float, 0.5f, {}, [](float t) { return bip(t, 1.0f, "", "%+.2f"); }},
         {"tonal_place", "Tonal Place", Kind::Choice, 1.0f, {"Pre space", "Post space"}},
+        // MOTION
+        {"motion_on", "Motion On", Kind::Bool, 1.0f},
+        {"motion_amount", "Motion Amount", Kind::Float, 0.6f, {}, pct},
+        {"motion_drift", "Motion Drift", Kind::Float, 0.5f, {}, [](float t) { return fmt("x%.2f", driftScale(t)); }},
     };
-    return specs;
+    static const std::vector<Spec> withLanes = [] {
+        std::vector<Spec> all = specs;
+        const std::vector<std::string> shapes(kShapeNames.begin(), kShapeNames.end());
+        for (int i = 0; i < int(kLanes.size()); ++i) {
+            const Lane& lane = kLanes[size_t(i)];
+            const std::string name = "Motion " + std::to_string(i + 1) + " " + lane.label;
+            all.push_back({laneId(i, "rate"), name + " Rate", Kind::Float, laneRateT(lane.rateHz), {}, [](float t) {
+                               const float hz = laneRateHz(t);
+                               return fmt(hz < 0.1f ? "%.3f Hz" : hz < 1.0f ? "%.2f Hz" : "%.1f Hz", hz); }});
+            all.push_back({laneId(i, "shape"), name + " Shape", Kind::Choice, float(lane.shape), shapes});
+            all.push_back({laneId(i, "depth"), name + " Depth", Kind::Float, lane.depth, {}, pct});
+        }
+        return all;
+    }();
+    return withLanes;
 }
 
 // Index of each parameter in all(), resolved once.
-inline int indexOf(const char* id) {
+inline int indexOf(const std::string& id) {
     const auto& specs = all();
     for (size_t i = 0; i < specs.size(); ++i)
-        if (std::string(specs[i].id) == id) return int(i);
+        if (specs[i].id == id) return int(i);
     return -1;
 }
 

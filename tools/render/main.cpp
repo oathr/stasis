@@ -392,7 +392,7 @@ std::vector<Recipe> recipes() {
                  }});
 
     r.push_back({"11_chain_color", "same chain + COLOR: bass -0.3, mud 0.8, air +0.3", [=](const Source& s) {
-                     return mix(s.audio, 0.4f, color(chainWet(s), {-0.3f, 0.8f, 0.3f}), 1.0f);
+                     return mix(s.audio, 0.4f, color(chainWet(s), {.bass = -0.3f, .mud = 0.8f, .air = 0.3f}), 1.0f);
                  }});
 
     struct FocusVariant {
@@ -493,7 +493,7 @@ std::vector<Recipe> recipes() {
                  }});
 
     r.push_back({"14_full_chain", "tape -> shimmer cathedral -> FOCUS key zero latency -> COLOR", [=](const Source& s) {
-                     const Stereo wet = color(focus(s, chainWet(s), false, Engine::Zero), {-0.3f, 0.8f, 0.3f});
+                     const Stereo wet = color(focus(s, chainWet(s), false, Engine::Zero), {.bass = -0.3f, .mud = 0.8f, .air = 0.3f});
                      return mix(s.audio, 0.4f, wet, 1.0f);
                  }});
     return r;

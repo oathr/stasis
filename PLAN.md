@@ -480,11 +480,15 @@ Règle : **chaque phase se termine par des écoutes et des mesures** (CPU, IR, n
   - Pire bloc en automation : 41 % du temps réel à 64 échantillons / 48 kHz.
   - Un changement de tous les paramètres d'un coup (preset) coûte environ 2 ms dans le moteur.
 - **Build Windows** : `.github/workflows/build.yml` (GitHub Actions) compile le VST3 Windows et macOS, lance le test et met les plugins en téléchargement.
+- **v0.2** :
+  - ordre des modules libre (glisser la tranche, ou ◂ ▸), fil de chaîne numéroté, visualiseur séparé ;
+  - COLOR : BASS, BODY, MUD, HARSH, AIR + LOW CUT / HIGH CUT ;
+  - MOTION dans le moteur : 12 LFO, cibles CRUSH, STRETCH, FEEDBACK, REPEATS, SIZE, DECAY, TONE, SHIMMER, WIDTH, FILTER, TONAL, VOLUME (±25 % de la course au maximum) ;
+  - 30 presets (ECHO / REVERB / AMBIENT), aussi exposés comme programmes VST3 ;
+  - STRETCH à 4 trames superposées (fluctuation 0,45 dB au lieu de 2,3 dB), bouton ⟳ de recapture ;
+  - ECHO sans wow ni flutter.
 - **Reste à faire** :
   - embarquer les polices (aujourd'hui chargées depuis Google Fonts : sans réseau, l'interface passe sur des polices de secours) ;
-  - un bouton pour relancer une capture ;
-  - les presets ;
-  - MOTION ;
   - SHAPE, PITCH, AIR.
 
 ## 9. Décisions à prendre avant de coder
