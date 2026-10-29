@@ -28,6 +28,7 @@ MIDI IN ────────────────────────
 ```
 - **FOCUS** et **COLOR** agissent sur le wet uniquement : le dry reste intact.
 - **DEREZ se place avant SPACE** : c'est la grosse reverb qui transforme le crunch accordé en texture.
+- **Chaîne capture → ping-pong → reverb** (rendus `17a` / `17b`) : STRETCH en SMEAR ou CAPTURE, puis ECHO en ping-pong SYNC, puis SPACE. C'est l'ordre fixe des modules.
 
 - Ordre fixe (pensé pour l'ambient), avec 2 options de routage sur ECHO/SPACE : **Série** (echo → reverb) ou **Parallèle**.
 - **Feedback global optionnel** (« LOOP ») : la sortie de SPACE réinjectée dans PITCH → shimmer/cascade infinie, avec limiteur doux dans la boucle.
@@ -67,6 +68,13 @@ Légende : ★ = cœur de gamme (v1) · ◆ = expérimental / signature unique
 | ◆ Granular Cloud | Nuage de grains (position, taille, densité, spray, pitch aléatoire) inspiré de Mutable Clouds/Beads (code MIT) | Textures mouvantes, scintillantes |
 | ◆ Phase vocoder « propre » | Phase locking (Laroche & Dolson) | Ralenti sans le côté « flou » du Paul |
 
+**Implémenté en temps réel** (`capture_stretch.h`) :
+- Une mémoire circulaire de 30 s et des frames PaulStretch en flux (FFT 32768, overlap-add avec fenêtre sinus).
+- **SMEAR** : la tête de lecture suit le direct à 1/stretch de sa vitesse. Quand elle prend trop de retard, elle saute en avant, sans que ça s'entende puisque chaque frame est indépendante.
+- **CAPTURE** : `capture()` fige les N dernières secondes et les étire en boucle à l'infini.
+- **Latence** : une demi-fenêtre, sur le wet uniquement.
+- **À faire pour le plugin** : répartir le calcul de chaque frame sur plusieurs blocs, pour éviter les pics de CPU.
+
 ### 04 · ECHO — délais
 | Élément | Algorithme retenu | Pourquoi |
 |---|---|---|
@@ -76,6 +84,7 @@ Légende : ★ = cœur de gamme (v1) · ◆ = expérimental / signature unique
 | ◆ BBD | Filtrage + companding + bruit d'horloge | Couleur analogique sombre |
 | ◆ Reverse / Pitch echo | Lecture inversée par fenêtres / pitch shift granulaire dans la boucle | Echos qui montent ou s'inversent |
 | Changement de temps | Mode **Tape** (glissement = pitch) ou **Jump** (crossfade sans artefact) | Modulation du temps sans clics |
+| ★ **SYNC** (implémenté) | Temps calé sur le tempo de l'hôte : 1/1 à 1/32, en version normale, pointée (×1,5) ou triolet (×2/3). En SYNC, les deux canaux restent sur la grille (pas de décalage L/R). Les changements de tempo glissent comme une bande | Mesuré sur une impulsion : le premier écho tombe pile sur la division (1/8. à 96 BPM = 468,75 ms, 1/4T à 120 BPM = 333,33 ms) |
 
 ### 05 · SPACE — les reverbs (cœur du plugin)
 Un seul module, un sélecteur `ALGO`, 4 paramètres communs : `SIZE` · `DECAY` (jusqu'à ∞) · `TONE` (amortissement) · `MOD`, + `PRE-DELAY` et `MIX`.
@@ -95,37 +104,38 @@ Un seul module, un sélecteur `ALGO`, 4 paramètres communs : `SIZE` · `DECAY` 
 
 Commun à tous : **Freeze** (decay = ∞, entrée coupée), **Duck**, **Width**, filtres LP/HP en sortie.
 
-**Moteur SPACE v2** (`dsp/include/stasis/space_reverb.h`), base des algos Room / Hall / Cathedral / Shimmer :
-- diffuseur 8 canaux en 4 étages (délais aléatoires stratifiés, mélange, inversions de polarité, Hadamard)
-- FDN 16 lignes, chacune avec un **allpass modulé dans la boucle** : la densité continue de croître dans la queue
-- matrice de feedback Householder, modulation **aléatoire lisse** (sans chorus périodique)
-- sorties L/R sur deux vecteurs orthogonaux : stéréo totalement décorrélée, compatible mono
-- graves qui décroissent plus vite par défaut + passe-haut d'entrée : anti-boue à la source
-- Freeze stable : −0,17 dB par minute, sans aucun emballement possible
-- **Justesse** : la profondeur de modulation se calcule selon la longueur des lignes et le decay. Les petits désaccords de chaque passage s'additionnent au hasard sur une longue queue, donc on fixe l'écart total (~3 cents) au lieu de l'écart par passage. Les premiers réglages s'appliquent sans glissement : c'était ce glissement qui faisait sonner la cathédrale presque un demi-ton trop bas au début
-- **Shimmer** : phase vocoder (`spectral_pitch_shifter.h`) au lieu du granulaire. Sur une sinusoïde, le granulaire se trompait de +9 à −20 cents, le phase vocoder de ±2 cents
+**Moteur SPACE** (`dsp/include/stasis/space_reverb.h`), base des algos Room / Hall / Cathedral / Shimmer :
+- **Entrée** : un diffuseur 8 canaux en 4 étages (délais aléatoires stratifiés, mélange, inversions de polarité, Hadamard).
+- **Réseau** : un FDN de 16 lignes, chacune avec un **allpass modulé dans la boucle**, pour que la densité continue de croître dans la queue.
+- **Matrice de feedback** : Householder, **suivie d'une rotation des lignes**. Chaque ligne se réinjecte dans une autre et pas dans elle-même. Avec une Householder seule, chaque ligne gardait 87 % de son propre signal et sonnait comme un filtre en peigne : c'était le côté métallique du hall.
+- **Modulation aléatoire lisse**, sans chorus périodique.
+- **Stéréo** : sorties L/R sur deux vecteurs orthogonaux, donc totalement décorrélées et compatibles mono.
+- **Anti-boue à la source** : les graves décroissent plus vite par défaut, et l'entrée passe par un passe-haut.
+- **Freeze parfaitement stable** (0,01 dB par minute). La modulation s'efface en douceur pendant le freeze : sinon les lectures interpolées rognent un peu d'aigus à chaque passage et vident la queue d'environ 2 dB par minute.
+- **Justesse** :
+  - La profondeur de modulation se calcule selon la longueur des lignes et le decay. Les petits désaccords de chaque passage s'additionnent au hasard sur une longue queue, donc on fixe l'écart total (quelques cents) au lieu de l'écart par passage.
+  - Les premiers réglages s'appliquent sans glissement : c'était ce glissement qui faisait sonner la cathédrale presque un demi-ton trop bas au début.
+- **Shimmer** : un phase vocoder (`spectral_pitch_shifter.h`) au lieu du granulaire. Sur une sinusoïde, le granulaire se trompait de +9 à −20 cents, le phase vocoder de ±2 cents.
 
 Mesures (`stasis_render --analyse`, réponse impulsionnelle) :
 
 | Reverb | Densité atteinte après | Résonance métallique | Corrélation L/R |
 |---|---|---|---|
-| Hall v1 | 190 ms | 0,032 | 0,00 |
-| **Hall v2** | **90 ms** | 0,033 | 0,00 |
-| Cathedral v1 | 255 ms | 0,027 | 0,00 |
-| **Cathedral v2** | **100 ms** | 0,032 | 0,00 |
+| Hall | 90 ms | **0,027** (0,084 avant la rotation) | 0,00 |
+| Cathedral | 120 ms | **0,021** | 0,00 |
 | Plate | 350 ms | 0,070 | 0,00 |
 
-Justesse de la queue (`--analyse`, burst de sinus à 440 Hz, écart du pic / énergie à ±10 cents), dans trois fenêtres de temps :
+Justesse de la queue (`--analyse`, bursts de sinus sur 5 notes de C4 à C5) : écart moyen du pic et énergie à ±10 cents, dans trois fenêtres de temps.
 
 | | Début | 1,2 s | 3 s |
 |---|---|---|---|
-| Cathedral avant correction | −87 ct / 1 % | −73 ct / 1 % | −96 ct / 1 % |
-| **Cathedral maintenant** | **+0,5 ct / 95 %** | **+0,1 ct / 94 %** | **+2,9 ct / 92 %** |
-| Shimmer +12 avant | −91 ct / 1 % | −78 ct / 2 % | −69 ct / 0 % |
-| **Shimmer +12 maintenant** | **+2,2 ct / 79 %** | **+1,2 ct / 58 %** | **+5,4 ct / 97 %** |
-| Hall | +4,7 ct / 65 % | +1,8 ct / 64 % | −6,3 ct / 76 % |
+| Hall | 2,7 ct / 85 % | 2,2 ct / 84 % | 5,6 ct / 72 % |
+| Cathedral | 5,4 ct / 78 % | 5,9 ct / 60 % | 1,6 ct / 85 % |
+| Shimmer +12 | 1,5 ct / 83 % | 3,1 ct / 83 % | 2,0 ct / 82 % |
+| Shimmer +7 | 5,2 ct / 66 % | 3,9 ct / 78 % | 5,1 ct / 64 % |
+| Shimmer −12 | 3,1 ct / 62 % | 3,1 ct / 77 % | 7,3 ct / 54 % |
 
-Point ouvert : le hall (taille 0,7) reste un peu métallique (0,084, contre 0,03 pour la cathédrale), parce qu'il a moins de modes que les grandes tailles. Pistes : plus d'allpass dans la boucle pour les petites tailles, early reflections dédiées.
+Avant les corrections, la cathédrale et le shimmer +12 étaient décalés de −70 à −96 cents. La mesure est maintenant moyennée sur 5 notes, car une seule sinusoïde ne reflète que le mode de la pièce le plus proche. Le « ±1 cent » mesuré auparavant sur 440 Hz seul était un cas favorable.
 
 Pistes suivantes vers le « top du top » : early reflections dédiées par taille de pièce, absorption à 4 bandes, densité adaptative selon la taille, calibration du niveau de sortie entre algos.
 

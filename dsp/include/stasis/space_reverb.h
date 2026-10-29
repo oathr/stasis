@@ -8,14 +8,15 @@
 
 namespace stasis {
 
-// SPACE reverb, second generation. What changed from FdnReverb (v1), and why:
+// SPACE reverb: Room → Hall → Cathedral, plus Shimmer and Freeze. Design choices:
 //  - Input diffusion is an 8-channel diffuser (4 stages of stratified random delays,
 //    shuffle + polarity flips + Hadamard; after Signalsmith, "Let's write a reverb").
 //    Echo density builds in a few ms instead of a grainy cluster of discrete echoes.
 //  - Every FDN line carries a modulated allpass (Lexicon / Dattorro practice), so the
 //    density keeps growing in the tail instead of settling into a fixed pattern.
-//  - Feedback matrix is Householder: lossless, O(N), keeps lines individual, the
-//    in-line allpasses already provide the mixing.
+//  - Feedback matrix is Householder followed by a rotation of the lines: lossless, O(N),
+//    and no line feeds back into itself (a plain Householder sends 87 % of each line back
+//    to itself, and each line then rings as a comb: the "metallic" small hall).
 //  - Line modulation is smooth random rather than sine: breaks metallic modes without
 //    the periodic chorus wobble. Its depth is derived from the decay time so the tail's
 //    total pitch drift stays a few cents, short room or endless cathedral alike.
@@ -124,6 +125,9 @@ public:
     void process(const float* inL, const float* inR, float* outL, float* outR, int numSamples) {
         const float glide = smoothingCoef(0.3f, sampleRate_, numSamples);
         for (int i = 0; i < kLines; ++i) lengths_[size_t(i)] += (targetLengths_[size_t(i)] - lengths_[size_t(i)]) * glide;
+        // Freeze fades the modulation out: modulated reads lose a little treble on every
+        // pass (interpolation), which would slowly drain an endless tail (~2 dB / minute).
+        modScale_ += ((params_.freeze ? 0.0f : 1.0f) - modScale_) * smoothingCoef(0.5f, sampleRate_, numSamples);
         updateLoopGains();
 
         const float predelay = params_.predelayMs * 0.001f * sampleRate_;
@@ -138,7 +142,7 @@ public:
             if ((controlCounter_++ % kControlInterval) == 0) {
                 for (int i = 0; i < kLines; ++i) {
                     const size_t k = size_t(i);
-                    const float target = modDepth_[k] * (1.0f + modulators_[k].advance(kControlInterval));
+                    const float target = modDepth_[k] * modScale_ * (1.0f + modulators_[k].advance(kControlInterval));
                     modStep_[k] = (target - mod_[k]) / float(kControlInterval);
                 }
             }
@@ -186,9 +190,12 @@ public:
                 lateR += v * kTapR[k];
             }
 
-            // Householder: y - (2/N) * sum(y).
+            // Householder (y - (2/N) * sum(y)), then rotate by 5 lines (coprime with 16):
+            // each line feeds the next one instead of itself, so the main loop runs through
+            // all 16 lines before coming back. No single line rings as its own comb.
             const float h = sum * (2.0f / float(kLines));
             for (auto& v : y) v -= h;
+            std::rotate(y.begin(), y.begin() + 5, y.end());
 
             if (shimmer > 0.0f) {
                 // u = (1 x8, 0 x8)/sqrt(8) is unit-norm: crossfade that component towards its
@@ -281,6 +288,7 @@ private:
     std::array<OnePole, kLines> lowSplit_, highSplit_;
     std::array<Lfo, kLines> modulators_;
     std::array<float, kLines> mod_{}, modStep_{}, modRateJitter_{}, modDepth_{};
+    float modScale_ = 1.0f;
     uint32_t controlCounter_ = 0;
 
     DelayLine predelay_[2];

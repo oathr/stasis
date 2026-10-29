@@ -10,8 +10,8 @@
 #include <functional>
 #include <string>
 
+#include <stasis/capture_stretch.h>
 #include <stasis/color.h>
-#include <stasis/fdn_reverb.h>
 #include <stasis/harmonic_focus.h>
 #include <stasis/key_detector.h>
 #include <stasis/lfo.h>
@@ -95,25 +95,6 @@ void levelMatch(Stereo& s) {
 float seconds(const Stereo& s) { return float(s.size()) / s.sampleRate; }
 
 // --- Module helpers -------------------------------------------------------------
-
-FdnReverb::Params hallV1() {
-    FdnReverb::Params p;
-    p.size = 0.7f;
-    p.decaySeconds = 8.0f;
-    p.predelayMs = 25.0f;
-    return p;
-}
-
-FdnReverb::Params cathedralV1() {
-    auto p = hallV1();
-    p.size = 1.0f;
-    p.decaySeconds = 25.0f;
-    p.hfRatio = 0.35f;
-    p.hfCrossoverHz = 3000.0f;
-    p.modDepth = 0.7f;
-    p.predelayMs = 40.0f;
-    return p;
-}
 
 SpaceReverb::Params hall() {
     SpaceReverb::Params p;
@@ -244,16 +225,10 @@ std::vector<Recipe> recipes() {
 
     r.push_back({"00_dry", "source, untouched", [](const Source& s) { return s.audio; }});
 
-    r.push_back({"01a_hall_v1", "OLD reverb: FDN 16, size 0.7, RT60 8 s", [](const Source& s) {
-                     return mix(s.audio, 0.7f, reverb<FdnReverb>(s.audio, hallV1(), seconds(s.audio)), 0.8f);
-                 }});
-    r.push_back({"01b_hall_v2", "NEW reverb: same settings", [](const Source& s) {
+    r.push_back({"01_hall", "hall, size 0.7, RT60 8 s", [](const Source& s) {
                      return mix(s.audio, 0.7f, space(s.audio, hall()), 0.8f);
                  }});
-    r.push_back({"02a_cathedral_v1", "OLD reverb: size 1, RT60 25 s", [](const Source& s) {
-                     return mix(s.audio, 0.5f, reverb<FdnReverb>(s.audio, cathedralV1(), seconds(s.audio)), 1.0f);
-                 }});
-    r.push_back({"02b_cathedral_v2", "NEW reverb: same settings", [](const Source& s) {
+    r.push_back({"02_cathedral", "cathedral, size 1, RT60 25 s", [](const Source& s) {
                      return mix(s.audio, 0.5f, space(s.audio, cathedral()), 1.0f);
                  }});
 
@@ -293,6 +268,20 @@ std::vector<Recipe> recipes() {
     r.push_back({"05_tape_echo", "tape echo 420 ms, fb 0.65, into a small room", [](const Source& s) {
                      TapeEcho::Params ep;
                      ep.feedback = 0.65f;
+                     const Stereo withEcho = mix(s.audio, 1.0f, tape(s.audio, ep), 0.7f);
+                     auto p = hall();
+                     p.size = 0.4f;
+                     p.decaySeconds = 3.0f;
+                     return mix(withEcho, 0.8f, space(withEcho, p), 0.4f);
+                 }});
+
+    r.push_back({"05b_tape_sync", "tape echo SYNC 1/8 dotted @ 96 BPM, ping-pong, into a small room", [](const Source& s) {
+                     TapeEcho::Params ep;
+                     ep.sync = true;
+                     ep.bpm = 96.0f;
+                     ep.division = TapeEcho::Division::EighthDotted;
+                     ep.feedback = 0.55f;
+                     ep.pingPong = true;
                      const Stereo withEcho = mix(s.audio, 1.0f, tape(s.audio, ep), 0.7f);
                      auto p = hall();
                      p.size = 0.4f;
@@ -385,7 +374,7 @@ std::vector<Recipe> recipes() {
         return space(withEcho, p);
     };
 
-    r.push_back({"10_ambient_chain", "tape ping-pong -> shimmer cathedral (NEW reverb)", [=](const Source& s) {
+    r.push_back({"10_ambient_chain", "tape ping-pong -> shimmer cathedral", [=](const Source& s) {
                      return mix(s.audio, 0.4f, chainWet(s), 1.0f);
                  }});
 
@@ -435,6 +424,38 @@ std::vector<Recipe> recipes() {
                          return mix(s.audio, 0.4f, space(crushed, cathedral()), 1.0f);
                      }});
     }
+
+    // STRETCH (capture) -> ECHO (tape ping-pong) -> SPACE (cathedral): the module order of the plugin.
+    const auto captureChain = [](const Source& s, CaptureStretch::Params cp, float captureAt) {
+        const Stereo& in = s.audio;
+        const float length = std::max(seconds(in), 40.0f);
+        CaptureStretch cap;
+        cap.prepare(in.sampleRate);
+        cap.setParams(cp);
+        bool captured = false;
+        const Stereo stretched = runWet(cap, in, size_t(length * in.sampleRate), [&](size_t pos) {
+            if (!captured && captureAt >= 0.0f && float(pos) / in.sampleRate >= captureAt) {
+                cap.capture();
+                captured = true;
+            }
+        });
+        TapeEcho::Params ep;
+        ep.sync = true;
+        ep.bpm = 80.0f;
+        ep.division = TapeEcho::Division::QuarterDotted;
+        ep.feedback = 0.6f;
+        ep.pingPong = true;
+        const Stereo withEcho = mix(stretched, 1.0f, tape(stretched, ep), 0.6f);
+        auto p = cathedral();
+        p.decaySeconds = 20.0f;
+        return mix(in, 0.35f, mix(withEcho, 0.5f, space(withEcho, p), 1.0f), 1.0f);
+    };
+    r.push_back({"17a_capture_smear_pong_cathedral", "STRETCH smear x8 (live) -> tape ping-pong SYNC 1/4. @80 -> cathedral", [=](const Source& s) {
+                     return captureChain(s, {CaptureStretch::Mode::Smear, 8.0f, 4.0f}, -1.0f);
+                 }});
+    r.push_back({"17b_capture_loop_pong_cathedral", "CAPTURE 4 s at 5 s, x30 loop -> ping-pong SYNC 1/4. @80 -> cathedral, under the dry", [=](const Source& s) {
+                     return captureChain(s, {CaptureStretch::Mode::Capture, 30.0f, 4.0f}, 5.0f);
+                 }});
 
     r.push_back({"14_full_chain", "tape -> shimmer cathedral -> FOCUS key zero latency -> COLOR", [=](const Source& s) {
                      const Stereo wet = color(focus(s, chainWet(s), false, Engine::Zero), {-0.3f, 0.8f, 0.3f});
@@ -514,10 +535,8 @@ void reportImpulse(const char* name, Params p, float fs) {
 void analyseReverbs(float fs) {
     std::printf("%-18s %13s %10s %10s %10s\n", "reverb", "dense after", "NED tail", "ringing", "L/R corr");
     std::printf("%-18s %13s %10s %10s %10s\n", "", "(lower=better)", "(1=ideal)", "(lower)", "(0=wide)");
-    reportImpulse<FdnReverb>("hall v1", hallV1(), fs);
-    reportImpulse<SpaceReverb>("hall v2", hall(), fs);
-    reportImpulse<FdnReverb>("cathedral v1", cathedralV1(), fs);
-    reportImpulse<SpaceReverb>("cathedral v2", cathedral(), fs);
+    reportImpulse<SpaceReverb>("hall", hall(), fs);
+    reportImpulse<SpaceReverb>("cathedral", cathedral(), fs);
     PlateReverb::Params plate;
     plate.decay = 0.85f;
     plate.size = 1.3f;
@@ -550,72 +569,74 @@ std::string pitchClassNames(uint16_t mask) {
     return s.empty() ? "-" : s;
 }
 
-// Tuning of a reverb tail: a 440 Hz sine burst goes in, and in successive windows we
-// look at the tail around 440 Hz (and the shimmer octave): where the peak sits
-// (cents off) and how much energy stays within ±10 cents of it ("purity").
+// Tuning of a reverb tail: a sine burst goes in, and in successive windows we look at
+// the tail around the expected pitch (times `ratio` for shimmer): where the peak sits
+// (cents off) and how much energy stays within ±10 cents ("purity"). Averaged over
+// five notes, since a single sine mostly reports whichever room mode sits nearest.
 template <typename Reverb, typename Params>
-void reportTuning(const char* name, const Params& p, float fs, float measureHz = 440.0f) {
-    Stereo burst;
-    burst.sampleRate = fs;
-    burst.resize(size_t(6.0f * fs));
-    for (size_t i = 0; i < size_t(0.4f * fs); ++i) {
-        const float t = float(i) / fs;
-        const float env = std::min({1.0f, t / 0.02f, (0.4f - t) / 0.02f});
-        burst.left[i] = burst.right[i] = 0.3f * env * std::sin(kTwoPi * 440.0f * t);
-    }
-    const Stereo tail = reverb<Reverb>(burst, p, 6.0f);
-
+void reportTuning(const char* name, const Params& p, float fs, float ratio = 1.0f) {
+    const float notes[] = {261.63f, 329.63f, 392.0f, 440.0f, 523.25f};
+    const float windows[] = {0.4f, 1.2f, 3.0f};
+    float cents[3] = {}, purity[3] = {};
     const int n = 32768;
     Fft fft;
     fft.prepare(n);
-    auto measure = [&](float startSeconds, float f) {
-        std::vector<Fft::Complex> spec(static_cast<size_t>(n));
-        const size_t start = size_t(startSeconds * fs);
-        for (int i = 0; i < n; ++i)
-            spec[size_t(i)] = (tail.left[start + size_t(i)] + tail.right[start + size_t(i)]) *
-                              (0.5f - 0.5f * std::cos(kTwoPi * float(i) / float(n)));
-        fft.forward(spec);
-        const float binHz = fs / float(n);
-        const int lo = int(f * 0.944f / binHz), hi = int(f * 1.059f / binHz);  // ±100 cents
-        int best = lo;
-        double around = 0.0, inTune = 0.0;
-        for (int k = lo; k <= hi; ++k)
-            if (std::norm(spec[size_t(k)]) > std::norm(spec[size_t(best)])) best = k;
-        const float a = std::log(std::abs(spec[size_t(best - 1)]) + 1e-12f), b = std::log(std::abs(spec[size_t(best)]) + 1e-12f),
-                    c = std::log(std::abs(spec[size_t(best + 1)]) + 1e-12f);
-        const float peakHz = (float(best) + 0.5f * (a - c) / (a - 2.0f * b + c)) * binHz;
-        for (int k = lo; k <= hi; ++k) {
-            const double e = std::norm(spec[size_t(k)]);
-            around += e;
-            if (std::abs(12.0f * std::log2(float(k) * binHz / f)) < 0.1f) inTune += e;
+    for (const float f0 : notes) {
+        Stereo burst;
+        burst.sampleRate = fs;
+        burst.resize(size_t(6.0f * fs));
+        for (size_t i = 0; i < size_t(0.4f * fs); ++i) {
+            const float t = float(i) / fs;
+            const float env = std::min({1.0f, t / 0.02f, (0.4f - t) / 0.02f});
+            burst.left[i] = burst.right[i] = 0.3f * env * std::sin(kTwoPi * f0 * t);
         }
-        return std::pair<float, float>(1200.0f * std::log2(peakHz / f), float(100.0 * inTune / around));
-    };
-    std::printf("  %-22s", name);
-    for (const float t : {0.4f, 1.2f, 3.0f}) {
-        const auto [cents, purity] = measure(t, measureHz);
-        std::printf("  %+6.1f ct %5.1f %%", cents, purity);
+        const Stereo tail = reverb<Reverb>(burst, p, 6.0f);
+        const float f = f0 * ratio, binHz = fs / float(n);
+        for (int w = 0; w < 3; ++w) {
+            std::vector<Fft::Complex> spec(static_cast<size_t>(n));
+            const size_t start = size_t(windows[w] * fs);
+            for (int i = 0; i < n; ++i)
+                spec[size_t(i)] = (tail.left[start + size_t(i)] + tail.right[start + size_t(i)]) *
+                                  (0.5f - 0.5f * std::cos(kTwoPi * float(i) / float(n)));
+            fft.forward(spec);
+            const int lo = int(f * 0.944f / binHz), hi = int(f * 1.059f / binHz);  // ±100 cents
+            int best = lo;
+            double around = 0.0, inTune = 0.0;
+            for (int k = lo; k <= hi; ++k)
+                if (std::norm(spec[size_t(k)]) > std::norm(spec[size_t(best)])) best = k;
+            const float a = std::log(std::abs(spec[size_t(best - 1)]) + 1e-12f), b = std::log(std::abs(spec[size_t(best)]) + 1e-12f),
+                        c = std::log(std::abs(spec[size_t(best + 1)]) + 1e-12f);
+            const float peakHz = (float(best) + 0.5f * (a - c) / (a - 2.0f * b + c)) * binHz;
+            for (int k = lo; k <= hi; ++k) {
+                const double e = std::norm(spec[size_t(k)]);
+                around += e;
+                if (std::abs(12.0f * std::log2(float(k) * binHz / f)) < 0.1f) inTune += e;
+            }
+            cents[w] += std::abs(1200.0f * std::log2(peakHz / f)) / 5.0f;
+            purity[w] += float(100.0 * inTune / around) / 5.0f;
+        }
     }
+    std::printf("  %-22s", name);
+    for (int w = 0; w < 3; ++w) std::printf("  %5.1f ct %5.1f %%", cents[w], purity[w]);
     std::printf("\n");
 }
 
 void analyseTuning(float fs) {
-    std::printf("\nTUNING of the tail, 440 Hz sine burst (peak offset, energy within ±10 cents):\n");
-    std::printf("  %-22s  %-18s  %-18s  %-18s\n", "", "0.4-1.1 s (start)", "1.2-1.9 s", "3.0-3.7 s");
-    reportTuning<SpaceReverb>("hall v2", hall(), fs);
-    reportTuning<SpaceReverb>("cathedral v2", cathedral(), fs);
-    reportTuning<FdnReverb>("cathedral v1", cathedralV1(), fs);
+    std::printf("\nTUNING of the tail, 5 sine bursts C4..C5 (mean |peak offset|, energy within ±10 cents):\n");
+    std::printf("  %-22s  %-17s  %-17s  %-17s\n", "", "0.4-1.1 s (start)", "1.2-1.9 s", "3.0-3.7 s");
+    reportTuning<SpaceReverb>("hall", hall(), fs);
+    reportTuning<SpaceReverb>("cathedral", cathedral(), fs);
     auto s = hall();
     s.size = 0.9f;
     s.decaySeconds = 18.0f;
     s.shimmer = 0.6f;
-    reportTuning<SpaceReverb>("shimmer +12 (at 880)", s, fs, 880.0f);
+    reportTuning<SpaceReverb>("shimmer +12 (octave)", s, fs, 2.0f);
     s.shimmer = 1.0f;
-    reportTuning<SpaceReverb>("shimmer +12 depth 1", s, fs, 880.0f);
+    reportTuning<SpaceReverb>("shimmer +12 depth 1", s, fs, 2.0f);
     s.shimmerSemitones = 7.0f;
-    reportTuning<SpaceReverb>("shimmer +7 (at 659)", s, fs, 440.0f * semitonesToRatio(7.0f));
+    reportTuning<SpaceReverb>("shimmer +7 (fifth)", s, fs, semitonesToRatio(7.0f));
     s.shimmerSemitones = -12.0f;
-    reportTuning<SpaceReverb>("shimmer -12 (at 220)", s, fs, 220.0f);
+    reportTuning<SpaceReverb>("shimmer -12 (octave)", s, fs, 0.5f);
 }
 
 // Share of the energy that sits on the target note's harmonics (±35 cents).
