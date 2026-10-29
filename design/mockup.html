@@ -235,6 +235,8 @@ header { display: grid; grid-template-columns: auto 1fr auto; align-items: cente
 .tonal-row { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 10px; }
 .tonal-row .seg { flex-wrap: nowrap; gap: 2px; }
 .tonal-row .seg button { padding: 3px 5px; font-size: 8.5px; }
+.seg.types { flex-wrap: nowrap; gap: 2px; }
+.seg.types button { flex: 1; padding: 4px 3px; font-size: 8.5px; letter-spacing: .06em; }
 .cursor { display: grid; grid-template-columns: auto 1fr auto 44px; align-items: center; gap: 8px; font-size: 8.5px; letter-spacing: .14em; color: var(--muted); user-select: none; }
 .cursor .track { position: relative; height: 18px; cursor: ew-resize; touch-action: none; }
 .cursor .track::before { content: ""; position: absolute; left: 0; right: 0; top: 50%; border-top: 1px solid var(--line); }
@@ -435,6 +437,9 @@ const live = {
     if (fk) for (let i = 0; i < 12; i++) fk.light(i, (s.classes | midi) & (1 << i));
     const st = document.getElementById('status');
     if (st) st.innerHTML = `CPU <b>${s.cpu.toFixed(1)}%</b><br>LATENCY <b>0 SMP</b><br>MIDI <b>${on.join(' ') || '—'}</b>`;
+    // SPACE › RESONATOR: the notes the combs ring on.
+    const sc = document.querySelector('[data-mod="space"] .top .code');
+    if (sc) sc.textContent = s.res ? 'Resonator · ' + names.filter((_, i) => s.res & (1 << i)).join(' ') : MODS.space.code;
     const sr = document.getElementById('srate');
     if (sr && s.sampleRate) sr.textContent = (s.sampleRate / 1000).toFixed(1).replace('.0', '') + ' KHZ';
   },
@@ -662,7 +667,7 @@ const MODS = {
             filters.append(label('LOW CUT'), lowCut, label('HIGH CUT'), highCut);
             b.append(filters, tonalRow()); } },
   space:  { n: '06', name: 'SPACE',   units: 2, code: 'FDN-16 · Dattorro plate', build: b => {
-            b.append(seg(['Room', 'Plate', 'Hall', 'Cathedral'], 3, null, 'space_type'));
+            { const types = seg(['Room', 'Plate', 'Hall', 'Cathedral', 'Bloom', 'Resonator'], 3, null, 'space_type'); types.classList.add('types'); b.append(types); }
             b.append(knobRow([{ id: 'space_size', l: 'Size', t: state.size, f: t => t.toFixed(2), on: v => state.size = v },
                        { id: 'space_decay', l: 'Decay', t: state.decay, f: t => t > .98 ? '∞' : (0.5 * Math.pow(120, t)).toFixed(1) + ' s', on: v => state.decay = v },
                        { id: 'space_tone', l: 'Tone', t: state.tone, f: pct, on: v => state.tone = v },

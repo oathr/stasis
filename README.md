@@ -138,6 +138,8 @@ Saturation (tanh anti-repliement) et filtres de bande dans la boucle, sans souff
 |---|---|
 | `ROOM` / `HALL` / `CATHEDRAL` | FDN 16 lignes : diffuseur 8 canaux, matrice Householder + rotation (aucune ligne ne se réinjecte elle-même), absorption 3 bandes, modulation qui s'adapte à la durée |
 | `PLATE` | Plaque de Dattorro |
+| `BLOOM` | Deux réseaux de 8 lignes en série devant le FDN : la reverb **gonfle** après l'attaque au lieu de partir à fond. Plus `DECAY` et `SIZE` sont grands, plus le gonflement est long |
+| `RESONATOR` | 24 peignes accordés (12 notes × 2 octaves, amortis comme des cordes) devant une reverb plus courte : la queue **chante des notes**. Elle suit les notes MIDI tenues, sinon ce que FOCUS AUTO entend, et garde le dernier accord (do + sol au départ). `SIZE` choisit le registre (do 4, do 3 ou do 2), `TONE` l'amortissement. Les notes jouées s'affichent dans l'en-tête de SPACE |
 
 | Contrôle | Effet |
 |---|---|
@@ -147,6 +149,8 @@ Saturation (tanh anti-repliement) et filtres de bande dans la boucle, sans souff
 | `WIDTH` | Largeur stéréo |
 
 Mesures : hall dense en 90 ms, résonance résiduelle 0,027 ; dérive en freeze 0,01 dB/min.
+Pour un clic avec DECAY 5 s, l'énergie de HALL culmine à 175 ms et celle de BLOOM à 525 ms. BLOOM a le même niveau au sommet, mais ses 50 premières ms sont 16 dB plus bas.
+Avec un bruit blanc en entrée et un la tenu en MIDI, RESONATOR sort 23 dB de plus sur les la que sur les notes voisines.
 
 ### 07 · FOCUS — le wet qui suit le MIDI
 Garde dans le wet les fréquences des notes jouées et atténue le reste, dont la queue de l'accord précédent. **Zéro latence** (banc de filtres résonants).

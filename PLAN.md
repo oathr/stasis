@@ -98,8 +98,8 @@ Un seul module, un sélecteur `ALGO`, 4 paramètres communs : `SIZE` · `DECAY` 
 | ★ SHIMMER | FDN + **phase vocoder dans la boucle de feedback**. `DEPTH` 0…1 (jusqu'à la moitié du feedback re-pitchée) et `PITCH` −24…+24 | Halo céleste qui monte, ou cascade sombre qui descend |
 | ★ DIGITAL 80s | Allpass loops à modulation « random chorus » façon Lexicon 224/480 + option **fréquence d'échantillonnage interne réduite** (20–34 kHz) et bit-depth vintage | Le grain des reverbs numériques des années 80 (et ça économise du CPU) |
 | ◆ SPECTRAL | Reverb dans le domaine STFT : **decay indépendant par bande de fréquence**, phases aléatoires | Les aigus peuvent tenir 60 s, les graves 3 s (ou l'inverse) — irréaliste et magnifique |
-| ◆ MODAL / TUNED | Banc de **résonateurs modaux** (Abel et al., « Modal reverb ») accordés sur une gamme / une note | Reverb qui « chante » une tonalité |
-| ◆ BLOOM | Cascade de diffuseurs à enveloppe lente : la reverb **gonfle** au lieu de décroître | Swells, effet « respiration » |
+| ✓ RESONATOR | Fait (`resonator.h`) : 24 peignes accordés sur les notes MIDI (ou FOCUS AUTO) devant une reverb plus courte, +23 dB sur la note | Reverb qui « chante » une tonalité |
+| ✓ BLOOM | Fait (`bloom.h`) : deux réseaux de 8 lignes en série devant le FDN, la reverb **gonfle** au lieu de décroître (sommet à 525 ms contre 175 ms en HALL, DECAY 5 s) | Swells, effet « respiration » |
 | ◆ BLACK / ∞ | FDN non physique : feedback > 1 contrôlé par saturation douce dans la boucle | Effondrement infini, masses sonores |
 | (option v2) CONVOLUTION | Convolution partitionnée **non uniforme** (Gardner / Wefers) → zéro latence ; IR de grands espaces + IR générées synthétiquement | Réalisme absolu (lourd en CPU, donc optionnel) |
 
