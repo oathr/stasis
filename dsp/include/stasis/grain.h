@@ -52,6 +52,7 @@ public:
     struct Event {
         float semitones, seconds, pan;
         int envelope;
+        float level;  // RMS of the slice it plays, times its gain
     };
     static constexpr int kEvents = 128;
 
@@ -170,13 +171,23 @@ private:
         if (double(written_) < needed + 8.0) return;
         const double back = needed + rng_.uniform() * std::max(0.0, std::min(reach, double(written_) - needed - 8.0));
 
+        // How loud this grain is: the RMS of its slice (16 points), times its gain.
+        const double start = double(written_) - back;
+        double energy = 0.0;
+        for (int i = 0; i < 16; ++i) {
+            const double at = start + (double(length) * ratio) * (i + 0.5) / 16.0;
+            const float a = read(0, at), b = read(1, at);
+            energy += 0.5 * (double(a) * a + double(b) * b);
+        }
+        const float sliceLevel = float(std::sqrt(energy / 16.0)) * level;
+
         const float pan = std::clamp(params_.spread, 0.0f, 1.0f) * rng_.bipolar();
         const float angle = (pan + 1.0f) * 0.25f * kPi;
         *voice = {true, double(written_) - back, ratio, level, std::cos(angle) * 1.41421356f, std::sin(angle) * 1.41421356f, length, 0,
                   params_.envelope};
 
         const uint32_t head = eventHead_.load(std::memory_order_relaxed);
-        events_[head % kEvents] = {float(semitones), float(length) / sampleRate_, pan, int(params_.envelope)};
+        events_[head % kEvents] = {float(semitones), float(length) / sampleRate_, pan, int(params_.envelope), sliceLevel};
         eventHead_.store(head + 1, std::memory_order_release);
     }
 

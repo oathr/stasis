@@ -179,6 +179,7 @@ void StasisEditor::timerCallback() {
             g->setProperty("len", events[i].seconds);
             g->setProperty("pan", events[i].pan);
             g->setProperty("env", events[i].envelope);
+            g->setProperty("level", events[i].level);
             grains.add(juce::var(g));
         }
         webView_.emitEventIfBrowserIsVisible("stasis_grains", grains);
