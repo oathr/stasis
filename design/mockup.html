@@ -259,7 +259,6 @@ body.learning [data-mapid^="m0"], body.learning [data-mapid^="m1"], body.learnin
   mix-blend-mode: hard-light; }
 .sweep.run { animation: sweep .55s steps(14) forwards; }
 @keyframes sweep { 0% { right: -200px; opacity: .9; } 90% { opacity: .9; } 100% { right: calc(100% + 20px); opacity: 0; } }
-.jolt { animation: jolt .28s steps(5); }
 @keyframes jolt { 0% { transform: translateX(0); } 20% { transform: translateX(-4px); } 40% { transform: translateX(3px) skewX(-1deg); } 60% { transform: translateX(-2px); } 80% { transform: translateX(1px); } 100% { transform: none; } }
 </style>
 </head>
@@ -868,11 +867,12 @@ Object.entries(THEMES).forEach(([name, [bg, acc]]) => {
 });
 
 // ---------- glitch gestures ----------
+// The sweep passes over the interface; the interface itself never moves.
 function glitch() {
-  const sweep = document.getElementById('sweep'), grid = document.getElementById('grid');
-  sweep.classList.remove('run'); grid.classList.remove('jolt');
-  void sweep.offsetWidth;  // restart the animations
-  sweep.classList.add('run'); grid.classList.add('jolt');
+  const sweep = document.getElementById('sweep');
+  sweep.classList.remove('run');
+  void sweep.offsetWidth;  // restart the animation
+  sweep.classList.add('run');
 }
 // Presets come from the plugin (Presets.h); a plain browser shows a sample.
 let PRESETS = [{ category: 'REVERB', name: 'Cathedral 25' }, { category: 'AMBIENT', name: 'Frozen Orchard' }, { category: 'ECHO', name: 'Tape Memory' }];
