@@ -94,6 +94,26 @@ void StasisProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
 
 juce::AudioProcessorEditor* StasisProcessor::createEditor() { return new StasisEditor(*this); }
 
+juce::StringArray StasisProcessor::getLaneTargets() const {
+    juce::StringArray ids;
+    const auto& specs = stasis::params::all();
+    for (int lane = 0; lane < 12; ++lane) {
+        const int index = engine.laneTargetIndex(lane);
+        ids.add(index >= 0 ? juce::String(specs[size_t(index)].id) : juce::String());
+    }
+    return ids;
+}
+
+void StasisProcessor::setLaneTarget(int lane, const juce::String& id) {
+    if (lane < 0 || lane >= 12) return;
+    if (id.isEmpty()) return engine.setLaneTarget(lane, -1);
+    const int index = stasis::params::indexOf(id.toStdString());
+    if (index < 0) return;
+    const auto& spec = stasis::params::all()[size_t(index)];
+    if (spec.kind != stasis::params::Kind::Float || stasis::params::isMotionId(spec.id)) return;
+    engine.setLaneTarget(lane, index);
+}
+
 int StasisProcessor::getNumPrograms() { return int(stasis::presets::all().size()); }
 
 const juce::String StasisProcessor::getProgramName(int index) {
@@ -150,6 +170,7 @@ void StasisProcessor::getStateInformation(juce::MemoryBlock& destData) {
     auto state = apvts.copyState();
     state.setProperty("order", getModuleOrder().joinIntoString(","), nullptr);
     state.setProperty("preset", currentPreset_, nullptr);
+    state.setProperty("targets", getLaneTargets().joinIntoString(","), nullptr);
     if (auto xml = state.createXml()) copyXmlToBinary(*xml, destData);
 }
 
@@ -160,6 +181,10 @@ void StasisProcessor::setStateInformation(const void* data, int sizeInBytes) {
         apvts.replaceState(state);
         setModuleOrder(juce::StringArray::fromTokens(state.getProperty("order").toString(), ",", ""));
         currentPreset_ = int(state.getProperty("preset", 0));
+        if (state.hasProperty("targets")) {
+            const auto ids = juce::StringArray::fromTokens(state.getProperty("targets").toString(), ",", "");
+            for (int lane = 0; lane < 12; ++lane) setLaneTarget(lane, lane < ids.size() ? ids[lane] : juce::String());
+        }
         juce::MessageManager::callAsync([safe = juce::WeakReference<StasisProcessor>(this)] {
             if (safe == nullptr) return;
             if (safe->onOrderChanged) safe->onOrderChanged();

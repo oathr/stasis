@@ -37,6 +37,11 @@ class Engine {
 public:
     static constexpr int kMaxBlock = 512;
 
+    Engine() {
+        for (size_t i = 0; i < laneTarget_.size(); ++i)
+            laneTarget_[i].store(params::kDefaultTargets[i][0] ? params::indexOf(params::kDefaultTargets[i]) : -1);
+    }
+
     void prepare(float sampleRate) {
         sampleRate_ = sampleRate;
         shape_.prepare(sampleRate);
@@ -61,7 +66,6 @@ public:
         modulated_.assign(params::all().size(), 0.0f);
         for (size_t i = 0; i < lanes_.size(); ++i) {
             lanes_[i].prepare(sampleRate, uint32_t(i + 1) * 7919u);
-            laneTarget_[i] = params::indexOf(params::kLanes[i].target);
             laneRate_[i] = params::indexOf(params::laneId(int(i), "rate"));
             laneShape_[i] = params::indexOf(params::laneId(int(i), "shape"));
             laneDepth_[i] = params::indexOf(params::laneId(int(i), "depth"));
@@ -116,6 +120,9 @@ public:
     float laneValue(int lane) const { return laneValues_[size_t(lane)].load(std::memory_order_relaxed); }
     // Where each lane has moved its target knob right now (0..1), for the UI.
     float laneTarget(int lane) const { return laneTargets_[size_t(lane)].load(std::memory_order_relaxed); }
+    // Which parameter (index in params::all(), -1 = none) a lane moves. Any thread.
+    void setLaneTarget(int lane, int paramIndex) { laneTarget_[size_t(lane)].store(paramIndex, std::memory_order_relaxed); }
+    int laneTargetIndex(int lane) const { return laneTarget_[size_t(lane)].load(std::memory_order_relaxed); }
 
     // Pitch classes FOCUS is following (MIDI, or what AUTO hears). Bit n = class n.
     uint16_t focusClasses() const { return focusClasses_.load(std::memory_order_relaxed); }
@@ -125,8 +132,8 @@ private:
 
     float v(const float* values, int index) const { return values[index]; }
 
-    // MOTION: each lane moves its target parameter around the user's setting, at most
-    // ±50 % of the knob's travel (depth 100 %, MOTION 100 %).
+    // MOTION: each lane sweeps its target between the user's setting (depth 0) and the
+    // knob's whole travel (depth 100 %): value = set + depth · (lfo01 − set).
     const float* modulate(const float* values, int n) {
         static const int iOn = params::indexOf("motion_on"), iAmount = params::indexOf("motion_amount"), iDrift = params::indexOf("motion_drift");
         const bool on = values[iOn] > 0.5f;
@@ -140,7 +147,8 @@ private:
         const float amount = values[iAmount], drift = params::driftScale(values[iDrift]);
         for (size_t i = 0; i < lanes_.size(); ++i) {
             const float depth = values[laneDepth_[i]];
-            if (depth <= 0.0f) {  // a lane at 0 % does not run
+            const int targetIndex = laneTarget_[i].load(std::memory_order_relaxed);
+            if (depth <= 0.0f || targetIndex < 0) {  // an empty lane, or one at 0 %, does not run
                 laneValues_[i].store(0.0f, std::memory_order_relaxed);
                 continue;
             }
@@ -149,10 +157,13 @@ private:
             lfo.setShape(values[laneShape_[i]]);
             const float x = lfo.advance(n);
             laneValues_[i].store(x, std::memory_order_relaxed);
-            float& target = modulated_[size_t(laneTarget_[i])];
-            target = std::clamp(target + 0.5f * amount * depth * x, 0.0f, 1.0f);
+            float& target = modulated_[size_t(targetIndex)];
+            target = std::clamp(target + amount * depth * (0.5f * (x + 1.0f) - target), 0.0f, 1.0f);
         }
-        for (size_t i = 0; i < lanes_.size(); ++i) laneTargets_[i].store(modulated_[size_t(laneTarget_[i])], std::memory_order_relaxed);
+        for (size_t i = 0; i < lanes_.size(); ++i) {
+            const int t = laneTarget_[i].load(std::memory_order_relaxed);
+            laneTargets_[i].store(t >= 0 ? modulated_[size_t(t)] : 0.0f, std::memory_order_relaxed);
+        }
         return modulated_.data();
     }
 
@@ -484,7 +495,8 @@ private:
     std::atomic<uint16_t> focusClasses_{0};
     std::atomic<uint64_t> order_{defaultOrder()};
     std::array<Lfo, 12> lanes_;
-    std::array<int, 12> laneTarget_{}, laneRate_{}, laneShape_{}, laneDepth_{};
+    std::array<int, 12> laneRate_{}, laneShape_{}, laneDepth_{};
+    std::array<std::atomic<int>, 12> laneTarget_{};
     std::array<std::atomic<float>, 12> laneValues_{}, laneTargets_{};
     std::vector<float> modulated_;
     bool motionWasOn_ = false;

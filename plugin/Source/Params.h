@@ -57,28 +57,27 @@ inline const std::array<const char*, 14> kDivisionNames = {"1/32", "1/16T", "1/1
 // (not a parameter): the UI changes it, the engine reads it.
 inline const std::array<const char*, 9> kModules = {"shape", "derez", "pitch", "stretch", "echo", "space", "focus", "air", "color"};
 
-// MOTION: 12 LFO lanes, each wired to one parameter. At full depth (and MOTION 100 %)
-// a lane moves its knob ±50 % of its travel around where the user left it. Every lane
-// starts at depth 0: it does nothing (and costs nothing) until the user raises it.
+// MOTION: 12 LFO lanes. The user maps each one to any knob (the mapping is part of the
+// state, not a parameter); by default only lane 1 is mapped, to the global DRY / WET.
+// DEPTH is the share of the knob's whole travel the lane sweeps: at 100 % the knob goes
+// from 0 to 100 %, at 50 % it sweeps halfway between where the user left it and that.
+// A lane at depth 0 does nothing and costs nothing.
 struct Lane {
-    const char* target;  // parameter id
-    const char* label;
-    int shape;           // LfoShape index
-    float rateHz, depth;
+    int shape;  // LfoShape index
+    float rateHz;
 };
 inline const std::array<Lane, 12> kLanes = {{
-    {"derez_crush", "CRUSH", 9, 0.10f, 0.0f},      {"stretch_factor", "STRETCH", 8, 0.03f, 0.0f},
-    {"echo_fdbk", "FEEDBACK", 6, 0.06f, 0.0f},     {"echo_mix", "REPEATS", 7, 0.20f, 0.0f},
-    {"space_size", "SIZE", 7, 0.03f, 0.0f},        {"space_decay", "DECAY", 9, 0.02f, 0.0f},
-    {"space_tone", "TONE", 0, 0.08f, 0.0f},        {"shimmer_depth", "SHIMMER", 6, 0.05f, 0.0f},
-    {"space_width", "WIDTH", 1, 0.07f, 0.0f},      {"color_lpf", "FILTER", 11, 0.12f, 0.0f},
-    {"tonal", "TONAL", 9, 0.04f, 0.0f},            {"out", "VOLUME", 0, 0.05f, 0.0f},
+    {7, 0.05f}, {9, 0.03f}, {6, 0.06f}, {7, 0.20f}, {7, 0.03f}, {9, 0.02f},
+    {0, 0.08f}, {6, 0.05f}, {1, 0.07f}, {11, 0.12f}, {9, 0.04f}, {0, 0.05f},
 }};
+inline const std::array<const char*, 12> kDefaultTargets = {"mix", "", "", "", "", "", "", "", "", "", "", ""};
 inline const std::array<const char*, 12> kShapeNames = {"SINE", "TRI", "SAW+", "SAW-", "SQUARE", "S&H", "SLEW", "R-SINE", "DRUNK", "PERLIN", "CHAOS", "BREATH"};
 inline float laneRateHz(float t) { return 0.001f * std::pow(20000.0f, t); }  // 0.001 .. 20 Hz
 inline float laneRateT(float hz) { return std::log(hz / 0.001f) / std::log(20000.0f); }
 inline float driftScale(float t) { return std::pow(4.0f, 2.0f * t - 1.0f); }  // ×0.25 .. ×4
 inline std::string laneId(int lane, const char* what) { return (lane < 9 ? "m0" : "m") + std::to_string(lane + 1) + "_" + what; }
+// What MOTION may move: every continuous knob, except MOTION's own.
+inline bool isMotionId(const std::string& id) { return id.rfind("motion_", 0) == 0 || (id.size() > 4 && id[0] == 'm' && id[3] == '_'); }
 
 
 inline const std::vector<Spec>& all() {
@@ -162,12 +161,12 @@ inline const std::vector<Spec>& all() {
         const std::vector<std::string> shapes(kShapeNames.begin(), kShapeNames.end());
         for (int i = 0; i < int(kLanes.size()); ++i) {
             const Lane& lane = kLanes[size_t(i)];
-            const std::string name = "Motion " + std::to_string(i + 1) + " " + lane.label;
+            const std::string name = "Motion " + std::to_string(i + 1);
             all.push_back({laneId(i, "rate"), name + " Rate", Kind::Float, laneRateT(lane.rateHz), {}, [](float t) {
                                const float hz = laneRateHz(t);
                                return fmt(hz < 0.1f ? "%.3f Hz" : hz < 1.0f ? "%.2f Hz" : "%.1f Hz", hz); }});
             all.push_back({laneId(i, "shape"), name + " Shape", Kind::Choice, float(lane.shape), shapes});
-            all.push_back({laneId(i, "depth"), name + " Depth", Kind::Float, lane.depth, {}, pct});
+            all.push_back({laneId(i, "depth"), name + " Depth", Kind::Float, 0.0f, {}, pct});
         }
         return all;
     }();

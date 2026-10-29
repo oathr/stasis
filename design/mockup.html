@@ -36,6 +36,7 @@
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
 html, body { height: 100%; }
+html { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }  /* a plugin, not a page: nothing to select */
 body {
   /* a very light gradient, like a sheet lit from the top left */
   background: radial-gradient(120% 95% at 22% 12%, var(--bg-hi) 0%, var(--bg) 50%, var(--bg-lo) 100%);
@@ -56,7 +57,7 @@ body::after { content: ""; position: fixed; inset: 0; pointer-events: none; z-in
 /* ---------- the chain ---------- */
 /* Two rows of cards; widths follow each module's units (1 or 2). The wire is drawn
    between cards, never across them; a numbered square marks where it enters each one. */
-.chain { position: relative; display: grid; grid-template-rows: 1fr 1fr; gap: 22px; padding: 0 30px 0 18px; }
+.chain { position: relative; display: grid; grid-template-rows: 1fr 1fr; gap: 22px; }  /* same edges as the visualizer and MOTION; the wire runs in the margins */
 .chain .row { display: flex; gap: 22px; min-height: 0; }
 .chain .row .card { flex: var(--units) 1 0; min-width: 0; }
 .wire { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; overflow: visible; z-index: 2; }
@@ -213,10 +214,28 @@ header { display: grid; grid-template-columns: auto 1fr auto; align-items: cente
 /* ---------- MOTION ---------- */
 .motion-body { display: grid; grid-template-columns: 1fr 1fr 130px; gap: 0 22px; }
 .lanes { display: grid; grid-auto-rows: 29px; }
-.cols { display: grid; grid-template-columns: 20px 76px 84px 88px 58px 1fr; align-items: center; gap: 8px; }
+.cols { display: grid; grid-template-columns: 18px 150px 80px 84px 54px 1fr; align-items: center; gap: 8px; }
 .lane { border-bottom: 1px solid var(--line); }
 .lane .i { color: var(--muted); font-size: 9px; }
-.lane .n { font-family: Archivo, sans-serif; font-weight: 500; font-stretch: 100%; font-size: 10.5px; letter-spacing: .16em; }
+.lane .target { display: flex; align-items: center; gap: 5px; min-width: 0; }
+.lane .n { font-family: Archivo, sans-serif; font-weight: 500; font-stretch: 100%; font-size: 9.5px; letter-spacing: .12em; text-transform: uppercase;
+  background: none; border: 1px solid transparent; color: inherit; padding: 3px 4px; cursor: pointer; text-align: left; flex: 1; min-width: 0;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lane .n:hover { border-color: var(--line); }
+.lane .n.empty { color: var(--on-dark-muted); }
+.lane .touch { width: 20px; height: 20px; flex: none; border: 1px solid var(--line); background: none; color: var(--on-dark-muted); cursor: pointer; padding: 3px; }
+.lane .touch svg { width: 100%; height: 100%; display: block; }
+.lane .touch:hover, .lane .touch[aria-pressed="true"] { color: var(--accent); border-color: var(--accent); }
+.lane .touch[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); }
+/* TOUCH armed: every knob MOTION can move is outlined, a click maps it */
+body.learning [data-mapid] { outline: 1px dashed var(--accent); outline-offset: 3px; cursor: crosshair; }
+body.learning [data-mapid^="m0"], body.learning [data-mapid^="m1"], body.learning [data-mapid^="motion_"] { outline: none; cursor: default; }
+.target-menu { position: absolute; z-index: 30; display: grid; grid-template-columns: repeat(6, 132px); gap: 10px 14px; padding: 14px 16px;
+  background: var(--dark); color: var(--on-dark); border: 1px solid var(--dark-line); box-shadow: 0 18px 40px rgba(0,0,0,.55); }
+.target-menu h4 { font-family: Archivo, sans-serif; font-weight: 600; font-size: 9.5px; letter-spacing: .26em; color: var(--accent); padding-bottom: 5px; margin-bottom: 3px; border-bottom: 1px solid var(--dark-line); }
+.target-menu button { display: block; width: 100%; background: none; border: 0; color: inherit; font: inherit; font-size: 10px; padding: 3px 4px; text-align: left; cursor: pointer; }
+.target-menu button:hover, .target-menu button[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); }
+.target-menu .none { grid-column: 1 / -1; border-top: 1px solid var(--dark-line); margin-top: 4px; padding-top: 8px; color: var(--on-dark-muted); }
 .lane .shape { display: flex; align-items: center; gap: 6px; border: 1px solid var(--line); height: 22px; padding: 0 6px; cursor: pointer; font-size: 9px; letter-spacing: .06em; }
 .lane .shape:hover { border-color: currentColor; }
 .lane .shape svg { width: 18px; height: 12px; flex: none; }
@@ -355,6 +374,9 @@ const bridge = {
     for (const id of this.controls.keys()) this.listen(id);
     window.__JUCE__.backend.addEventListener('stasis_spectrum', bands => { live.spectrum = bands; });
     window.__JUCE__.backend.addEventListener('stasis_motion', m => { live.lanes = m.lanes; live.targets = m.targets; });
+    const showTargets = ids => ids.forEach((id, i) => setLaneTarget(i, id, true));
+    J.getNativeFunction('getLaneTargets')().then(showTargets);
+    window.__JUCE__.backend.addEventListener('stasis_targets', showTargets);
     window.__JUCE__.backend.addEventListener('stasis_status', s => live.status(s));
   },
 };
@@ -415,7 +437,7 @@ function knob(k, opts = {}) {
     dot.setAttribute('cx', dx.toFixed(2)); dot.setAttribute('cy', dy.toFixed(2));
     arc.setAttribute('display', ''); dot.setAttribute('display', '');
   };
-  if (k.id) knobsById[k.id] = el;
+  if (k.id) { knobsById[k.id] = el; el.dataset.mapid = k.id; }
   draw();
   return el;
 }
@@ -464,7 +486,7 @@ function cursor(left, right, value, id, opts = {}) {
   const ghost = document.createElement('div'); ghost.className = 'ghost'; track.append(ghost);
   el.value = () => (v + 1) / 2;
   el.showMod = m => { ghost.style.display = m === null ? 'none' : 'block'; if (m !== null) ghost.style.left = (m * 100) + '%'; };
-  if (id) knobsById[id] = el;
+  if (id) { knobsById[id] = el; el.dataset.mapid = id; }
   draw();
   return el;
 }
@@ -554,7 +576,7 @@ const MODS = {
             sub.append(knobRow([{ id: 'shimmer_depth', l: 'Depth', t: state.shimmer, f: pct, on: v => state.shimmer = v }, { id: 'shimmer_pitch', l: 'Pitch', t: .75, f: bip(' st', 24) },
                                 { id: 'space_width', l: 'Width', t: .67, f: t => Math.round(150 * t) + '%' }]));
             b.append(sub); } },
-  motion: { n: '10', name: 'MOTION',  code: '12 LFO · each moves one knob up to ±50 % · hover a lane to see which', build: b => buildMotion(b) },
+  motion: { n: '10', name: 'MOTION',  code: '12 LFO · map any knob: ◎ then click it, or pick it from the list · depth 100 % = the whole travel', build: b => buildMotion(b) },
 };
 
 function buildCard(el) {
@@ -615,18 +637,18 @@ function drawWire() {
   const rowGap = 22;
   order.forEach((m, i) => {
     const b = box(cards[m]), y = portY(b);
-    if (i === 0) d += `M0 ${y} H${b.x}`;
+    if (i === 0) d += `M-22 ${y} H${b.x}`;
     else {
       const p = box(cards[order[i - 1]]), py = portY(p), px = p.x + p.w;
       if (Math.abs(p.y - b.y) < 2) d += `M${px} ${py} H${b.x}`;
-      else { const gy = p.y + p.h + rowGap / 2; d += `M${px} ${py} H${px + 11} V${gy} H${6} V${y} H${b.x}`; }
+      else { const gy = p.y + p.h + rowGap / 2; d += `M${px} ${py} H${px + 12} V${gy} H${-12} V${y} H${b.x}`; }
     }
     ports += `<g class="port"><rect x="${b.x - SQ / 2}" y="${y - SQ / 2}" width="${SQ}" height="${SQ}"/><text x="${b.x}" y="${y + .5}">${i + 1}</text></g>`;
   });
   const last = box(cards[order[order.length - 1]]), ly = portY(last), lx = last.x + last.w;
-  d += `M${lx} ${ly} H${lx + 9}`;
-  ports += `<g class="end"><rect x="${lx + 9}" y="${ly - 8}" width="16" height="16"/><text x="${lx + 17}" y="${ly + 18}">OUT</text></g>`;
-  ports += `<g class="end"><text x="7" y="${portY(box(cards[order[0]])) - 12}">IN</text></g>`;
+  d += `M${lx} ${ly} H${lx + 8}`;
+  ports += `<g class="end"><rect x="${lx + 8}" y="${ly - 6}" width="12" height="12"/><text x="${lx + 14}" y="${ly + 16}">OUT</text></g>`;
+  ports += `<g class="end"><text x="-12" y="${portY(box(cards[order[0]])) - 12}">IN</text></g>`;
   svg.innerHTML = `<path d="${d}"/>${ports}`;
 }
 // Drag a card by its spine; the drop marker shows where it will land.
@@ -699,12 +721,86 @@ function shapeIcon(i) {
   return `<svg viewBox="0 0 18 12"><polyline points="${pts.map(p => p.join(',')).join(' ')}" fill="none" stroke="currentColor" stroke-width="1.1"/></svg>`;
 }
 // Same lanes as Params.h (kLanes): target label, shape, rate (Hz), depth.
-const LANES = [['CRUSH', 9, .10, 0], ['STRETCH', 8, .03, 0], ['FEEDBACK', 6, .06, 0], ['REPEATS', 7, .20, 0], ['SIZE', 7, .03, 0], ['DECAY', 9, .02, 0],
-               ['TONE', 0, .08, 0], ['SHIMMER', 6, .05, 0], ['WIDTH', 1, .07, 0], ['FILTER', 11, .12, 0], ['TONAL', 9, .04, 0], ['VOLUME', 0, .05, 0]];
+// Same defaults as Params.h (kLanes): shape, rate (Hz). Depth starts at 0.
+const LANES = [[7, .05], [9, .03], [6, .06], [7, .20], [7, .03], [9, .02], [0, .08], [6, .05], [1, .07], [11, .12], [9, .04], [0, .05]];
 const laneId = (i, what) => `m${String(i + 1).padStart(2, '0')}_${what}`;
-const LANE_TARGETS = ['derez_crush', 'stretch_factor', 'echo_fdbk', 'echo_mix', 'space_size', 'space_decay', 'space_tone', 'shimmer_depth', 'space_width', 'color_lpf', 'tonal', 'out'];
+// What MOTION can move, by module (the list follows the chain order; GLOBAL first).
+const MAPPABLE = {
+  global: [['mix', 'Dry / Wet'], ['out', 'Output']],
+  shape: [['shape_tilt', 'Tilt'], ['shape_drive', 'Drive'], ['shape_harm', 'Harm']],
+  derez: [['derez_interval', 'Interval'], ['derez_crush', 'Crush'], ['derez_bits', 'Bits'], ['derez_mix', 'Mix']],
+  pitch: [['pitch_semi', 'Semi'], ['pitch_shift', 'Shift'], ['pitch_mix', 'Mix']],
+  stretch: [['stretch_factor', 'Factor'], ['stretch_loop', 'Loop'], ['stretch_mix', 'Mix']],
+  echo: [['echo_time', 'Time (free)'], ['echo_div', 'Time (sync)'], ['echo_fdbk', 'Feedback'], ['echo_mix', 'Mix']],
+  space: [['space_size', 'Size'], ['space_decay', 'Decay'], ['space_tone', 'Tone'], ['space_mod', 'Mod'], ['space_pre', 'Pre-delay'], ['space_mix', 'Mix'],
+          ['shimmer_depth', 'Shimmer depth'], ['shimmer_pitch', 'Shimmer pitch'], ['space_width', 'Width']],
+  focus: [['focus_amount', 'Focus'], ['focus_depth', 'Depth'], ['focus_mix', 'Mix']],
+  air: [['air_breath', 'Breath'], ['air_width', 'Width'], ['air_lofi', 'Lo-fi']],
+  color: [['color_bass', 'Bass'], ['color_body', 'Body'], ['color_mud', 'Mud'], ['color_harsh', 'Harsh'], ['color_air', 'Air'],
+          ['color_hpf', 'Low cut'], ['color_lpf', 'High cut'], ['tonal', 'Noise / Tonal']],
+};
+const targetName = id => {
+  for (const [mod, list] of Object.entries(MAPPABLE)) { const hit = list.find(([x]) => x === id); if (hit) return `${mod.toUpperCase()} · ${hit[1]}`; }
+  return '';
+};
+// The 12 lanes' targets ('' = empty). Default: lane 1 on the global DRY / WET.
+let laneTargets = ['mix', '', '', '', '', '', '', '', '', '', '', ''];
+const laneTargetViews = [];
+function setLaneTarget(i, id, fromHost) {
+  laneTargets[i] = id;
+  const v = laneTargetViews[i];
+  if (v) { v.textContent = id ? targetName(id) : '—'; v.classList.toggle('empty', !id); }
+  if (!fromHost && bridge.juce) bridge.juce.getNativeFunction('setLaneTarget')(i, id);
+}
 // Hovering a lane outlines the knob it moves.
-const focusTarget = (i, on) => knobsById[LANE_TARGETS[i]]?.classList.toggle('mod-focus', on);
+const focusTarget = (i, on) => knobsById[laneTargets[i]]?.classList.toggle('mod-focus', on);
+
+// TOUCH: arm a lane, then click any knob to map it. Esc or a second press cancels.
+let learning = -1;
+function learn(i) {
+  learning = learning === i ? -1 : i;
+  document.body.classList.toggle('learning', learning >= 0);
+  document.querySelectorAll('.lane .touch').forEach((b, j) => b.setAttribute('aria-pressed', j === learning));
+}
+document.addEventListener('pointerdown', e => {
+  if (learning < 0) return;
+  const k = e.target.closest('[data-mapid]');
+  if (!k || !targetName(k.dataset.mapid)) { if (!e.target.closest('.touch')) learn(learning); return; }
+  e.preventDefault(); e.stopPropagation();
+  setLaneTarget(learning, k.dataset.mapid);
+  learn(learning);
+}, true);
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && learning >= 0) learn(learning); });
+
+// The list, by module, in chain order.
+function openTargetMenu(i, anchor) {
+  closeMenus();
+  const menu = document.createElement('div'); menu.className = 'target-menu';
+  const add = (mod, list) => {
+    const col = document.createElement('div');
+    col.innerHTML = `<h4>${mod.toUpperCase()}</h4>`;
+    list.forEach(([id, label]) => {
+      const b = document.createElement('button'); b.textContent = label;
+      b.setAttribute('aria-pressed', laneTargets[i] === id);
+      b.onclick = e => { e.stopPropagation(); setLaneTarget(i, id); closeMenus(); };
+      col.append(b);
+    });
+    menu.append(col);
+  };
+  add('global', MAPPABLE.global);
+  order.forEach(m => add(m, MAPPABLE[m]));
+  const none = document.createElement('button'); none.className = 'none'; none.textContent = '— Empty';
+  none.onclick = e => { e.stopPropagation(); setLaneTarget(i, ''); closeMenus(); };
+  menu.append(none);
+  document.getElementById('stage').append(menu);
+  // Above the lane, inside the stage.
+  let x = 0, y = 0, el = anchor;
+  while (el && el.id !== 'stage') { x += el.offsetLeft; y += el.offsetTop; el = el.offsetParent; }
+  menu.style.left = Math.min(x, 1500 - menu.offsetWidth - 24) + 'px';
+  menu.style.top = (y - menu.offsetHeight - 6) + 'px';
+}
+function closeMenus() { document.querySelectorAll('.target-menu').forEach(m => m.remove()); }
+document.addEventListener('click', closeMenus);
 const lanes = [];
 const rateLabel = t => { const hz = .001 * Math.pow(20000, t); return (hz < 1 ? hz.toFixed(hz < .1 ? 3 : 2) : hz.toFixed(1)) + ' Hz'; };
 function buildMotion(b) {
@@ -713,11 +809,19 @@ function buildMotion(b) {
     const wrap = document.createElement('div');
     wrap.innerHTML = '<div class="lane-head cols"><span>#</span><span>TARGET</span><span>RATE</span><span>SHAPE</span><span>DEPTH</span><span>TRACE</span></div>';
     const list = document.createElement('div'); list.className = 'lanes';
-    LANES.slice(col * 6, col * 6 + 6).forEach(([name, shape, rate, depth], j) => {
-      const idx = col * 6 + j;
-      const lane = { shape, rate, depth, f: lfoFactory(idx + 1), hist: new Array(170).fill(0) };
+    LANES.slice(col * 6, col * 6 + 6).forEach(([shape, rate], j) => {
+      const idx = col * 6 + j, depth = 0;
+      const lane = { shape, rate, depth, f: lfoFactory(idx + 1), hist: new Array(140).fill(0) };
       const row = document.createElement('div'); row.className = 'lane cols';
-      row.innerHTML = `<span class="i">${String(idx + 1).padStart(2, '0')}</span><span class="n">${name}</span>`;
+      row.innerHTML = `<span class="i">${String(idx + 1).padStart(2, '0')}</span>`;
+      const target = document.createElement('div'); target.className = 'target';
+      const name = document.createElement('button'); name.className = 'n'; name.title = 'Choose what this lane moves';
+      name.onclick = e => { e.stopPropagation(); openTargetMenu(idx, row); };
+      const touch = document.createElement('button'); touch.className = 'touch'; touch.title = 'Touch: arm, then click a knob';
+      touch.innerHTML = '<svg viewBox="0 0 12 12"><circle cx="6" cy="6" r="4.5" fill="none" stroke="currentColor"/><circle cx="6" cy="6" r="1.6" fill="currentColor"/></svg>';
+      touch.onclick = e => { e.stopPropagation(); learn(idx); };
+      target.append(touch, name); row.append(target);
+      laneTargetViews[idx] = name; setLaneTarget(idx, laneTargets[idx], true);
       row.onmouseenter = () => focusTarget(idx, true);
       row.onmouseleave = () => focusTarget(idx, false);
       row.append(knob({ id: laneId(idx, 'rate'), l: 'rate', t: Math.log(rate / .001) / Math.log(20000), f: rateLabel, on: t => lane.rate = .001 * Math.pow(20000, t) }, { small: true }));
@@ -934,13 +1038,16 @@ function drawLanes() {
   });
   // Show on each target knob where MOTION has moved it (plugin: the engine's own value).
   const on = !document.querySelector('[data-mod="motion"]').classList.contains('off');
-  LANE_TARGETS.forEach((id, i) => {
-    const k = knobsById[id]; if (!k) return;
-    if (!on) return k.showMod(null);
-    const m = live.targets ? live.targets[i]
-      : Math.max(0, Math.min(1, k.value() + .5 * state.motion * lanes[i].depth * lanes[i].f(lanes[i].shape, 0)));
-    k.showMod(Math.abs(m - k.value()) < .004 ? null : m);
+  Object.values(knobsById).forEach(k => k.modded = false);
+  laneTargets.forEach((id, i) => {
+    const k = knobsById[id]; if (!k || !id) return;
+    if (!on || lanes[i].depth <= 0) return;
+    const set = k.value();
+    const m = live.targets ? live.targets[i] : set + state.motion * lanes[i].depth * ((lanes[i].f(lanes[i].shape, 0) + 1) / 2 - set);
+    k.modded = true;
+    k.showMod(Math.abs(m - set) < .004 ? null : m);
   });
+  Object.values(knobsById).forEach(k => { if (!k.modded) k.showMod(null); });
 }
 
 function fit() { document.getElementById('stage').style.transform = `scale(${Math.min(innerWidth / 1500, innerHeight / 1120)})`; }

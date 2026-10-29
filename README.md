@@ -143,17 +143,19 @@ Les notes suivies s'allument sur le clavier du module.
 
 Séparation mesurée : rapport notes/bruit de +7,6 dB en entrée → **+17,1 dB** à fond TONAL, **−1,8 dB** à fond NOISE.
 
-### 10 · MOTION — 12 LFO qui font respirer le son
-Chaque ligne fait bouger un potard autour de la position choisie, au plus de ±50 % de sa course : CRUSH, STRETCH, FEEDBACK, REPEATS, SIZE, DECAY, TONE, SHIMMER, WIDTH, FILTER, TONAL, VOLUME.
+### 10 · MOTION — 12 LFO à assigner librement
+Chaque ligne fait bouger **le potard de ton choix**. Par défaut, seule la ligne 1 est assignée, au DRY / WET global ; les autres sont vides.
 
 | Contrôle | Effet |
 |---|---|
+| Cible | Clic sur le nom : liste des potards, rangée par module dans l'ordre de la chaîne (GLOBAL, SHAPE, DEREZ… COLOR), ou *Empty* |
+| `◎` TOUCH | Arme la ligne : tous les potards assignables s'entourent, un clic sur l'un d'eux l'assigne (Échap pour annuler) |
 | `RATE` | 0,001 à 20 Hz |
 | Forme | Un clic passe à la suivante : sinus, triangle, scies, carré, S&H, slew, random sine, drunk, Perlin, chaos (Lorenz), breath |
-| `DEPTH` | Amplitude de la ligne (0 % par défaut : la ligne est inactive) |
+| `DEPTH` | Part de la course **totale** du potard que la ligne balaie : à 100 %, il va de 0 à 100 % ; à 0 % (par défaut), la ligne ne fait rien et ne calcule rien |
 | `MOTION` / `DRIFT` | Profondeur globale, vitesse globale (×0,25 à ×4) |
 
-Les tracés montrent les vraies valeurs des LFO du moteur.
+Le potard modulé affiche un arc et un point orange qui suivent le LFO ; survoler une ligne entoure sa cible. Les assignations sont sauvegardées avec le projet.
 
 ## Presets
 30 presets d'usine, en trois familles. Clic sur le nom du preset pour ouvrir la liste, ‹ › pour passer au suivant. Ils apparaissent aussi comme *programmes* VST3 dans l'hôte.
