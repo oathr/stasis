@@ -159,6 +159,7 @@ header { display: grid; grid-template-columns: auto 1fr auto; align-items: cente
 
 /* printed dials: ink disc, value sector in the second colour, printed graduations */
 .knobs { display: flex; flex-wrap: wrap; gap: 8px 2px; justify-content: space-between; }
+.knobs.two { display: grid; grid-template-columns: 1fr 1fr; justify-items: center; }  /* four knobs: a 2 x 2 square */
 .knob { --hub: var(--bg-hi); width: 44px; display: flex; flex-direction: column; align-items: center; gap: 3px; cursor: ns-resize; user-select: none; touch-action: none; }
 .card.dark .knob, .preset .knob { --hub: var(--dark); }
 .knob svg { width: 42px; height: 42px; overflow: visible; color: inherit; }
@@ -409,9 +410,10 @@ const live = {
   spectrum: null,
   status(s) {
     const names = ['C', 'C♯', 'D', 'D♯', 'E', 'F', 'F♯', 'G', 'G♯', 'A', 'A♯', 'B'];
-    const on = names.filter((_, i) => s.classes & (1 << i));
+    // MIDI: the notes held now, even with FOCUS off, so routing from the DAW is visible.
+    const midi = s.midi ?? s.classes, on = names.filter((_, i) => midi & (1 << i));
     const fk = document.getElementById('focusKeys');
-    if (fk) for (let i = 0; i < 12; i++) fk.light(i, s.classes & (1 << i));
+    if (fk) for (let i = 0; i < 12; i++) fk.light(i, (s.classes | midi) & (1 << i));
     const st = document.getElementById('status');
     if (st) st.innerHTML = `CPU <b>${s.cpu.toFixed(1)}%</b><br>LATENCY <b>0 SMP</b><br>MIDI <b>${on.join(' ') || '—'}</b>`;
     const sr = document.getElementById('srate');
@@ -545,6 +547,9 @@ function piano(labels, onToggle) {
   return el;
 }
 const NOTE_NAMES = ['C', 'C♯', 'D', 'D♯', 'E', 'F', 'F♯', 'G', 'G♯', 'A', 'A♯', 'B'];
+// GRAIN's transpositions: parameter id, label, default (same order as Params.h).
+const GRAIN_INTERVALS = [['grain_m12', '−12', false], ['grain_m7', '−7', false], ['grain_m5', '−5', false], ['grain_m3', '−3', false], ['grain_0', '0', true],
+                         ['grain_p3', '+3', false], ['grain_p5', '+5', false], ['grain_p7', '+7', true], ['grain_p12', '+12', true]];
 
 function knobRow(list, opts) { const row = document.createElement('div'); row.className = 'knobs'; list.forEach(k => row.appendChild(knob(k, opts))); return row; }
 
@@ -575,17 +580,19 @@ const MODS = {
   grain:  { n: '11', name: 'GRAIN',   units: 2, code: 'Random notes from the sound', build: b => {
             const modes = document.createElement('div'); modes.className = 'grain-modes';
             modes.append(seg(['Pulse', 'Scatter', 'Drift'], 1, null, 'grain_algo'), seg(['Sine', 'Tri', 'Square', 'Perc'], 0, null, 'grain_env'));
-            // Allowed intervals above the source; the octave choice widens the range.
+            // Allowed transpositions, in semitones from whatever is playing: no note to detect.
             const notes = document.createElement('div'); notes.className = 'grain-notes';
-            // C = the note being played (unison), G = a fifth above, and so on.
-            const state = Array.from({ length: 12 }, (_, i) => i === 0 || i === 7);
-            const keys = piano(NOTE_NAMES.map((n, i) => [1, 3, 6, 8, 10].includes(i) ? '' : n.replace('♯', '')), i => {
-              state[i] = !state[i]; keys.light(i, state[i]); bridge.send('grain_n' + i, state[i]);
+            const intervals = document.createElement('div'); intervals.className = 'seg grain-intervals';
+            GRAIN_INTERVALS.forEach(([id, label, on]) => {
+              const b = document.createElement('button'); b.textContent = label;
+              const show = v => { on = !!v; b.setAttribute('aria-pressed', on); };
+              b.onclick = () => { show(!on); bridge.send(id, on); };
+              show(on); bridge.register(id, 'toggle', show);
+              intervals.append(b);
             });
-            state.forEach((on, i) => { keys.light(i, on); bridge.register('grain_n' + i, 'toggle', v => { state[i] = !!v; keys.light(i, state[i]); }); });
             const caption = document.createElement('div'); caption.className = 'piano-caption';
-            caption.textContent = 'C = NOTE PLAYED';
-            notes.append(keys, caption, seg(['+0', '+1', '+2'], 1, null, 'grain_octaves'));
+            caption.textContent = 'SEMITONES FROM THE SOUND';
+            notes.append(intervals, caption);
             // FREE: DENSITY in grains per second; SYNC: a note division of the host tempo.
             const DIVS = ['1/32', '1/16T', '1/16', '1/16.', '1/8T', '1/8', '1/8.', '1/4T', '1/4', '1/4.', '1/2T', '1/2', '1/2.', '1/1'];
             let row = null;
@@ -617,8 +624,9 @@ const MODS = {
             [0, 4, 7, 9, 11].forEach(i => keys.light(i, true));
             b.append(seg(['Key', 'Harm', 'Auto'], 0, null, 'focus_mode'), keys,
                      knobRow([{ id: 'focus_amount', l: 'Focus', t: .6, f: pct }, { id: 'focus_depth', l: 'Depth', t: .9, f: pct }, { id: 'focus_mix', l: 'Mix', t: 1, f: pct }])); } },
-  air:    { n: '08', name: 'AIR',     code: 'Matter · width', build: b => b.append(knobRow([
-            { id: 'air_breath', l: 'Breath', t: .3, f: pct }, { id: 'air_width', l: 'Width', t: .67, f: t => Math.round(150 * t) + '%' }, { id: 'air_lofi', l: 'Lo-fi', t: .1, f: pct }])) },
+  air:    { n: '08', name: 'AIR',     code: 'Matter · width', build: b => { const k = knobRow([
+            { id: 'air_breath', l: 'Breath', t: .3, f: pct }, { id: 'air_smooth', l: 'Smooth', t: .5, f: expo(20, 1000, ' ms', 0) },
+            { id: 'air_width', l: 'Width', t: .67, f: t => Math.round(150 * t) + '%' }, { id: 'air_lofi', l: 'Lo-fi', t: .1, f: pct }]); k.classList.add('two'); b.append(k); } },
   color:  { n: '09', name: 'COLOR',   units: 2, code: 'Tone · low → high', build: b => {
             b.append(knobRow([{ id: 'color_bass', l: 'Bass', t: .5, f: bip('', 1, 2) }, { id: 'color_body', l: 'Body', t: .5, f: bip('', 1, 2) },
                               { id: 'color_mud', l: 'Mud', t: .5, f: t => t.toFixed(2) }, { id: 'color_harsh', l: 'Harsh', t: .3, f: t => t.toFixed(2) },
@@ -1135,7 +1143,7 @@ function simulateGrains(now) {  // a plain browser: invent grains from the knobs
   if (now < simNext) return;
   simNext = now - Math.log(Math.random() + 1e-6) * 1000 / density;
   if (Math.random() > bridge.value('grain_chance', .7)) return;
-  const allowed = []; for (let o = 0; o <= bridge.value('grain_octaves', 1); o++) for (let i = 0; i < 12; i++) if (bridge.value('grain_n' + i, i === 0 || i === 7)) allowed.push(i + 12 * o);
+  const allowed = GRAIN_INTERVALS.filter(([id, , on]) => bridge.value(id, on)).map(([, label]) => parseInt(label.replace('−', '-')));
   grains.push({ at: now, len: size, st: allowed[Math.floor(Math.random() * allowed.length)] ?? 0, pan: Math.random() * 1.6 - .8, env: bridge.value('grain_env', 0), level: .05 + Math.random() * .3 });
 }
 function drawGrains(now) {
@@ -1145,9 +1153,9 @@ function drawGrains(now) {
   const ctx = grainCanvas.getContext('2d'); ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, W, H);
   const css = getComputedStyle(document.documentElement), acc = css.getPropertyValue('--accent').trim(), spark = css.getPropertyValue('--spark').trim();
   const line = css.getPropertyValue('--dark-line').trim(), ink = css.getPropertyValue('--on-dark').trim();
-  const top = 22, bottom = H - 22, yOf = st => bottom - (st / 35) * (bottom - top);
+  const top = 22, bottom = H - 22, yOf = st => bottom - ((st + 12) / 24) * (bottom - top);
   ctx.strokeStyle = line; ctx.lineWidth = 1;
-  [0, 12, 24].forEach(st => { ctx.beginPath(); ctx.moveTo(0, yOf(st) + .5); ctx.lineTo(W, yOf(st) + .5); ctx.stroke(); });  // octaves
+  [-12, 0, 12].forEach(st => { ctx.beginPath(); ctx.moveTo(0, yOf(st) + .5); ctx.lineTo(W, yOf(st) + .5); ctx.stroke(); });  // octave below, unison, octave above
   while (grains.length && now - grains[0].at > GRAIN_WINDOW + 4000) grains.shift();
   let recent = 0;
   // One hexagon per grain, at its note (height) and time; its size is its volume.
@@ -1163,7 +1171,7 @@ function drawGrains(now) {
     if (x < -10) return;
     const level = g.level ?? .15;
     const r = 1.6 + 6.5 * Math.sqrt(Math.min(1, level / .35));
-    ctx.fillStyle = [ink, acc, spark][Math.min(2, Math.floor(g.st / 12))];  // the brand's three inks: one per octave
+    ctx.fillStyle = g.st > 0 ? acc : g.st < 0 ? spark : ink;  // the brand's three inks: above, below, unison
     ctx.globalAlpha = Math.max(.2, 1 - age / GRAIN_WINDOW);
     hex(x, y, r);
   });

@@ -153,6 +153,95 @@ int main(int argc, char** argv) {
             plugin->releaseResources();
         }
     }
+    // FOCUS through the VST3 MIDI path, as a DAW routes it: two tones in (A4 and D#4),
+    // FOCUS alone in the chain. A held MIDI note must tilt the output toward that note.
+    {
+        juce::String error;
+        auto plugin = formats.createPluginInstance(*found[0], 48000.0, 512, error);
+        plugin->setPlayConfigDetails(2, 2, 48000.0, 512);
+        plugin->prepareToPlay(48000.0, 512);
+        std::printf("\nFOCUS via MIDI (input bus: %s):\n", plugin->acceptsMidi() ? "yes" : "NO");
+        if (!plugin->acceptsMidi()) fail("the VST3 has no MIDI input");
+        const auto set = [&](const char* name, float value) {
+            for (auto* p : plugin->getParameters())
+                if (p->getName(64) == name) return p->setValueNotifyingHost(value);
+            fail(juce::String("no parameter ") + name);
+        };
+        set("Echo On", 0.0f), set("Space On", 0.0f), set("Color On", 0.0f), set("Focus On", 1.0f), set("Focus Mode", 0.0f);
+        // Level of a frequency in the output (Goertzel over one block).
+        const auto level = [](const juce::AudioBuffer<float>& buffer, double hz) {
+            const double w = 2.0 * juce::MathConstants<double>::pi * hz / 48000.0, k = 2.0 * std::cos(w);
+            double s1 = 0.0, s2 = 0.0;
+            for (int i = 0; i < buffer.getNumSamples(); ++i) {
+                const double s = buffer.getSample(0, i) + k * s1 - s2;
+                s2 = s1, s1 = s;
+            }
+            return s1 * s1 + s2 * s2 - k * s1 * s2;
+        };
+        const double fa = 440.0, fds = 311.13;
+        int64_t sample = 0;
+        // Returns the A4 / D#4 ratio in dB over the last second of 3 s, holding `note` (-1: none).
+        const auto run = [&](int note) {
+            juce::AudioBuffer<float> buffer(2, 512);
+            juce::MidiBuffer midi;
+            double a = 0.0, d = 0.0;
+            const int blocks = int(3.0 * 48000 / 512);
+            for (int b = 0; b < blocks; ++b) {
+                for (int i = 0; i < 512; ++i, ++sample) {
+                    const double t = double(sample) / 48000.0;
+                    const float v = 0.1f * float(std::sin(2.0 * juce::MathConstants<double>::pi * fa * t) + std::sin(2.0 * juce::MathConstants<double>::pi * fds * t));
+                    buffer.setSample(0, i, v), buffer.setSample(1, i, v);
+                }
+                midi.clear();
+                if (b == 0 && note >= 0) midi.addEvent(juce::MidiMessage::noteOn(1, note, 0.8f), 0);
+                if (b == blocks - 1 && note >= 0) midi.addEvent(juce::MidiMessage::noteOff(1, note), 511);
+                plugin->processBlock(buffer, midi);
+                if (b >= blocks - int(48000 / 512)) a += level(buffer, fa), d += level(buffer, fds);
+            }
+            return 10.0 * std::log10((a + 1e-20) / (d + 1e-20));
+        };
+        const double none = run(-1), onA = run(69), onDs = run(63);
+        std::printf("  A4 / D#4 in the output: no note %+5.1f dB   MIDI A4 %+5.1f dB   MIDI D#4 %+5.1f dB\n", none, onA, onDs);
+        if (onA - none < 6.0 || none - onDs < 6.0) fail("FOCUS does not follow MIDI notes");
+        plugin->releaseResources();
+
+        // GRAIN intervals, relative to the sound: 440 Hz in, GRAIN alone at 100 %, one
+        // interval allowed at a time; the grains must land on 220 / 440 / 880 Hz.
+        std::printf("\nGRAIN intervals (440 Hz in):\n");
+        const auto grainRun = [&](const char* only, double expectHz) {
+            auto grain = formats.createPluginInstance(*found[0], 48000.0, 512, error);
+            grain->setPlayConfigDetails(2, 2, 48000.0, 512);
+            grain->prepareToPlay(48000.0, 512);
+            const auto setG = [&](const juce::String& name, float value) {
+                for (auto* p : grain->getParameters())
+                    if (p->getName(64) == name) return p->setValueNotifyingHost(value);
+                fail("no parameter " + name);
+            };
+            setG("Echo On", 0.0f), setG("Space On", 0.0f), setG("Color On", 0.0f), setG("Grain On", 1.0f), setG("Grain Mix", 1.0f);
+            for (const char* name : {"Grain -12", "Grain -7", "Grain -5", "Grain -3", "Grain 0", "Grain +3", "Grain +5", "Grain +7", "Grain +12"})
+                setG(name, juce::String(name) == only ? 1.0f : 0.0f);
+            juce::AudioBuffer<float> buffer(2, 512);
+            juce::MidiBuffer midi;
+            double want = 0.0, other = 0.0;
+            for (int b = 0, s = 0; b < int(6.0 * 48000 / 512); ++b) {
+                for (int i = 0; i < 512; ++i, ++s) {
+                    const float v = 0.2f * float(std::sin(2.0 * juce::MathConstants<double>::pi * 440.0 * s / 48000.0));
+                    buffer.setSample(0, i, v), buffer.setSample(1, i, v);
+                }
+                grain->processBlock(buffer, midi);
+                if (b < int(2.0 * 48000 / 512)) continue;  // let the buffer fill
+                want += level(buffer, expectHz);
+                for (const double hz : {220.0, 440.0, 880.0})
+                    if (hz != expectHz) other += level(buffer, hz);
+            }
+            const double ratio = 10.0 * std::log10((want + 1e-20) / (other + 1e-20));
+            std::printf("  %-9s  energy at %4.0f Hz vs the other octaves: %+5.1f dB\n", only, expectHz, ratio);
+            // Unison alone reads about +18 dB here (block-length leakage); a wrong octave reads below 0.
+            if (ratio < 12.0) fail(juce::String("GRAIN does not transpose to ") + only);
+            grain->releaseResources();
+        };
+        grainRun("Grain -12", 220.0), grainRun("Grain 0", 440.0), grainRun("Grain +12", 880.0);
+    }
     std::printf(failures == 0 ? "ALL TESTS PASSED\n" : "%d FAILURE(S)\n", failures);
     return failures == 0 ? 0 : 1;
 }

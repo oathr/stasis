@@ -135,6 +135,8 @@ public:
 
     // Pitch classes FOCUS is following (MIDI, or what AUTO hears). Bit n = class n.
     uint16_t focusClasses() const { return focusClasses_.load(std::memory_order_relaxed); }
+    // Pitch classes of the MIDI notes held right now, whether FOCUS is on or not.
+    uint16_t midiClasses() const { return midiClasses_.load(std::memory_order_relaxed); }
 
 private:
     enum Module { kDerez, kStretch, kEcho, kSpace, kFocus, kColor, kShape, kPitch, kAir, kGrain, kModules };
@@ -211,7 +213,8 @@ private:
         static const int iShapeOn = indexOf("shape_on"), iTilt = indexOf("shape_tilt"), iDrive = indexOf("shape_drive"), iHarm = indexOf("shape_harm"),
                          iShapeType = indexOf("shape_type");
         static const int iPitchOn = indexOf("pitch_on"), iSemi = indexOf("pitch_semi"), iShift = indexOf("pitch_shift"), iPitchMix = indexOf("pitch_mix");
-        static const int iAirOn = indexOf("air_on"), iBreath = indexOf("air_breath"), iWidthAir = indexOf("air_width"), iLofi = indexOf("air_lofi");
+        static const int iAirOn = indexOf("air_on"), iBreath = indexOf("air_breath"), iWidthAir = indexOf("air_width"), iLofi = indexOf("air_lofi"),
+                         iAirSmooth = indexOf("air_smooth");
         on_[kShape] = v(values, iShapeOn) > 0.5f;
         on_[kPitch] = v(values, iPitchOn) > 0.5f;
         on_[kAir] = v(values, iAirOn) > 0.5f;
@@ -220,27 +223,26 @@ private:
         if (changed({iTilt, iDrive, iHarm, iShapeType}))
             shape_.setParams({2.0f * v(values, iTilt) - 1.0f, v(values, iDrive), v(values, iHarm), Shape::Type(std::clamp(int(v(values, iShapeType)), 0, 5))});
         if (changed({iSemi, iShift})) pitch_.setParams({pitchSemitones(v(values, iSemi)), shiftHz(v(values, iShift))});
-        if (changed({iBreath, iWidthAir, iLofi})) air_.setParams({v(values, iBreath), v(values, iWidthAir), v(values, iLofi)});
+        if (changed({iBreath, iWidthAir, iLofi, iAirSmooth}))
+            air_.setParams({v(values, iBreath), v(values, iWidthAir), v(values, iLofi), airSmoothMs(v(values, iAirSmooth)) / 1000.0f});
         static const int iGrainOn = indexOf("grain_on"), iAlgo = indexOf("grain_algo"), iEnv = indexOf("grain_env"), iDensity = indexOf("grain_density"),
                          iChance = indexOf("grain_chance"), iGrainSize = indexOf("grain_size"), iGrainMix = indexOf("grain_mix"),
-                         iOctaves = indexOf("grain_octaves"), iNote0 = indexOf("grain_n0"), iGrainSync = indexOf("grain_sync"),
-                         iGrainDiv = indexOf("grain_div");
+                         iInterval0 = indexOf("grain_m12"), iGrainSync = indexOf("grain_sync"), iGrainDiv = indexOf("grain_div");
         on_[kGrain] = v(values, iGrainOn) > 0.5f;
         mix_[kGrain] = v(values, iGrainMix);
-        if (changed({iAlgo, iEnv, iDensity, iChance, iGrainSize, iOctaves, iGrainSync, iGrainDiv, iNote0, iNote0 + 1, iNote0 + 2, iNote0 + 3, iNote0 + 4, iNote0 + 5,
-                     iNote0 + 6, iNote0 + 7, iNote0 + 8, iNote0 + 9, iNote0 + 10, iNote0 + 11})) {
+        if (changed({iAlgo, iEnv, iDensity, iChance, iGrainSize, iGrainSync, iGrainDiv, iInterval0, iInterval0 + 1, iInterval0 + 2, iInterval0 + 3,
+                     iInterval0 + 4, iInterval0 + 5, iInterval0 + 6, iInterval0 + 7, iInterval0 + 8})) {
             GrainCloud::Params p;
             p.algo = GrainCloud::Algo(std::clamp(int(v(values, iAlgo)), 0, 2));
             p.envelope = GrainCloud::Envelope(std::clamp(int(v(values, iEnv)), 0, 3));
             p.density = grainDensity(v(values, iDensity));
             p.chance = v(values, iChance);
             p.sizeMs = grainSizeMs(v(values, iGrainSize));
-            p.octaves = std::clamp(int(v(values, iOctaves)), 0, 2);
             p.sync = v(values, iGrainSync) > 0.5f;
             p.divisionBeats = kDivisionBeats[size_t(std::clamp(echoDivision(v(values, iGrainDiv)), 0, 13))];
-            p.notes = 0;
-            for (int i = 0; i < 12; ++i)
-                if (v(values, iNote0 + i) > 0.5f) p.notes = uint16_t(p.notes | (1u << i));  // grain_n0..n11 follow each other
+            p.intervals = 0;
+            for (int i = 0; i < int(GrainCloud::kIntervals.size()); ++i)
+                if (v(values, iInterval0 + i) > 0.5f) p.intervals = uint16_t(p.intervals | (1u << i));  // grain_m12..p12 follow each other
             grain_.setParams(p);
         }
         mix_[kDerez] = v(values, iDerezMix);
@@ -410,6 +412,7 @@ private:
         std::copy(left, left + n, wetL);
         std::copy(right, right + n, wetR);
 
+        midiClasses_.store(notes_.pitchClasses(), std::memory_order_relaxed);
         // FOCUS listens only while it is on (the key detector is an FFT every 1024 samples).
         if (!on_[kFocus]) {
             focusClasses_.store(0, std::memory_order_relaxed);
@@ -517,7 +520,7 @@ private:
 
     std::array<float, kVisualSize> visual_{};
     std::atomic<int> visualWrite_{0};
-    std::atomic<uint16_t> focusClasses_{0};
+    std::atomic<uint16_t> focusClasses_{0}, midiClasses_{0};
     std::atomic<uint64_t> order_{defaultOrder()};
     std::array<Lfo, 12> lanes_;
     std::array<int, 12> laneRate_{}, laneShape_{}, laneDepth_{};

@@ -48,6 +48,7 @@ inline float lowpassHz(float t) { return t >= 1.0f ? 0.0f : 1000.0f * std::pow(2
 inline float derezSemitones(float t) { return std::round((2.0f * t - 1.0f) * 24.0f); }
 inline float grainDensity(float t) { return 0.5f * std::pow(80.0f, t); }  // 0.5 .. 40 grains per second
 inline float grainSizeMs(float t) { return 20.0f * std::pow(100.0f, t); }   // 20 ms .. 2 s
+inline float airSmoothMs(float t) { return 20.0f * std::pow(50.0f, t); }    // 20 ms .. 1 s (BREATH's envelope)
 inline float pitchSemitones(float t) { return std::round((2.0f * t - 1.0f) * 24.0f); }
 // ±50 Hz with fine control near 0 (cubic): ±1 Hz beats live in the middle of the travel.
 inline float shiftHz(float t) { const float x = 2.0f * t - 1.0f; return 50.0f * x * x * x; }
@@ -110,6 +111,7 @@ inline const std::vector<Spec>& all() {
         {"air_breath", "Air Breath", Kind::Float, 0.3f, {}, pct},
         {"air_width", "Air Width", Kind::Float, 0.67f, {}, [](float t) { return pct(1.5f * t); }},
         {"air_lofi", "Air Lo-fi", Kind::Float, 0.1f, {}, pct},
+        {"air_smooth", "Air Smooth", Kind::Float, 0.5f, {}, [](float t) { return fmt("%.0f ms", double(airSmoothMs(t))); }},
         // GRAIN
         {"grain_on", "Grain On", Kind::Bool, 0.0f},
         {"grain_algo", "Grain Algorithm", Kind::Choice, 1.0f, {"Pulse", "Scatter", "Drift"}},
@@ -120,13 +122,12 @@ inline const std::vector<Spec>& all() {
         {"grain_chance", "Grain Chance", Kind::Float, 0.7f, {}, pct},
         {"grain_size", "Grain Size", Kind::Float, 0.45f, {}, [](float t) { return fmt("%.0f ms", double(grainSizeMs(t))); }},
         {"grain_mix", "Grain Mix", Kind::Float, 0.7f, {}, pct},
-        {"grain_octaves", "Grain Octaves", Kind::Choice, 1.0f, {"+0", "+1", "+2"}},
-        {"grain_n0", "Grain Unison", Kind::Bool, 1.0f},     {"grain_n1", "Grain b2", Kind::Bool, 0.0f},
-        {"grain_n2", "Grain 2", Kind::Bool, 0.0f},          {"grain_n3", "Grain b3", Kind::Bool, 0.0f},
-        {"grain_n4", "Grain 3", Kind::Bool, 0.0f},          {"grain_n5", "Grain 4", Kind::Bool, 0.0f},
-        {"grain_n6", "Grain #4", Kind::Bool, 0.0f},         {"grain_n7", "Grain 5", Kind::Bool, 1.0f},
-        {"grain_n8", "Grain b6", Kind::Bool, 0.0f},         {"grain_n9", "Grain 6", Kind::Bool, 0.0f},
-        {"grain_n10", "Grain b7", Kind::Bool, 0.0f},        {"grain_n11", "Grain 7", Kind::Bool, 0.0f},
+        // Allowed transpositions, in semitones from the sound (GrainCloud::kIntervals, in order).
+        {"grain_m12", "Grain -12", Kind::Bool, 0.0f}, {"grain_m7", "Grain -7", Kind::Bool, 0.0f},
+        {"grain_m5", "Grain -5", Kind::Bool, 0.0f},   {"grain_m3", "Grain -3", Kind::Bool, 0.0f},
+        {"grain_0", "Grain 0", Kind::Bool, 1.0f},
+        {"grain_p3", "Grain +3", Kind::Bool, 0.0f},   {"grain_p5", "Grain +5", Kind::Bool, 0.0f},
+        {"grain_p7", "Grain +7", Kind::Bool, 1.0f},   {"grain_p12", "Grain +12", Kind::Bool, 1.0f},
         // DEREZ (before SPACE)
         {"derez_on", "Derez On", Kind::Bool, 0.0f},
         {"derez_interval", "Derez Interval", Kind::Float, 0.25f, {}, [](float t) { return fmt("%+.0f st", double(derezSemitones(t))); }},

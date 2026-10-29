@@ -34,6 +34,22 @@ juce::AudioProcessorValueTreeState::ParameterLayout createLayout() {
     return layout;
 }
 
+// Saved before GRAIN had intervals (v0.1.0): twelve keys above the source plus 0-2
+// octaves. Keep what still exists: unison, minor third, fourth, fifth, and an octave.
+void migrateGrainNotes(juce::ValueTree& state) {
+    const auto find = [&](const char* id) { return state.getChildWithProperty("id", id); };
+    if (!find("grain_n0").isValid() || find("grain_0").isValid()) return;
+    const auto on = [&](const char* id) { return float(find(id).getProperty("value", 0.0f)) > 0.5f; };
+    const auto add = [&](const char* id, bool value) {
+        juce::ValueTree param("PARAM");
+        param.setProperty("id", id, nullptr).setProperty("value", value ? 1.0f : 0.0f, nullptr);
+        state.appendChild(param, nullptr);
+    };
+    for (const char* id : {"grain_m12", "grain_m7", "grain_m5", "grain_m3"}) add(id, false);
+    add("grain_0", on("grain_n0")), add("grain_p3", on("grain_n3")), add("grain_p5", on("grain_n5")), add("grain_p7", on("grain_n7"));
+    add("grain_p12", float(find("grain_octaves").getProperty("value", 1.0f)) >= 0.5f);
+}
+
 }  // namespace
 
 StasisProcessor::StasisProcessor()
@@ -207,7 +223,8 @@ void StasisProcessor::getStateInformation(juce::MemoryBlock& destData) {
 void StasisProcessor::setStateInformation(const void* data, int sizeInBytes) {
     if (auto xml = getXmlFromBinary(data, sizeInBytes)) {
         if (!xml->hasTagName(apvts.state.getType())) return;
-        const auto state = juce::ValueTree::fromXml(*xml);
+        auto state = juce::ValueTree::fromXml(*xml);
+        migrateGrainNotes(state);
         apvts.replaceState(state);
         setModuleOrder(juce::StringArray::fromTokens(state.getProperty("order").toString(), ",", ""));
         currentPreset_ = int(state.getProperty("preset", 0));
