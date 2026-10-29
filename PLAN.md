@@ -21,13 +21,14 @@
 ```
 IN ─┬───────────────────────────────────────────────────────────────────────────────────┬─► MIX ─► OUT
     │                                                                                   │
-    └► 01 SHAPE ► DEREZ ► 02 PITCH ► 03 STRETCH ► 04 ECHO ► 05 SPACE ► FOCUS ► 06 AIR ► COLOR ──┘
+    └► 01 SHAPE ► DEREZ ► 02 PITCH ► 03 STRETCH ► 04 ECHO ► 05 SPACE ► FOCUS ► 06 AIR ► COLOR + TONAL ──┘
           ▲            ▲           ▲          ▲         ▲         ▲        ▲
           └────────────┴──── 07 MOTION (rack de 12 LFO) ┴─────────┴────────┘
 MIDI IN ─────────────────────────────────────────────────────────►┘
 ```
 - **FOCUS** et **COLOR** agissent sur le wet uniquement : le dry reste intact.
 - **DEREZ se place avant SPACE** : c'est la grosse reverb qui transforme le crunch accordé en texture.
+- **TONAL ◂▸ NOISE a deux places au choix** (`PRE` / `POST`) : juste avant SPACE, ou en toute fin du wet (par défaut).
 - **Chaîne capture → ping-pong → reverb** (rendus `17a` / `17b`) : STRETCH en SMEAR ou CAPTURE, puis ECHO en ping-pong SYNC, puis SPACE. C'est l'ordre fixe des modules.
 
 - Ordre fixe (pensé pour l'ambient), avec 2 options de routage sur ECHO/SPACE : **Série** (echo → reverb) ou **Parallèle**.
@@ -205,6 +206,44 @@ Réduction de fréquence d'échantillonnage et de bits façon DeRez d'Airwindows
 
 Mesuré avec BASS −0,3, MUD 0,8, AIR +0,3 : le rapport boue / clarté s'améliore de 3,5 à 4 dB. L'intensité reste à régler à l'oreille.
 
+### TONAL ◂▸ NOISE — avant ou après la reverb (`tonal_noise.h`)
+Inspiré du réglage « tonal vs noise » de PaulXStretch. Un curseur bipolaire, placé dans la carte COLOR :
+- **à droite (TONAL)** : il ne reste que les notes et leurs partiels, pour un ambient pur ;
+- **à gauche (NOISE)** : il ne reste que l'air, le souffle et la texture diffuse ;
+- **au centre** : le son passe sans changement.
+
+**Moteur** : un masque STFT (FFT 4096, latence de 85 ms sur le wet uniquement, compensée pour le MIX).
+- Chaque fréquence est comparée à la moyenne de ses voisines, sur ±0,5 à ±4 demi-tons.
+- **Deux détections**, parce que les deux sens ont des besoins opposés :
+  - stricte pour **garder** les notes, pour que peu de bruit passe avec elles ;
+  - large pour les **effacer**, en excluant le pic de la moyenne pour que même une note grave ne se cache pas derrière elle-même.
+- Le masque est lissé dans le temps pour éviter le scintillement (« musical noise »).
+- Les phases sont conservées : c'est un filtrage, pas une resynthèse.
+
+**Mesuré** sur un accord de sinusoïdes noyé dans du bruit (rapport notes / bruit de +7,6 dB en entrée) :
+
+| Curseur | Rapport notes / bruit |
+|---|---|
+| TONAL +1 | **+17,1 dB** (+9,5 dB) |
+| TONAL +0,5 | +11,3 dB |
+| NOISE −0,5 | +4,2 dB |
+| NOISE −1 | **−1,8 dB** (−9,4 dB) |
+
+**Placement, au choix** (sélecteur `PRE` / `POST` à côté du curseur) :
+- **POST** (par défaut) : en toute fin du wet. On filtre la queue elle-même : TONAL donne une queue faite uniquement de notes, NOISE une brume sans hauteur.
+- **PRE** : juste avant SPACE. La reverb reconstruit une queue à partir de ce qui reste : TONAL envoie des notes propres dans la reverb, qui ajoute son propre halo diffus ; NOISE envoie uniquement le souffle, et la reverb en fait un nuage.
+
+Mesuré avec une cathédrale de 6 s (wet seul, rapport notes / bruit de +9,1 dB sans le module) :
+
+| Curseur | PRE | POST |
+|---|---|---|
+| TONAL +1 | +17,2 dB | +16,7 dB |
+| NOISE −1 | **+3,0 dB** | +5,6 dB |
+
+TONAL agit pareil aux deux places. NOISE efface mieux les notes en PRE : après la reverb, les partiels sont étalés et légèrement modulés, donc moins faciles à repérer.
+
+**Coût** : environ 0,9 % d'un cœur. **À écouter** : `18a` / `18b` (chaîne → TONAL / NOISE en POST), `18d` / `18e` (les mêmes en PRE), `18c` (cathédrale → TONAL à fond).
+
 ### 06 · AIR — souffle, matière, stéréo, finition
 | Élément | Algorithme retenu | Pourquoi |
 |---|---|---|
@@ -277,6 +316,7 @@ Autres cibles possibles (mode avancé) : pré-delay, diffusion, frequency shift,
 | Choix | Recommandation | Raison |
 |---|---|---|
 | Langage / framework | **C++20 + JUCE 8**, build **CMake** | Standard de l'industrie, VST3/AU/AAX, rendu GPU (Metal/Direct2D) |
+| Interface | **WebView de JUCE 8** (`WebBrowserComponent`) qui charge l'interface HTML/CSS de la maquette, **visualiseur en WebGL** | Le design existe déjà en HTML : on le garde au pixel près. Les paramètres passent par les relais de JUCE 8 (automation et undo de l'hôte gérés). Le spectre est envoyé ~60 fois/s depuis un FIFO sans verrou, jamais depuis le thread audio. Plan B si la WebView pose problème (mémoire ~40 Mo par instance, WebView2 sur Windows) : réécrire en `juce::Graphics` natif + visualiseur Metal/OpenGL |
 | Formats | **VST3 + AU** (macOS/Windows), **CLAP** via `clap-juce-extensions`, AAX plus tard | Couvre tous les DAW |
 | FFT | **Apple vDSP/Accelerate** (mac) + **pffft** (Windows, BSD) | Les plus rapides, licences permissives |
 | SIMD | `xsimd` ou intrinsics NEON/SSE/AVX | Le FDN 16 lignes se vectorise parfaitement (4 ou 8 lignes par instruction) |

@@ -21,6 +21,7 @@
 #include <stasis/resonant_focus.h>
 #include <stasis/space_reverb.h>
 #include <stasis/tape_echo.h>
+#include <stasis/tonal_noise.h>
 
 #include "sources.h"
 #include "wav.h"
@@ -185,6 +186,18 @@ Stereo focus(const Source& src, const Stereo& in, bool harmonic, Engine engine, 
     f.prepare(in.sampleRate, engine == Engine::Fft8192 ? 8192 : 4096);
     f.setParams({harmonic ? HarmonicFocus::Mode::Harmonic : HarmonicFocus::Mode::Key, kFocusAmount, kFocusDepth, 1.0f, true});
     return runFocus(f, src, in, keys);
+}
+
+// TONAL ◂▸ NOISE, realigned with the dry (the host would compensate its latency).
+Stereo tonal(const Stereo& in, float balance) {
+    TonalNoise t;
+    t.prepare(in.sampleRate);
+    t.setParams({balance, 0.5f, 1.0f});
+    Stereo out = runWet(t, in, in.size() + size_t(t.latencySamples()));
+    const size_t lat = size_t(t.latencySamples());
+    out.left.erase(out.left.begin(), out.left.begin() + long(lat));
+    out.right.erase(out.right.begin(), out.right.begin() + long(lat));
+    return out;
 }
 
 // DEREZ fed with the source's MIDI (the lowest held note is the root).
@@ -426,7 +439,10 @@ std::vector<Recipe> recipes() {
     }
 
     // STRETCH (capture) -> ECHO (tape ping-pong) -> SPACE (cathedral): the module order of the plugin.
-    const auto captureChain = [](const Source& s, CaptureStretch::Params cp, float captureAt) {
+    // TONAL sits either before SPACE (PRE: the reverb rebuilds a tail from what is kept) or
+    // after it (POST: the tail itself is filtered).
+    const auto captureChain = [](const Source& s, CaptureStretch::Params cp, float captureAt, float tonalBalance = 0.0f,
+                                 bool tonalPre = false) {
         const Stereo& in = s.audio;
         const float length = std::max(seconds(in), 40.0f);
         CaptureStretch cap;
@@ -445,16 +461,35 @@ std::vector<Recipe> recipes() {
         ep.division = TapeEcho::Division::QuarterDotted;
         ep.feedback = 0.6f;
         ep.pingPong = true;
-        const Stereo withEcho = mix(stretched, 1.0f, tape(stretched, ep), 0.6f);
+        Stereo withEcho = mix(stretched, 1.0f, tape(stretched, ep), 0.6f);
+        if (tonalBalance != 0.0f && tonalPre) withEcho = tonal(withEcho, tonalBalance);
         auto p = cathedral();
         p.decaySeconds = 20.0f;
-        return mix(in, 0.35f, mix(withEcho, 0.5f, space(withEcho, p), 1.0f), 1.0f);
+        Stereo wet = mix(withEcho, 0.5f, space(withEcho, p), 1.0f);
+        if (tonalBalance != 0.0f && !tonalPre) wet = tonal(wet, tonalBalance);  // last stage of the wet chain
+        return mix(in, 0.35f, wet, 1.0f);
     };
     r.push_back({"17a_capture_smear_pong_cathedral", "STRETCH smear x8 (live) -> tape ping-pong SYNC 1/4. @80 -> cathedral", [=](const Source& s) {
                      return captureChain(s, {CaptureStretch::Mode::Smear, 8.0f, 4.0f}, -1.0f);
                  }});
     r.push_back({"17b_capture_loop_pong_cathedral", "CAPTURE 4 s at 5 s, x30 loop -> ping-pong SYNC 1/4. @80 -> cathedral, under the dry", [=](const Source& s) {
                      return captureChain(s, {CaptureStretch::Mode::Capture, 30.0f, 4.0f}, 5.0f);
+                 }});
+
+    r.push_back({"18a_chain_tonal", "capture smear -> ping-pong -> cathedral -> TONAL +0.8 (pure notes)", [=](const Source& s) {
+                     return captureChain(s, {CaptureStretch::Mode::Smear, 8.0f, 4.0f}, -1.0f, 0.8f);
+                 }});
+    r.push_back({"18b_chain_noise", "capture smear -> ping-pong -> cathedral -> NOISE -0.8 (air, breath)", [=](const Source& s) {
+                     return captureChain(s, {CaptureStretch::Mode::Smear, 8.0f, 4.0f}, -1.0f, -0.8f);
+                 }});
+    r.push_back({"18d_chain_tonal_pre", "capture smear -> ping-pong -> TONAL +0.8 -> cathedral (PRE)", [=](const Source& s) {
+                     return captureChain(s, {CaptureStretch::Mode::Smear, 8.0f, 4.0f}, -1.0f, 0.8f, true);
+                 }});
+    r.push_back({"18e_chain_noise_pre", "capture smear -> ping-pong -> NOISE -0.8 -> cathedral (PRE)", [=](const Source& s) {
+                     return captureChain(s, {CaptureStretch::Mode::Smear, 8.0f, 4.0f}, -1.0f, -0.8f, true);
+                 }});
+    r.push_back({"18c_cathedral_tonal_full", "cathedral -> TONAL +1", [](const Source& s) {
+                     return mix(s.audio, 0.5f, tonal(space(s.audio, cathedral()), 1.0f), 1.0f);
                  }});
 
     r.push_back({"14_full_chain", "tape -> shimmer cathedral -> FOCUS key zero latency -> COLOR", [=](const Source& s) {
@@ -691,6 +726,59 @@ void analyseDerez(float fs) {
     }
 }
 
+// TONAL ◂▸ NOISE separation: a chord of sines (with harmonics) inside pink-ish noise.
+// Tonal-to-noise ratio = energy within ±15 cents of the partials vs everything else.
+void analyseTonal(float fs) {
+    const float partials[] = {220.0f, 261.63f, 329.63f, 440.0f, 523.25f, 659.26f, 880.0f};
+    Stereo test;
+    test.sampleRate = fs;
+    test.resize(size_t(3.0f * fs));
+    Rng rng(5);
+    float pink = 0.0f;
+    for (size_t i = 0; i < test.size(); ++i) {
+        float v = 0.0f;
+        for (const float f : partials) v += 0.05f * std::sin(kTwoPi * f * float(i) / fs);
+        pink += 0.02f * (rng.bipolar() - pink);  // gentle lowpass: noise darker than white
+        v += 0.9f * pink;
+        test.left[i] = test.right[i] = v;
+    }
+    const int n = 65536;
+    Fft fft;
+    fft.prepare(n);
+    auto ratioDb = [&](const Stereo& s) {
+        std::vector<Fft::Complex> spec(static_cast<size_t>(n));
+        const size_t start = size_t(1.0f * fs);
+        for (int i = 0; i < n; ++i) spec[size_t(i)] = s.left[start + size_t(i)] * (0.5f - 0.5f * std::cos(kTwoPi * float(i) / float(n)));
+        fft.forward(spec);
+        double tonal = 0.0, noise = 0.0;
+        for (int k = int(100.0f * n / fs); k < int(8000.0f * n / fs); ++k) {
+            const float f = float(k) * fs / float(n);
+            bool near = false;
+            for (const float p : partials) near = near || std::abs(1200.0f * std::log2(f / p)) < 15.0f;
+            (near ? tonal : noise) += std::norm(spec[size_t(k)]);
+        }
+        return 10.0f * std::log10(float(tonal / noise));
+    };
+    std::printf("\nTONAL / NOISE separation (tonal-to-noise ratio, chord of sines in noise):\n");
+    std::printf("  input                 %+6.1f dB\n", ratioDb(test));
+    for (const float balance : {1.0f, 0.5f, -0.5f, -1.0f}) {
+        TonalNoise t;
+        t.prepare(fs);
+        t.setParams({balance, 0.5f, 1.0f});
+        std::printf("  balance %+4.1f          %+6.1f dB\n", balance, ratioDb(runWet(t, test, test.size())));
+    }
+    // PRE vs POST around a cathedral (wet only): the reverb smears partials over time, so
+    // the ratio measured after it is lower than the module's own.
+    auto p = cathedral();
+    p.decaySeconds = 6.0f;
+    std::printf("  cathedral alone       %+6.1f dB\n", ratioDb(space(test, p)));
+    for (const float balance : {1.0f, -1.0f}) {
+        const float pre = ratioDb(space(tonal(test, balance), p));
+        const float post = ratioDb(tonal(space(test, p), balance));
+        std::printf("  balance %+4.1f   PRE %+6.1f dB   POST %+6.1f dB\n", balance, pre, post);
+    }
+}
+
 // What the AUTO detector hears over time, against what is really played.
 void analyseKeys(float fs) {
     std::printf("\nAUTO key detection (no MIDI):\n");
@@ -727,6 +815,7 @@ int main(int argc, char** argv) {
             analyseKeys(48000.0f);
             analyseDerez(48000.0f);
             analyseTuning(48000.0f);
+            analyseTonal(48000.0f);
             return 0;
         }
         if (i + 1 < argc && arg == "--input") inputPath = argv[++i];
