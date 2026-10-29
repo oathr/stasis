@@ -98,14 +98,14 @@ Rejoue de petits bouts de ce qui vient d'être joué, sous une enveloppe, à des
 |---|---|
 | `PULSE` / `SCATTER` / `DRIFT` | Hasard : horloge régulière (CHANCE saute des coups) ; écarts aléatoires (Poisson) ; vitesse qui dérive lentement (×0,25 à ×4) : grappes puis silences |
 | `SINE` / `TRI` / `SQUARE` / `PERC` | Enveloppe de chaque grain (SQUARE a des rampes de 2 %, sans clic ; PERC attaque vite et décroît) |
-| Intervalles `1 … 7` | Transpositions autorisées au-dessus du son source (1 = unisson, 5 = quinte…) |
+| Clavier (Do → Si) | Transpositions autorisées au-dessus du son joué : Do = unisson, Sol = quinte, etc. (touches blanches et noires comme un piano) |
 | `+0` / `+1` / `+2` | Octaves : l'ensemble choisi est répété 1, 2 ou 3 octaves plus haut. Ça élargit la tessiture, sans transposer le reste |
 | `DENSITY` | 0,5 à 40 grains par seconde |
 | `CHANCE` | Probabilité qu'un grain prévu joue vraiment |
 | `SIZE` | 20 ms à 2 s |
 | `MIX` | Dosage (à 100 % : seulement les notes) |
 
-Le petit écran **GRAIN**, en haut à droite, dessine chaque grain avec son enveloppe : la hauteur donne la transposition (lignes = octaves), la longueur sa durée. Mesuré sur un son continu à 220 Hz (unisson + quinte, +1 octave) : 66 % de silence entre les notes, énergie sur 220 / 330 / 440 / 660 Hz, une note non autorisée 50 dB plus bas.
+Le petit écran **GRAIN**, en haut à droite, dessine chaque grain en points de trame (comme le spectre) qui gonflent avec son enveloppe : la hauteur donne la transposition (lignes = octaves), la longueur sa durée, la couleur sa note. Mesuré sur un son continu à 220 Hz (unisson + quinte, +1 octave) : 66 % de silence entre les notes, énergie sur 220 / 330 / 440 / 660 Hz, une note non autorisée 50 dB plus bas.
 
 ### 05 · ECHO — écho à bande
 Saturation (tanh anti-repliement), filtres de bande et souffle dans la boucle, sans wow ni flutter : les répétitions restent justes. Les changements de temps glissent comme une bande qui change de vitesse.
