@@ -55,14 +55,14 @@ private:
 };
 
 // COLOR: five words instead of an EQ, low to high, plus two filters.
-//  BASS   -1..1  low shelf ±9 dB at 120 Hz; below 0 a high-pass also rises (20 → 120 Hz)
-//  BODY   -1..1  bell ±6 dB at 180 Hz: the warmth of a pad, below the mud
+//  BASS   -1..1  low shelf ±18 dB at 120 Hz; below 0 a high-pass also rises (20 → 120 Hz)
+//  BODY   -1..1  bell ±12 dB at 180 Hz: the warmth of a pad, below the mud
 //  MUD     0..1  cuts the 200-600 Hz build-up. Part static, part dynamic: the cut
 //                deepens only when that band dominates the spectrum, so a clean
 //                signal stays full and a muddy tail gets cleared.
 //  HARSH   0..1  the same idea at 2-5 kHz: tames the glassy edge of shimmers and
 //                bright pads, and leaves a soft signal alone.
-//  AIR    -1..1  high shelf ±8 dB at 6 kHz
+//  AIR    -1..1  high shelf ±16 dB at 6 kHz
 //  HPF / LPF     12 dB/oct, 20 Hz .. 1 kHz and 1 kHz .. 20 kHz (at the ends: off)
 class Color {
 public:
@@ -93,9 +93,9 @@ public:
         for (int c = 0; c < 2; ++c) {
             highpass_[c].set(SvfEq::Type::Highpass, hpHz, 0.707f, 0.0f, sampleRate_);
             lowpass_[c].set(SvfEq::Type::Lowpass, lowpassOn_ ? p.lowpassHz : 20000.0f, 0.707f, 0.0f, sampleRate_);
-            lowShelf_[c].set(SvfEq::Type::LowShelf, 120.0f, 0.707f, 9.0f * bass, sampleRate_);
-            bodyBell_[c].set(SvfEq::Type::Bell, 180.0f, 0.9f, 6.0f * std::clamp(p.body, -1.0f, 1.0f), sampleRate_);
-            highShelf_[c].set(SvfEq::Type::HighShelf, 6000.0f, 0.707f, 8.0f * air, sampleRate_);
+            lowShelf_[c].set(SvfEq::Type::LowShelf, 120.0f, 0.707f, 18.0f * bass, sampleRate_);
+            bodyBell_[c].set(SvfEq::Type::Bell, 180.0f, 0.9f, 12.0f * std::clamp(p.body, -1.0f, 1.0f), sampleRate_);
+            highShelf_[c].set(SvfEq::Type::HighShelf, 6000.0f, 0.707f, 16.0f * air, sampleRate_);
         }
     }
 
@@ -134,8 +134,8 @@ private:
         // in a natural spectrum, so HARSH reacts from a lower share.
         const float mudExcess = std::clamp((mudRatio - 0.3f) / 0.4f, 0.0f, 1.0f);
         const float harshExcess = std::clamp((harshRatio - 0.12f) / 0.25f, 0.0f, 1.0f);
-        const float mudDb = -std::clamp(params_.mud, 0.0f, 1.0f) * (3.0f + 9.0f * mudExcess);
-        const float harshDb = -std::clamp(params_.harsh, 0.0f, 1.0f) * (2.0f + 8.0f * harshExcess);
+        const float mudDb = -std::clamp(params_.mud, 0.0f, 1.0f) * (6.0f + 18.0f * mudExcess);  // up to -24 dB
+        const float harshDb = -std::clamp(params_.harsh, 0.0f, 1.0f) * (4.0f + 16.0f * harshExcess);  // up to -20 dB
         for (auto& bell : mudBell_) bell.set(SvfEq::Type::Bell, kMudHz, 0.8f, mudDb, sampleRate_);
         for (auto& bell : harshBell_) bell.set(SvfEq::Type::Bell, kHarshHz, 0.7f, harshDb, sampleRate_);
     }

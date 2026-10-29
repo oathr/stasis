@@ -53,6 +53,17 @@ body::after { content: ""; position: fixed; inset: 0; pointer-events: none; z-in
 .stage::before { content: ""; position: absolute; inset: 0; pointer-events: none; opacity: .3;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='64' height='64'%3E%3Cpath d='M32 28v8M28 32h8' stroke='%23000' stroke-width='1'/%3E%3C/svg%3E"); }
 .grid { display: grid; grid-template-rows: 130px 584px 272px; gap: 14px; position: relative; }
+/* SIDE layout (short screens): the visualizer becomes a column on the right, 144 px less
+   height; the chain and MOTION keep their exact size. Time flows down in it. */
+html.side .stage { width: 1744px; height: 976px; }
+html.side .grid { grid-template-columns: 1452px 230px; grid-template-rows: 584px 272px; }
+html.side .vizrow { grid-column: 2; grid-row: 1 / span 2; }
+html.side .chain { grid-column: 1; grid-row: 1; }
+html.side .grid > [data-mod="motion"] { grid-column: 1; grid-row: 2; }
+html.side .viz .hud div { flex-direction: column; gap: 3px; }
+.layout-btn { width: 30px; height: 30px; border: 1px solid var(--ink); background: none; color: var(--ink); cursor: pointer; padding: 0; display: grid; place-items: center; }
+.layout-btn:hover { border-color: var(--accent); color: var(--accent); }
+.layout-btn svg { width: 16px; height: 14px; display: block; }
 
 /* ---------- the chain ---------- */
 /* Two rows of cards; widths follow each module's units (1 or 2). The wire is drawn
@@ -77,7 +88,7 @@ body::after { content: ""; position: fixed; inset: 0; pointer-events: none; z-in
 
 /* ---------- header ---------- */
 /* header = a full-width band pinned to the top edge, so it reads apart from the modules */
-header { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 28px; height: 66px; margin: -22px -24px 18px; padding: 0 24px; position: relative; }
+header { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 20px; height: 66px; margin: -22px -24px 18px; padding: 0 24px; position: relative; }
 [data-header="navy"] header { background: var(--dark); color: var(--on-dark); --ink: var(--on-dark); --muted: var(--on-dark-muted); --line: var(--dark-line); }
 [data-header="navy"] header .knob { --hub: var(--dark); }
 [data-header="navy"] .preset { background: rgba(255, 255, 255, .06); }
@@ -100,7 +111,7 @@ header { display: grid; grid-template-columns: auto 1fr auto; align-items: cente
 .preset button { background: none; border: 0; color: inherit; font: inherit; width: 34px; cursor: pointer; font-size: 14px; }
 .preset button:hover { color: var(--accent); }
 .preset .name { padding: 0 16px; border-left: 1px solid var(--dark-line); border-right: 1px solid var(--dark-line); display: flex; align-items: center; gap: 12px;
-  min-width: 340px; font-size: 11px; letter-spacing: .12em; font-weight: 400; }
+  min-width: 250px; font-size: 11px; letter-spacing: .12em; font-weight: 400; }
 .preset .name span { color: var(--accent); }
 .preset { overflow: visible; }
 .preset .name { cursor: pointer; }
@@ -113,16 +124,20 @@ header { display: grid; grid-template-columns: auto 1fr auto; align-items: cente
 .preset-menu button span { color: var(--on-dark-muted); }
 .preset-menu button:hover, .preset-menu button[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); }
 .preset-menu button:hover span, .preset-menu button[aria-pressed="true"] span { color: inherit; }
-.globals { display: flex; align-items: center; gap: 16px; }
+.globals { display: flex; align-items: center; gap: 10px; }
 .themes { display: flex; gap: 5px; }
 .themes button { width: 16px; height: 16px; border: 1px solid var(--ink); cursor: pointer; }
 .themes button[aria-pressed="true"] { outline: 1.5px solid var(--ink); outline-offset: 2px; }
-.freeze { height: 42px; padding: 0 18px; border: 0; background: var(--dark); color: var(--on-dark); cursor: pointer;
+.freeze { height: 42px; padding: 0 13px; border: 0; background: var(--dark); color: var(--on-dark); cursor: pointer;
   font-family: Archivo, sans-serif; font-weight: 600; font-stretch: 100%; font-size: 12px; letter-spacing: .24em; display: flex; align-items: center; gap: 10px; }
 .freeze i { width: 9px; height: 9px; border: 1.5px solid currentColor; display: block; }
 .freeze[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); }
+.bypassed #grid { opacity: .4; transition: opacity .2s; }
+.freeze.bypass { width: 42px; padding: 0; justify-content: center; }
+.freeze.bypass svg { width: 16px; height: 16px; display: block; }
+.wordmark .codes { white-space: nowrap; }
 /* PANIC: always the same warning red, whatever the theme */
-.panic { height: 42px; padding: 0 16px; border: 1.5px solid #E5483B; background: none; color: #E5483B; cursor: pointer; margin-left: -8px;
+.panic { height: 42px; padding: 0 12px; border: 1.5px solid #E5483B; background: none; color: #E5483B; cursor: pointer; margin-left: -8px;
   font-family: Archivo, sans-serif; font-weight: 600; font-size: 12px; letter-spacing: .24em; display: flex; align-items: center; gap: 10px; }
 .panic i { width: 9px; height: 9px; background: currentColor; display: block; }
 .panic:hover, .panic.fired { background: #E5483B; color: #fff; }
@@ -176,7 +191,7 @@ header { display: grid; grid-template-columns: auto 1fr auto; align-items: cente
 .knob.wide svg { grid-row: 1 / 3; width: 38px; height: 38px; }
 .knob.wide .v { font-size: 15px; font-weight: 600; align-self: end; }
 .knob.wide .l { align-self: start; font-size: 8.5px; color: var(--muted); }
-#globalKnobs { gap: 22px !important; padding: 0 6px; }
+#globalKnobs { gap: 14px !important; padding: 0 4px; }
 .knob.stack .l { display: block; }
 
 /* ---------- SPACE ---------- */
@@ -259,6 +274,9 @@ body.learning [data-mapid^="m0"], body.learning [data-mapid^="m1"], body.learnin
 .target-menu .none { grid-column: 1 / -1; border-top: 1px solid var(--dark-line); margin-top: 4px; padding-top: 8px; color: var(--on-dark-muted); }
 .lane .shape { display: flex; align-items: center; gap: 6px; border: 1px solid var(--line); height: 22px; padding: 0 6px; cursor: pointer; font-size: 9px; letter-spacing: .06em; }
 .lane .shape:hover { border-color: currentColor; }
+.shape-menu { grid-template-columns: repeat(3, 108px); gap: 4px 8px; }
+.shape-menu button { display: flex; align-items: center; gap: 8px; font-size: 9.5px; letter-spacing: .06em; padding: 5px 6px; }
+.shape-menu svg { width: 22px; height: 14px; flex: none; }
 .lane .shape svg { width: 18px; height: 12px; flex: none; }
 .lane canvas { width: 100%; height: 22px; display: block; }
 .lane-head { font-size: 8.5px; font-weight: 400; letter-spacing: .14em; color: var(--muted); padding-bottom: 5px; border-bottom: 1px solid currentColor; }
@@ -291,8 +309,10 @@ body.learning [data-mapid^="m0"], body.learning [data-mapid^="m1"], body.learnin
       <button id="next" aria-label="Preset suivant">›</button>
     </div>
     <div class="globals">
+      <button class="layout-btn" id="layoutBtn" title="Visualizer on top / on the side (short screens)"></button>
       <div class="themes" id="themes"></div>
       <div id="globalKnobs" style="display:flex;gap:10px"></div>
+      <button class="freeze bypass" id="bypass" aria-pressed="false" title="Bypass: the untouched input"><svg viewBox="0 0 16 16"><path d="M8 1.5v6" stroke="currentColor" stroke-width="1.6" fill="none"/><path d="M4.6 3.6a5.5 5.5 0 1 0 6.8 0" stroke="currentColor" stroke-width="1.6" fill="none"/></svg></button>
       <button class="freeze" id="freeze" aria-pressed="false"><i></i>FREEZE</button>
       <button class="panic" id="panic" title="Emergency: silence, clear every tail and buffer"><i></i>PANIC</button>
     </div>
@@ -302,7 +322,7 @@ body.learning [data-mapid^="m0"], body.learning [data-mapid^="m1"], body.learnin
     <div class="vizrow">
       <div class="viz" id="vizband"><canvas id="viz"></canvas><div class="hud">
         <div><span>STASIS · SPECTRUM OF THE WET</span><span id="hudRt" class="acc">RT60 25.0 S</span></div>
-        <div><span>20 HZ ↑ 12 KHZ · TIME ←</span><span><span id="hudGrain" class="grain"></span><span id="hudState">LIVE</span></span></div></div></div>
+        <div><span id="hudAxis">20 HZ ↑ 12 KHZ · TIME ←</span><span><span id="hudGrain" class="grain"></span><span id="hudState">LIVE</span></span></div></div></div>
     </div>
     <!-- The chain: modules in processing order, drawn in two rows, linked by a wire. -->
     <div class="chain" id="chain"><svg class="wire" id="wire"></svg><div class="row"></div><div class="row"></div></div>
@@ -390,6 +410,7 @@ const bridge = {
   connect(J) {
     this.juce = J;
     J.getNativeFunction('getOrder')().then(names => setOrder(names, true));
+    J.getNativeFunction('getLayout')().then(name => setLayout(name, true));
     J.getNativeFunction('getPresets')().then(r => { PRESETS = r.list; buildPresetMenu(); showPreset(r.current, true); });
     window.__JUCE__.backend.addEventListener('stasis_preset', i => showPreset(i));
     window.__JUCE__.backend.addEventListener('stasis_order', names => setOrder(names, true));
@@ -566,8 +587,9 @@ const MODS = {
             const st = v => { const n = Math.round(v * 24); return (n > 0 ? '+' : '') + n + ' st'; };
             const interval = cursor('−24', '+24', -.5, 'derez_interval', { format: st, steps: 24 });
             interval.classList.add('pitch-cursor');
-            const knobs = knobRow([{ id: 'derez_crush', l: 'Crush', t: .6, f: t => 'n=' + Math.round(32 * Math.pow(2 / 32, t)) },
-                                   { id: 'derez_bits', l: 'Bits', t: .55, f: lin(16, 2, '', 1) }, { id: 'derez_smooth', l: 'Smooth', t: .7, f: pct },
+            // Knob up = clean, down = destroyed (like Airwindows DeRez's Rate and Rez).
+            const knobs = knobRow([{ id: 'derez_crush', l: 'Rate', t: .4, f: t => 'n=' + Math.round(32 * Math.pow(2 / 32, 1 - t)) },
+                                   { id: 'derez_bits', l: 'Bits', t: .45, f: lin(2, 16, '', 1) }, { id: 'derez_smooth', l: 'Smooth', t: .7, f: pct },
                                    { id: 'derez_mix', l: 'Mix', t: .7, f: pct }]);
             knobs.classList.add('two');
             b.append(interval, knobs); } },
@@ -630,7 +652,7 @@ const MODS = {
             { id: 'air_width', l: 'Width', t: .67, f: t => Math.round(150 * t) + '%' }, { id: 'air_lofi', l: 'Lo-fi', t: .1, f: pct }]); k.classList.add('two'); b.append(k); } },
   color:  { n: '09', name: 'COLOR',   units: 2, code: 'Tone · low → high', build: b => {
             b.append(knobRow([{ id: 'color_bass', l: 'Bass', t: .5, f: bip('', 1, 2) }, { id: 'color_body', l: 'Body', t: .5, f: bip('', 1, 2) },
-                              { id: 'color_mud', l: 'Mud', t: .5, f: t => t.toFixed(2) }, { id: 'color_harsh', l: 'Harsh', t: .3, f: t => t.toFixed(2) },
+                              { id: 'color_mud', l: 'Mud', t: .25, f: t => t.toFixed(2) }, { id: 'color_harsh', l: 'Harsh', t: .15, f: t => t.toFixed(2) },
                               { id: 'color_air', l: 'Air', t: .5, f: bip('', 1, 2) }]));
             const filters = document.createElement('div'); filters.className = 'filters';
             const hz = v => v >= 1000 ? (v / 1000).toFixed(1) + ' kHz' : Math.round(v) + ' Hz';
@@ -799,9 +821,9 @@ const LANES = [[7, .05], [9, .03], [6, .06], [7, .20], [7, .03], [9, .02], [0, .
 const laneId = (i, what) => `m${String(i + 1).padStart(2, '0')}_${what}`;
 // What MOTION can move, by module (the list follows the chain order; GLOBAL first).
 const MAPPABLE = {
-  global: [['mix', 'Dry / Wet'], ['out', 'Output']],
+  global: [['mix', 'Dry / Wet'], ['offset', 'Offset'], ['out', 'Output']],
   shape: [['shape_tilt', 'Tilt'], ['shape_drive', 'Drive'], ['shape_harm', 'Harm']],
-  derez: [['derez_interval', 'Interval'], ['derez_crush', 'Crush'], ['derez_bits', 'Bits'], ['derez_mix', 'Mix']],
+  derez: [['derez_interval', 'Interval'], ['derez_crush', 'Rate'], ['derez_bits', 'Bits'], ['derez_smooth', 'Smooth'], ['derez_mix', 'Mix']],
   pitch: [['pitch_semi', 'Semi'], ['pitch_shift', 'Shift'], ['pitch_mix', 'Mix']],
   stretch: [['stretch_factor', 'Memory'], ['stretch_mix', 'Mix']],
   grain: [['grain_density', 'Density (free)'], ['grain_div', 'Rate (sync)'], ['grain_chance', 'Chance'], ['grain_size', 'Size'], ['grain_mix', 'Mix']],
@@ -809,7 +831,7 @@ const MAPPABLE = {
   space: [['space_size', 'Size'], ['space_decay', 'Decay'], ['space_tone', 'Tone'], ['space_mod', 'Mod'], ['space_pre', 'Pre-delay'], ['space_mix', 'Mix'],
           ['shimmer_depth', 'Shimmer depth'], ['shimmer_pitch', 'Shimmer pitch'], ['space_width', 'Width']],
   focus: [['focus_amount', 'Focus'], ['focus_depth', 'Depth'], ['focus_mix', 'Mix']],
-  air: [['air_breath', 'Breath'], ['air_width', 'Width'], ['air_lofi', 'Lo-fi']],
+  air: [['air_breath', 'Breath'], ['air_smooth', 'Smooth'], ['air_width', 'Width'], ['air_lofi', 'Lo-fi']],
   color: [['color_bass', 'Bass'], ['color_body', 'Body'], ['color_mud', 'Mud'], ['color_harsh', 'Harsh'], ['color_air', 'Air'],
           ['color_hpf', 'Low cut'], ['color_lpf', 'High cut'], ['tonal', 'Noise / Tonal']],
 };
@@ -870,7 +892,24 @@ function openTargetMenu(i, anchor) {
   // Above the lane, inside the stage.
   let x = 0, y = 0, el = anchor;
   while (el && el.id !== 'stage') { x += el.offsetLeft; y += el.offsetTop; el = el.offsetParent; }
-  menu.style.left = Math.min(x, 1500 - menu.offsetWidth - 24) + 'px';
+  menu.style.left = Math.min(x, STAGE[layout][0] - menu.offsetWidth - 24) + 'px';
+  menu.style.top = (y - menu.offsetHeight - 6) + 'px';
+}
+// LFO shapes: every shape with its icon, the current one lit.
+function openShapeMenu(current, pick, anchor) {
+  closeMenus();
+  const menu = document.createElement('div'); menu.className = 'target-menu shape-menu';
+  SHAPES.forEach((name, i) => {
+    const b = document.createElement('button'); b.innerHTML = shapeIcon(i) + name;
+    b.setAttribute('aria-pressed', i === current);
+    b.onclick = e => { e.stopPropagation(); pick(i); closeMenus(); };
+    menu.append(b);
+  });
+  document.getElementById('stage').append(menu);
+  let x = 0, y = 0, el = anchor;
+  while (el && el.id !== 'stage') { x += el.offsetLeft; y += el.offsetTop; el = el.offsetParent; }
+  const shape = anchor.querySelector('.shape');
+  menu.style.left = Math.min(x + (shape ? shape.offsetLeft : 0), STAGE[layout][0] - menu.offsetWidth - 24) + 'px';
   menu.style.top = (y - menu.offsetHeight - 6) + 'px';
 }
 function closeMenus() { document.querySelectorAll('.target-menu').forEach(m => m.remove()); }
@@ -899,9 +938,10 @@ function buildMotion(b) {
       row.onmouseenter = () => focusTarget(idx, true);
       row.onmouseleave = () => focusTarget(idx, false);
       row.append(knob({ id: laneId(idx, 'rate'), l: 'rate', t: Math.log(rate / .001) / Math.log(20000), f: rateLabel, on: t => lane.rate = .001 * Math.pow(20000, t) }, { small: true }));
-      const sh = document.createElement('div'); sh.className = 'shape'; sh.title = 'Clic : forme suivante';
+      const sh = document.createElement('div'); sh.className = 'shape'; sh.title = 'Choose the shape';
       const paint = () => sh.innerHTML = shapeIcon(lane.shape) + SHAPES[lane.shape];
-      sh.onclick = () => { lane.shape = (lane.shape + 1) % SHAPES.length; paint(); bridge.send(laneId(idx, 'shape'), lane.shape); }; paint();
+      const pick = i => { lane.shape = i; paint(); bridge.send(laneId(idx, 'shape'), i); };
+      sh.onclick = e => { e.stopPropagation(); openShapeMenu(lane.shape, pick, row); }; paint();
       bridge.register(laneId(idx, 'shape'), 'choice', i => { lane.shape = i; paint(); });
       row.append(sh, knob({ id: laneId(idx, 'depth'), l: 'depth', t: depth, f: pct, on: t => lane.depth = t }, { small: true }));
       const cv = document.createElement('canvas'); row.append(cv); lane.canvas = cv;
@@ -923,7 +963,10 @@ document.querySelectorAll('[data-mod]').forEach(buildCard);  // MOTION
 CHAIN_DEFAULT.forEach(m => { const el = document.createElement('section'); el.className = 'card'; el.dataset.mod = m; cards[m] = el; buildCard(el); });
 layoutChain();
 const gk = document.getElementById('globalKnobs');
-gk.append(knob({ id: 'mix', l: 'Dry / Wet', t: 1, f: pct }, { wide: true }), knob({ id: 'out', l: 'Output', t: .5, f: bip(' dB', 12, 1) }, { wide: true }));
+// OFFSET: the wet's right channel a few ms late (Haas width; the dry is untouched).
+const offsetText = t => t <= 0 ? 'off' : (25 * t * t).toFixed(1) + ' ms';
+gk.append(knob({ id: 'mix', l: 'Dry / Wet', t: 1, f: pct }, { wide: true }), knob({ id: 'offset', l: 'Offset', t: 0, f: offsetText }, { wide: true }),
+          knob({ id: 'out', l: 'Output', t: .5, f: bip(' dB', 12, 1) }, { wide: true }));
 
 const THEMES = { signal: ['#121210', '#3D6DFF'], sky: ['#B4C8E1', '#13244B'], print: ['#2D5BCB', '#0A0E18'], ochre: ['#D7D6C9', '#E1A92D'], peach: ['#EEE2D2', '#A56BF0'] };
 const themes = document.getElementById('themes');
@@ -1004,6 +1047,12 @@ const freezeBtn = document.getElementById('freeze');
 const showFreeze = on => { if (on !== state.freeze) glitch(); state.freeze = on; freezeBtn.setAttribute('aria-pressed', on); };
 freezeBtn.onclick = () => { showFreeze(!state.freeze); bridge.send('freeze', state.freeze); };
 bridge.register('freeze', 'toggle', showFreeze);
+// BYPASS ALL: the plugin passes its input untouched; the rack dims to say so.
+const bypassBtn = document.getElementById('bypass');
+let bypassed = false;
+const showBypass = on => { bypassed = !!on; bypassBtn.setAttribute('aria-pressed', bypassed); document.documentElement.classList.toggle('bypassed', bypassed); };
+bypassBtn.onclick = () => { showBypass(!bypassed); bridge.send('bypass', bypassed); };
+bridge.register('bypass', 'toggle', showBypass);
 
 // ---------- SPACE visual: halftone spectrogram scrolling right → left ----------
 // Each column is the spectrum of the moment (log frequency, bottom = low), drawn as
@@ -1012,15 +1061,26 @@ bridge.register('freeze', 'toggle', showFreeze);
 // the past last longer, SHIMMER lifts partials upwards, FREEZE stops the paper and
 // smears it sideways (slit-scan).
 const viz = document.getElementById('viz');
+// Page size per layout (the plugin window takes the same proportions).
+const STAGE = { top: [1500, 1120], side: [1744, 976] };
+let layout = 'top';
 const STEP = 7;
 let vctx, VW = 0, VH = 0, cols = [], rows = 0, scroll = 0, tick = 0, smear = 0, colIndex = 0, lastT = 0;
 const partials = [45, 52, 55, 59, 60, 64, 69, 76].map((m, i) => ({ m, amp: .45 + ((i * 37) % 10) / 18, drift: i * 1.7 }));
+// SIDE layout: the same paper drawn turned a quarter: time runs down (now at the top),
+// frequency left → right. VW / VH stay "time length" and "frequency height".
 function resizeViz() {
-  const dpr = devicePixelRatio || 1;
-  VW = viz.offsetWidth; VH = viz.offsetHeight;
-  viz.width = VW * dpr; viz.height = VH * dpr;
-  vctx = viz.getContext('2d'); vctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  rows = Math.ceil(VH / STEP) + 1;
+  const dpr = devicePixelRatio || 1, side = layout === 'side';
+  const w = viz.offsetWidth, h = viz.offsetHeight;
+  viz.width = w * dpr; viz.height = h * dpr;
+  VW = side ? h : w; VH = side ? w : h;
+  vctx = viz.getContext('2d');
+  if (side) vctx.setTransform(0, -dpr, -dpr, 0, VH * dpr, VW * dpr);
+  else vctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  const newRows = Math.ceil(VH / STEP) + 1;
+  if (newRows !== rows) cols = [];  // a column's cells belong to one height
+  rows = newRows;
+  document.getElementById('hudAxis').textContent = side ? '20 HZ → 12 KHZ · TIME ↓' : '20 HZ ↑ 12 KHZ · TIME ←';
 }
 function column(t) {
   const col = new Float32Array(rows);
@@ -1198,9 +1258,24 @@ function grainHud() {
   document.getElementById('hudGrain').textContent = off ? '' : 'GRAIN ' + grainCount.reduce((a, c) => a + c.n, 0) + ' /S';
 }
 
-function fit() { document.getElementById('stage').style.transform = `scale(${Math.min(innerWidth / 1500, innerHeight / 1120)})`; }
+function fit() { const [w, h] = STAGE[layout]; document.getElementById('stage').style.transform = `scale(${Math.min(innerWidth / w, innerHeight / h)})`; }
 addEventListener('resize', fit); fit();
 resizeViz();
+// The layout switch: the page changes shape, the plugin window follows (native setLayout).
+const LAYOUT_ICON = {
+  top: '<svg viewBox="0 0 16 14"><rect x=".5" y=".5" width="15" height="13" fill="none" stroke="currentColor"/><rect x="2" y="2" width="12" height="3" fill="currentColor"/></svg>',
+  side: '<svg viewBox="0 0 16 14"><rect x=".5" y=".5" width="15" height="13" fill="none" stroke="currentColor"/><rect x="11" y="2" width="3" height="10" fill="currentColor"/></svg>',
+};
+function setLayout(name, fromHost) {
+  layout = name === 'side' ? 'side' : 'top';
+  document.documentElement.classList.toggle('side', layout === 'side');
+  document.getElementById('layoutBtn').innerHTML = LAYOUT_ICON[layout === 'side' ? 'top' : 'side'];  // shows where it would go
+  fit(); resizeViz();
+  if (!bridge.juce) for (let k = 0; k < 600; k++) drawViz();  // a plain browser: refill the paper
+  if (!fromHost && bridge.juce) bridge.juce.getNativeFunction('setLayout')(layout);
+}
+document.getElementById('layoutBtn').onclick = () => setLayout(layout === 'side' ? 'top' : 'side');
+setLayout(layout, true);
 for (let k = 0; k < 1800; k++) drawViz();  // start with a tail already on the paper
 (function loop(now) { simulateGrains(now || 0); drawViz(now); drawLanes(); grainHud(); requestAnimationFrame(loop); })();
 </script>

@@ -50,6 +50,19 @@ void migrateGrainNotes(juce::ValueTree& state) {
     add("grain_p12", float(find("grain_octaves").getProperty("value", 1.0f)) >= 0.5f);
 }
 
+// State version 2 (v0.1.3): DEREZ RATE and BITS knobs are reversed (up = clean) and the
+// COLOR bands reach twice as far. Older sessions are moved so they sound the same.
+constexpr int kStateVersion = 2;
+void migrateToVersion2(juce::ValueTree& state) {
+    const auto remap = [&](const char* id, auto&& f) {
+        auto param = state.getChildWithProperty("id", id);
+        if (param.isValid()) param.setProperty("value", f(float(param.getProperty("value", 0.0f))), nullptr);
+    };
+    for (const char* id : {"derez_crush", "derez_bits"}) remap(id, [](float v) { return 1.0f - v; });
+    for (const char* id : {"color_bass", "color_body", "color_air"}) remap(id, [](float v) { return 0.5f + 0.5f * (v - 0.5f); });
+    for (const char* id : {"color_mud", "color_harsh"}) remap(id, [](float v) { return 0.5f * v; });
+}
+
 }  // namespace
 
 StasisProcessor::StasisProcessor()
@@ -175,6 +188,9 @@ void StasisProcessor::applyPreset(int index) {
     for (int lane = 0; lane < 12; ++lane)
         setLaneTarget(lane, lane < int(preset.motion.size()) ? juce::String(preset.motion[size_t(lane)].target)
                                                              : juce::String(stasis::params::kDefaultTargets[size_t(lane)]));
+    // A clean slate: the previous preset's tails (reverb, echo, stretch…) are flushed,
+    // like PANIC, so the new preset is heard on its own.
+    resetEngine();
     const juce::String order(preset.order);
     setModuleOrder(juce::StringArray::fromTokens(order.isEmpty() ? juce::String(stasis::params::kDefaultOrderNames) : order, ",", ""));
     currentPreset_ = index;
@@ -217,6 +233,8 @@ void StasisProcessor::getStateInformation(juce::MemoryBlock& destData) {
     state.setProperty("order", getModuleOrder().joinIntoString(","), nullptr);
     state.setProperty("preset", currentPreset_, nullptr);
     state.setProperty("targets", getLaneTargets().joinIntoString(","), nullptr);
+    state.setProperty("version", kStateVersion, nullptr);
+    state.setProperty("layout", layout, nullptr);
     if (auto xml = state.createXml()) copyXmlToBinary(*xml, destData);
 }
 
@@ -225,9 +243,11 @@ void StasisProcessor::setStateInformation(const void* data, int sizeInBytes) {
         if (!xml->hasTagName(apvts.state.getType())) return;
         auto state = juce::ValueTree::fromXml(*xml);
         migrateGrainNotes(state);
+        if (int(state.getProperty("version", 1)) < kStateVersion) migrateToVersion2(state);
         apvts.replaceState(state);
         setModuleOrder(juce::StringArray::fromTokens(state.getProperty("order").toString(), ",", ""));
         currentPreset_ = int(state.getProperty("preset", 0));
+        layout = state.getProperty("layout", "top").toString() == "side" ? "side" : "top";
         if (state.hasProperty("targets")) {
             const auto ids = juce::StringArray::fromTokens(state.getProperty("targets").toString(), ",", "");
             for (int lane = 0; lane < 12; ++lane) setLaneTarget(lane, lane < ids.size() ? ids[lane] : juce::String());
