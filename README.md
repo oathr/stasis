@@ -1,0 +1,214 @@
+# STASIS
+
+**Rack d'effets ambient** — reverbs profondes, échos à bande, time-stretch façon PaulXStretch, DeRez accordé et filtrage harmonique piloté par MIDI, dans une seule chaîne pensée pour les pads, les synthés et les enregistrements.
+
+VST3 · Windows & macOS · JUCE 8 · v0.1 (en développement)
+
+![Interface de STASIS](docs/screenshot.png)
+
+---
+
+## Sommaire
+- [Principes](#principes)
+- [La chaîne](#la-chaîne)
+- [Les modules](#les-modules)
+- [Installation](#installation)
+- [Utilisation dans Ableton Live](#utilisation-dans-ableton-live)
+- [Compiler](#compiler)
+- [Organisation du code](#organisation-du-code)
+- [Mesures et tests](#mesures-et-tests)
+- [Feuille de route](#feuille-de-route)
+- [Licences](#licences)
+
+---
+
+## Principes
+- **Qualité DSP maximale, CPU minimal.** Chaque algorithme est mesuré : densité d'écho, résonances, justesse, séparation tonal/bruit, coût CPU.
+- **Le dry n'est jamais retardé.** La latence déclarée à l'hôte est de **0 échantillon**. Les modules qui ont besoin de temps (STRETCH, TONAL) ne retardent que le wet, où un décalage est musicalement invisible.
+- **Peu de boutons, chacun utile.** Trois à six potards par module ; tous les paramètres sont automatisables.
+- **Design sobre** : design suisse, imprimé années 80, inspirations Gattaca, *Her*, Marathon — sans en copier aucun visuel.
+
+## La chaîne
+
+```
+IN ─┬────────────────────────────────────────────────────────────────────────────┬─ MIX ─ OUT
+    └ DEREZ ► STRETCH ► ECHO ► [TONAL pre] ► SPACE ► FOCUS ► COLOR ► [TONAL post] ┘
+                                                     ▲
+MIDI IN ─────────────────────────────────────────────┘ (FOCUS, DEREZ)
+```
+
+- L'ordre est fixe, choisi pour l'ambient : le crunch et l'étirement nourrissent l'écho, qui nourrit la reverb.
+- Chaque module a un interrupteur (le carré en bas de sa tranche) avec un fondu de 30 ms, sans clic.
+- `MIX` (en haut) dose le wet par rapport au dry, `OUT` règle le niveau de sortie (±12 dB).
+- `FREEZE` fige la reverb : la queue tient indéfiniment, sans dériver.
+
+## Les modules
+
+### 02 · DEREZ — réduction de résolution *accordée*
+Inspiré du DeRez d'Airwindows, mais au lieu de changer la hauteur de façon chaotique, la fréquence d'échantillonnage réduite est calée sur la note jouée : le repliement tombe sur un intervalle musical.
+
+| Contrôle | Effet |
+|---|---|
+| Intervalle `-24 … +24` | Hauteur du repliement : octaves, quinte, demi-tons |
+| `CRUSH` | Force de la réduction (n = rapport à la fondamentale) |
+| `BITS` | Profondeur, de 16 à 2 bits |
+| `MIX` | Dosage |
+
+La fondamentale vient de la note MIDI la plus grave tenue, sinon La2 (110 Hz). Mesure : 100 % de l'énergie reste juste, contre 9 à 77 % pour un DeRez classique.
+
+### 04 · STRETCH — PaulStretch en temps réel
+Étirement extrême par trames FFT de 32768 points à phases aléatoires.
+
+| Contrôle | Effet |
+|---|---|
+| `SMEAR` / `CAPTURE` | SMEAR suit l'entrée en direct, au ralenti. CAPTURE fige les dernières secondes et les étire en boucle |
+| `FACTOR` | Étirement ×1 à ×1000 |
+| `LOOP` | Durée capturée (1 à 30 s) |
+| `MIX` | Dosage |
+
+Pour recapturer, repasser en SMEAR puis en CAPTURE.
+
+### 05 · ECHO — écho à bande
+Wow, flutter, saturation (tanh anti-repliement), filtres de bande et souffle dans la boucle. Les changements de temps glissent comme une bande qui change de vitesse.
+
+| Contrôle | Effet |
+|---|---|
+| `MONO` / `PING-PONG` | Répétitions au centre ou alternées gauche/droite |
+| `FREE` / `SYNC` | Temps libre (20 ms – 2,5 s) ou calé sur le tempo de l'hôte (1/32 à 1/1, pointées, triolets) |
+| `TIME`, `FDBK`, `WOW` | Temps, réinjection, instabilité de la bande |
+| `MIX` | Niveau des répétitions |
+
+### 06 · SPACE — les reverbs
+| Type | Moteur |
+|---|---|
+| `ROOM` / `HALL` / `CATHEDRAL` | FDN 16 lignes : diffuseur 8 canaux, matrice Householder + rotation (aucune ligne ne se réinjecte elle-même), absorption 3 bandes, modulation qui s'adapte à la durée |
+| `PLATE` | Plaque de Dattorro |
+
+| Contrôle | Effet |
+|---|---|
+| `SIZE`, `DECAY`, `TONE` | Taille, durée (0,5 s à ∞), brillance de la queue |
+| `MOD`, `PRE`, `MIX` | Modulation, prédélai (1 à 500 ms), dosage |
+| `SHIMMER DEPTH` / `PITCH` | Part de la réinjection transposée par phase vocoder, de −24 à +24 demi-tons |
+| `WIDTH` | Largeur stéréo |
+
+Mesures : hall dense en 90 ms, résonance résiduelle 0,027 ; dérive en freeze 0,01 dB/min.
+
+### 07 · FOCUS — le wet qui suit le MIDI
+Garde dans le wet les fréquences des notes jouées et atténue le reste, dont la queue de l'accord précédent. **Zéro latence** (banc de filtres résonants).
+
+| Contrôle | Effet |
+|---|---|
+| `KEY` | Garde les notes tenues, à toutes les octaves |
+| `HARM` | Garde les notes et leurs harmoniques (peignes accordés) |
+| `AUTO` | Sans MIDI : détecte lui-même les notes jouées |
+| `FOCUS`, `DEPTH`, `MIX` | Précision, force, dosage |
+
+Les notes suivies s'allument sur le clavier du module.
+
+### 09 · COLOR — finition du wet
+| Contrôle | Effet |
+|---|---|
+| `BASS` | Shelf ±9 dB à 120 Hz (en négatif, un passe-haut s'ajoute) |
+| `MUD` | Coupe 200–600 Hz, en partie **dynamique** : elle ne se creuse que si cette zone domine |
+| `AIR` | Shelf ±8 dB à 6 kHz |
+| `NOISE ◂▸ TONAL` | À droite : ne garde que les notes. À gauche : ne garde que le souffle et la texture. Double-clic pour recentrer |
+| `PRE` / `POST` | TONAL avant la reverb (elle reconstruit sa queue avec ce qui reste) ou après (on filtre la queue elle-même) |
+
+Séparation mesurée : rapport notes/bruit de +7,6 dB en entrée → **+17,1 dB** à fond TONAL, **−1,8 dB** à fond NOISE.
+
+### Bientôt
+`SHAPE` (tilt, drive), `PITCH` (transposition, formants), `AIR` (souffle, largeur) et `MOTION` (12 LFO assignés aux paramètres clés) sont dessinés mais pas encore dans le moteur audio : ils apparaissent grisés.
+
+## Installation
+
+### Windows (Ableton Live)
+1. Ouvrir l'onglet **[Actions](../../actions)** du repo, choisir la dernière compilation réussie, télécharger l'artefact **STASIS-VST3-Windows**.
+2. Dézipper : on obtient un dossier `STASIS.vst3`.
+3. Le copier dans `C:\Program Files\Common Files\VST3\`.
+4. Dans Live : *Options › Préférences › Plug-ins*, activer **Use VST3 Plug-in System Folders**, puis **Rescan**.
+
+L'interface utilise WebView2, déjà présent sur Windows 10 et 11.
+
+### macOS
+Même chose avec l'artefact **STASIS-VST3-macOS**, à copier dans `~/Library/Audio/Plug-Ins/VST3/`. Le plugin n'est pas encore signé : au premier lancement, macOS peut demander une autorisation (*Réglages système › Confidentialité et sécurité*).
+
+## Utilisation dans Ableton Live
+- **Sur une piste audio ou un synthé** : glisser STASIS comme effet audio, après l'instrument.
+- **Envoyer le MIDI à STASIS** (pour FOCUS et DEREZ) : créer une piste MIDI, régler sa sortie *MIDI To* sur la piste qui contient STASIS, puis choisir **STASIS** dans le second menu. Jouer sur cette piste : les notes s'allument dans FOCUS.
+- **Sans MIDI** : FOCUS en `AUTO` détecte les notes ; DEREZ prend La2 comme fondamentale.
+- **Tempo** : ECHO en `SYNC` suit le tempo du projet.
+- **En send** : mettre `MIX` à 100 % et doser avec le retour d'effet.
+- **Automation** : tous les potards apparaissent dans la liste des paramètres de Live, avec les mêmes unités qu'à l'écran.
+
+## Compiler
+Prérequis : CMake ≥ 3.22, un compilateur C++20, Git. JUCE 8 est téléchargé automatiquement par CMake.
+
+### Windows
+Visual Studio 2022 (charge de travail *Développement Desktop en C++*), puis le SDK WebView2 :
+```bash
+nuget install Microsoft.Web.WebView2 -OutputDirectory C:\webview2
+cmake -S . -B build -G "Visual Studio 17 2022" -A x64 -DSTASIS_BUILD_RENDER=OFF -DJUCE_WEBVIEW2_PACKAGE_LOCATION=C:\webview2
+cmake --build build --config Release --target Stasis_VST3
+```
+Le plugin est dans `build/plugin/Stasis_artefacts/Release/VST3/STASIS.vst3`.
+
+### macOS
+```bash
+cmake -S . -B build -G Ninja
+cmake --build build
+```
+Produit le VST3, une application **Standalone** pratique pour tester sans DAW, le testeur `stasis_hosttest` et l'outil de rendu `stasis_render`.
+
+### Intégration continue
+Chaque `push` lance [`.github/workflows/build.yml`](.github/workflows/build.yml) : compilation Windows et macOS, test de charge, plugins en téléchargement.
+
+## Organisation du code
+
+| Dossier | Contenu |
+|---|---|
+| [`dsp/include/stasis/`](dsp/include/stasis) | Cœur DSP en C++20, header-only, **sans dépendance** : reverbs, écho, stretch, DeRez, FOCUS, COLOR, TONAL, LFO, FFT |
+| [`plugin/Source/Params.h`](plugin/Source/Params.h) | La table des 44 paramètres, partagée par l'hôte, l'interface et le moteur |
+| [`plugin/Source/Engine.h`](plugin/Source/Engine.h) | La chaîne audio complète, indépendante de JUCE |
+| [`plugin/Source/Plugin*.cpp`](plugin/Source) | Processeur JUCE (MIDI, tempo, état) et éditeur WebView |
+| [`design/mockup.html`](design/mockup.html) | L'interface : une page HTML embarquée dans le plugin. Ouverte dans un navigateur, elle fonctionne seule (maquette interactive, 5 thèmes) |
+| [`plugin/HostTest/`](plugin/HostTest) | `stasis_hosttest` : charge le VST3 comme un DAW et le met sous pression |
+| [`tools/render/`](tools/render) | `stasis_render` : rend des sons de test à travers chaque algorithme (WAV) et lance les mesures (`--analyse`) |
+| [`PLAN.md`](PLAN.md) | Le plan détaillé : algorithmes, choix, mesures, décisions, feuille de route |
+
+L'interface et l'hôte se parlent par les relais Web de JUCE 8 : chaque contrôle HTML porte l'`id` de son paramètre, et la synchronisation va dans les deux sens (automation, undo, presets). Le plugin envoie aussi 30 fois par seconde le spectre du wet au visualiseur et l'état (CPU, notes suivies).
+
+## Mesures et tests
+
+```bash
+./build/stasis_render --analyse                     # mesures DSP (densité, justesse, DeRez, TONAL…)
+./build/stasis_render                               # rendus WAV dans renders/
+./build/plugin/stasis_hosttest_artefacts/Release/stasis_hosttest build/plugin/Stasis_artefacts/Release/VST3/STASIS.vst3
+```
+
+Le testeur d'hôte joue 12 s de son par configuration (44,1 / 48 / 96 kHz, buffers de 64 à 2048), avec de l'automation aléatoire, du MIDI et une sauvegarde/relecture de l'état. Résultats sur Apple Silicon :
+
+| Mesure | Résultat |
+|---|---|
+| CPU moyen | 1 à 3 % d'un cœur |
+| Pire bloc en automation (64 éch. à 48 kHz) | 41 % du temps réel |
+| Changement de tous les paramètres d'un coup | ~2 ms dans le moteur |
+| Sortie | toujours finie, jamais d'emballement |
+
+Les modules à FFT longue répartissent leur calcul sur plusieurs blocs audio : aucun pic de CPU, même avec des buffers très courts.
+
+## Feuille de route
+- [x] **Phase 0** — prototypes et mesures de tous les algorithmes clés
+- [x] **Phase 1** — plugin VST3 (Windows prioritaire), interface intégrée, tests, CI
+- [ ] Polices embarquées dans le plugin (aujourd'hui chargées depuis Google Fonts)
+- [ ] Bouton de recapture pour STRETCH, presets
+- [ ] MOTION : 12 LFO (12 formes, dont Perlin, chaos de Lorenz, « breath »)
+- [ ] SHAPE, PITCH, AIR
+- [ ] Reverbs expérimentales : Spectral, Modal, Bloom, 80s
+- [ ] AU, CLAP ; signature et installeurs
+
+Détails dans [PLAN.md](PLAN.md).
+
+## Licences
+- Usage personnel pour l'instant ; publication open source prévue sous **GPLv3** si le résultat est bon.
+- JUCE 8 est utilisé sous sa licence **AGPLv3** (ou commerciale).
+- Le moodboard qui a inspiré le design est sous licence : aucun de ses visuels n'est reproduit.
