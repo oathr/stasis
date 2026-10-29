@@ -556,8 +556,9 @@ const state = { size: .9, decay: .75, tone: .45, shimmer: .5, freeze: false, str
 // Modules that exist in the audio engine (the others are design only for now).
 const LIVE_MODS = ['shape', 'derez', 'pitch', 'stretch', 'grain', 'echo', 'space', 'focus', 'air', 'color', 'motion'];
 const MODS = {
-  shape:  { n: '01', name: 'SHAPE',   code: 'Tilt · drive', build: b => b.append(knobRow([
-            { id: 'shape_tilt', l: 'Tilt', t: .5, f: bip(' dB', 6, 1) }, { id: 'shape_drive', l: 'Drive', t: .2, f: pct }, { id: 'shape_harm', l: 'Harm', t: .3, f: pct }])) },
+  shape:  { n: '01', name: 'SHAPE',   code: 'Tilt · drive', build: b => b.append(
+            seg(['Tape', 'Tube', 'Fold', 'Rect', 'Slew', 'Bloom'], 0, null, 'shape_type'),
+            knobRow([{ id: 'shape_tilt', l: 'Tilt', t: .5, f: bip(' dB', 6, 1) }, { id: 'shape_drive', l: 'Drive', t: .2, f: pct }, { id: 'shape_harm', l: 'Harm', t: .3, f: pct }])) },
   derez:  { n: '02', name: 'DEREZ',   code: 'Tuned · A2', build: b => {
             // Interval: a cursor in semitones, -24 .. +24, snapped to the semitone.
             const st = v => { const n = Math.round(v * 24); return (n > 0 ? '+' : '') + n + ' st'; };

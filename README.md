@@ -51,9 +51,21 @@ MIDI IN ─────────┴──────────────
 ### SHAPE — la première touche
 | Contrôle | Effet |
 |---|---|
+| `TYPE` | La façon dont DRIVE tord l'onde (voir ci-dessous) |
 | `TILT` | Bascule ±6 dB autour de 800 Hz : sombre ◂▸ brillant |
-| `DRIVE` | Saturation tanh sans repliement (ADAA), niveau conservé vers −12 dBFS |
+| `DRIVE` | Quantité ; le niveau reste le même à −12 dBFS quel que soit le type |
 | `HARM` | Asymétrie : harmoniques paires, chaleur « lampe » |
+
+| Type | Caractère |
+|---|---|
+| `TAPE` | tanh sans repliement (ADAA) : rond, chaud, le classique |
+| `TUBE` | Exponentielle asymétrique : le haut de l'onde s'adoucit plus tôt que le bas ; harmoniques paires même sans HARM |
+| `FOLD` | Repli d'onde (sinus) : au-delà du plein niveau, l'onde se replie sur elle-même ; cloches, harmoniques de verre, « west coast » |
+| `RECT` | Mélange l'onde redressée : une octave au-dessus apparaît (fuzz octaver) |
+| `SLEW` | Limite la vitesse de l'onde : les fronts deviennent des rampes ; un grain doux, fantomatique, qui suit la hauteur (sur des aigus forts, un léger sous-son reste audible) |
+| `BLOOM` | Le drive suit le niveau à l'envers : les attaques restent propres, les déclins et les queues de reverb s'encrassent en s'éteignant |
+
+Tous les types sauf TAPE tournent suréchantillonnés ×2 ; repliement mesuré à 3,1 kHz −3 dBFS : de −21 dB (RECT) à −50 dB (BLOOM).
 
 ### PITCH — transposition et décalage
 | Contrôle | Effet |

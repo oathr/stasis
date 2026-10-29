@@ -208,7 +208,8 @@ private:
         on_[kSpace] = v(values, iSpaceOn) > 0.5f;
         on_[kFocus] = v(values, iFocusOn) > 0.5f;
         on_[kColor] = v(values, iColorOn) > 0.5f;
-        static const int iShapeOn = indexOf("shape_on"), iTilt = indexOf("shape_tilt"), iDrive = indexOf("shape_drive"), iHarm = indexOf("shape_harm");
+        static const int iShapeOn = indexOf("shape_on"), iTilt = indexOf("shape_tilt"), iDrive = indexOf("shape_drive"), iHarm = indexOf("shape_harm"),
+                         iShapeType = indexOf("shape_type");
         static const int iPitchOn = indexOf("pitch_on"), iSemi = indexOf("pitch_semi"), iShift = indexOf("pitch_shift"), iPitchMix = indexOf("pitch_mix");
         static const int iAirOn = indexOf("air_on"), iBreath = indexOf("air_breath"), iWidthAir = indexOf("air_width"), iLofi = indexOf("air_lofi");
         on_[kShape] = v(values, iShapeOn) > 0.5f;
@@ -216,7 +217,8 @@ private:
         on_[kAir] = v(values, iAirOn) > 0.5f;
         mix_[kShape] = mix_[kAir] = 1.0f;
         mix_[kPitch] = v(values, iPitchMix);
-        if (changed({iTilt, iDrive, iHarm})) shape_.setParams({2.0f * v(values, iTilt) - 1.0f, v(values, iDrive), v(values, iHarm)});
+        if (changed({iTilt, iDrive, iHarm, iShapeType}))
+            shape_.setParams({2.0f * v(values, iTilt) - 1.0f, v(values, iDrive), v(values, iHarm), Shape::Type(std::clamp(int(v(values, iShapeType)), 0, 5))});
         if (changed({iSemi, iShift})) pitch_.setParams({pitchSemitones(v(values, iSemi)), shiftHz(v(values, iShift))});
         if (changed({iBreath, iWidthAir, iLofi})) air_.setParams({v(values, iBreath), v(values, iWidthAir), v(values, iLofi)});
         static const int iGrainOn = indexOf("grain_on"), iAlgo = indexOf("grain_algo"), iEnv = indexOf("grain_env"), iDensity = indexOf("grain_density"),

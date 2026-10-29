@@ -506,6 +506,7 @@ Règle : **chaque phase se termine par des écoutes et des mesures** (CPU, IR, n
   - puis STRETCH réduit à BLUR seul (MEMORY + MIX) : SMEAR et CAPTURE retirés de l'interface et du moteur du plugin (ils restent dans `capture_stretch.h` pour l'outil de rendu) ;
   - flèches ◂ ▸ dans la tranche noire de chaque module.
 - **v0.6** : GRAIN (nouveau module, après STRETCH par défaut) : grains rejoués d'un tampon de 4 s, ordonnanceur PULSE / SCATTER / DRIFT, CHANCE, enveloppes SINE / TRI / SQUARE / PERC, intervalles autorisés + octaves 0–2, 32 voix ; petit visualiseur de grains à droite du spectre. Les anciennes sessions reçoivent GRAIN juste après STRETCH.
+- **v0.7** : SHAPE à 6 types (TAPE, TUBE, FOLD, RECTIFY, SLEW, BLOOM), suréchantillonnage ×2 (halfband 31 taps), niveau calé en RMS à −12 dBFS ; GRAIN SYNC ; clavier piano discret ; vue de grains aux trois encres de la charte.
 - **Reste à faire** :
   - embarquer les polices (aujourd'hui chargées depuis Google Fonts : sans réseau, l'interface passe sur des polices de secours).
 
