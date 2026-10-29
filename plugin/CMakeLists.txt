@@ -19,6 +19,8 @@ juce_add_plugin(Stasis
   NEEDS_MIDI_OUTPUT FALSE
   IS_MIDI_EFFECT FALSE
   NEEDS_WEBVIEW2 TRUE
+  MICROPHONE_PERMISSION_ENABLED TRUE   # macOS gives silence to apps that do not ask
+  MICROPHONE_PERMISSION_TEXT "STASIS processes the audio input (instrument, interface, microphone)."
   VST3_CATEGORIES Fx Reverb Delay
   COPY_PLUGIN_AFTER_BUILD FALSE)
 
