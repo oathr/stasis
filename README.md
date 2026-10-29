@@ -117,7 +117,7 @@ Rejoue de petits bouts de ce qui vient d'être joué, sous une enveloppe, à des
 | `SIZE` | 20 ms à 2 s |
 | `MIX` | Dosage (à 100 % : seulement les notes) |
 
-Le petit écran **GRAIN**, en haut à droite, dessine chaque grain en points de trame (comme le spectre) qui gonflent avec son enveloppe : la hauteur donne la transposition (lignes = octaves), la longueur sa durée, la couleur son octave (blanc, bleu, pêche). Mesuré sur un son continu à 220 Hz (unisson + quinte, +1 octave) : 66 % de silence entre les notes, énergie sur 220 / 330 / 440 / 660 Hz, une note non autorisée 50 dB plus bas.
+Le petit écran **GRAIN**, en haut à droite, dessine chaque grain par un point : sa hauteur donne la transposition (lignes = octaves), sa taille son volume, sa couleur son octave (blanc, bleu, pêche). Mesuré sur un son continu à 220 Hz (unisson + quinte, +1 octave) : 66 % de silence entre les notes, énergie sur 220 / 330 / 440 / 660 Hz, une note non autorisée 50 dB plus bas.
 
 ### 05 · ECHO — écho à bande
 Saturation (tanh anti-repliement), filtres de bande et souffle dans la boucle, sans wow ni flutter : les répétitions restent justes. Les changements de temps glissent comme une bande qui change de vitesse.
