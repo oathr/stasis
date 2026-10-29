@@ -90,6 +90,7 @@ Inspiré du DeRez d'Airwindows, mais au lieu de changer la hauteur de façon cha
 | Curseur `−24 … +24` | Hauteur du repliement, au demi-ton (repères à chaque octave) |
 | `CRUSH` | Force de la réduction (n = rapport à la fondamentale) |
 | `BITS` | Profondeur, de 16 à 2 bits |
+| `SMOOTH` | Douceur : à 0 %, l'escalier brut et les marches de bits nettes (ça grésille) ; vers 100 %, les paliers sont reliés en pente, les marches de bits deviennent douces et un passe-bas 12 dB/oct suit la fréquence du crush. 70 % par défaut. Mesure (220 Hz qui s'éteint, énergie au-dessus de 4 kHz) : −22 dB à 0 %, −60 dB à 70 %, −68 dB à 100 % (le son propre : −71 dB) |
 | `MIX` | Dosage |
 
 La fondamentale vient de la note MIDI la plus grave tenue, sinon La2 (110 Hz). Mesure : 100 % de l'énergie reste juste, contre 9 à 77 % pour un DeRez classique.
@@ -117,10 +118,10 @@ Rejoue de petits bouts de ce qui vient d'être joué, sous une enveloppe, à des
 | `SIZE` | 20 ms à 2 s |
 | `MIX` | Dosage (à 100 % : seulement les notes) |
 
-Le petit écran **GRAIN**, en haut à droite, dessine chaque grain par un hexagone : sa hauteur donne la transposition (lignes : −12, 0, +12), sa taille son volume, sa couleur sa direction (blanc à l'unisson, bleu au-dessus, pêche en dessous). Le testeur d'hôte vérifie que −12, 0 et +12 tombent sur la bonne octave (+18 à +24 dB). Mesuré avant le passage aux intervalles, sur un son continu à 220 Hz (unisson, quinte et leur octave) : 66 % de silence entre les notes, énergie sur 220 / 330 / 440 / 660 Hz, une note non autorisée 50 dB plus bas.
+Les grains s'affichent **dans le spectre**, en bleu, sur sa grille de points : chaque grain allume la case de la colonne où il joue, à la hauteur de sa vraie fréquence (la note dominante du son, décalée de son intervalle), avec une taille qui suit son volume. Deux grains sur la même case : seul le plus fort est dessiné. Le nombre de grains par seconde est affiché en bas à droite du spectre. Le testeur d'hôte vérifie que −12, 0 et +12 tombent sur la bonne octave (+18 à +24 dB). Mesuré avant le passage aux intervalles, sur un son continu à 220 Hz (unisson, quinte et leur octave) : 66 % de silence entre les notes, énergie sur 220 / 330 / 440 / 660 Hz, une note non autorisée 50 dB plus bas.
 
 ### 05 · ECHO — écho à bande
-Saturation (tanh anti-repliement), filtres de bande et souffle dans la boucle, sans wow ni flutter : les répétitions restent justes. Les changements de temps glissent comme une bande qui change de vitesse.
+Saturation (tanh anti-repliement) et filtres de bande dans la boucle, sans souffle, sans wow ni flutter : les répétitions restent justes. Les changements de temps glissent comme une bande qui change de vitesse.
 
 | Contrôle | Effet |
 |---|---|

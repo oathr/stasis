@@ -133,6 +133,7 @@ inline const std::vector<Spec>& all() {
         {"derez_interval", "Derez Interval", Kind::Float, 0.25f, {}, [](float t) { return fmt("%+.0f st", double(derezSemitones(t))); }},
         {"derez_crush", "Derez Crush", Kind::Float, 0.6f, {}, [](float t) { return "n=" + std::to_string(derezMultiple(t)); }},
         {"derez_bits", "Derez Bits", Kind::Float, 0.55f, {}, [](float t) { return fmt("%.1f", derezBits(t)); }},
+        {"derez_smooth", "Derez Smooth", Kind::Float, 0.7f, {}, pct},
         {"derez_mix", "Derez Mix", Kind::Float, 0.7f, {}, pct},
         // STRETCH
         {"stretch_on", "Stretch On", Kind::Bool, 0.0f},

@@ -185,7 +185,7 @@ private:
         static const auto& specs = all();
         static const int iMix = indexOf("mix"), iOut = indexOf("out"), iFreeze = indexOf("freeze");
         static const int iDerezOn = indexOf("derez_on"), iInterval = indexOf("derez_interval"), iCrush = indexOf("derez_crush"),
-                         iBits = indexOf("derez_bits"), iDerezMix = indexOf("derez_mix");
+                         iBits = indexOf("derez_bits"), iDerezMix = indexOf("derez_mix"), iDerezSmooth = indexOf("derez_smooth");
         static const int iStretchOn = indexOf("stretch_on"), iFactor = indexOf("stretch_factor"), iStretchMix = indexOf("stretch_mix");
         static const int iEchoOn = indexOf("echo_on"), iEchoMode = indexOf("echo_mode"), iSync = indexOf("echo_sync"), iTime = indexOf("echo_time"),
                          iDiv = indexOf("echo_div"), iFdbk = indexOf("echo_fdbk"), iEchoMix = indexOf("echo_mix");
@@ -257,11 +257,12 @@ private:
         tonalPre_ = v(values, iPlace) < 0.5f;
         freeze_ = v(values, iFreeze) > 0.5f;
 
-        if (changed({iInterval, iCrush, iBits})) {
+        if (changed({iInterval, iCrush, iBits, iDerezSmooth})) {
             PitchedDerez::Params p;
             p.interval = derezSemitones(v(values, iInterval));
             p.crush = v(values, iCrush);
             p.bits = derezBits(v(values, iBits));
+            p.smooth = v(values, iDerezSmooth);
             p.mix = 1.0f;  // the module ramp does the mix
             derez_.setParams(p);
         }

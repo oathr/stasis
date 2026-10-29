@@ -6,7 +6,7 @@
 namespace stasis {
 
 // Tape echo: wow (slow random + sine) and flutter on a Hermite-interpolated line,
-// ADAA saturation, tape bandwidth filters and hiss inside the feedback loop.
+// ADAA saturation and tape bandwidth filters inside the feedback loop (no hiss: the loop stays clean).
 // Delay-time changes glide like a tape speed change (pitch bends, no clicks).
 // SYNC locks the time to the host tempo (1/1 .. 1/32, dotted, triplet).
 class TapeEcho {
@@ -43,7 +43,6 @@ public:
         float drive = 1.5f;      // saturation input gain
         float lowCutHz = 120.0f;
         float highCutHz = 4500.0f;
-        float hiss = 0.2f;       // 0..1
         float spread = 0.06f;    // right channel time offset ratio
         bool pingPong = false;
         bool sync = false;       // SYNC: time follows the host tempo instead of timeMs
@@ -93,7 +92,6 @@ public:
     void process(const float* inL, const float* inR, float* outL, float* outR, int numSamples) {
         const float glide = smoothingCoef(0.25f, sampleRate_);
         const float drive = std::max(params_.drive, 0.1f);
-        const float hiss = params_.hiss * 0.002f;
 
         for (int n = 0; n < numSamples; ++n) {
             // Modulation runs at control rate: every 16 samples.
@@ -112,7 +110,7 @@ public:
                 float v = saturators_[c].process(y[c] * drive) / drive;
                 v = lowCut_[c].highpass(v);
                 v = highCut_[c].process(v).low;
-                fb[c] = v * params_.feedback + hiss * noise_.bipolar();
+                fb[c] = v * params_.feedback;
             }
 
             if (params_.pingPong) {
@@ -137,7 +135,6 @@ private:
     OnePole lowCut_[2];
     Svf highCut_[2];
     Lfo wowA_, wowB_, flutterA_, flutterB_;
-    Rng noise_{0xBEEF};
     float time_ = 0.0f, targetTime_ = 0.0f, speed_ = 1.0f, spread_ = 0.0f;
     uint32_t controlCounter_ = 0;
     bool snapNextParams_ = false;

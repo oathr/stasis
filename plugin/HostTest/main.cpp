@@ -241,6 +241,50 @@ int main(int argc, char** argv) {
             grain->releaseResources();
         };
         grainRun("Grain -12", 220.0), grainRun("Grain 0", 440.0), grainRun("Grain +12", 880.0);
+
+        // DEREZ grit: a 220 Hz tone fading out (where hard bit steps crackle), DEREZ alone
+        // at its default CRUSH and BITS. Energy above ~4 kHz relative to the whole output.
+        std::printf("\nDEREZ grit (220 Hz fading out, energy above 4 kHz):\n");
+        const auto derezRun = [&](float smooth, float on = 1.0f) {
+            auto derez = formats.createPluginInstance(*found[0], 48000.0, 512, error);
+            derez->setPlayConfigDetails(2, 2, 48000.0, 512);
+            derez->prepareToPlay(48000.0, 512);
+            const auto setD = [&](const juce::String& name, float value) {
+                for (auto* p : derez->getParameters())
+                    if (p->getName(64) == name) return p->setValueNotifyingHost(value);
+                fail("no parameter " + name);
+            };
+            setD("Echo On", 0.0f), setD("Space On", 0.0f), setD("Color On", 0.0f), setD("Derez On", on), setD("Derez Mix", 1.0f);
+            setD("Derez Smooth", smooth);
+            juce::AudioBuffer<float> buffer(2, 512);
+            juce::MidiBuffer midi;
+            // Two RBJ high-pass biquads at 4 kHz (24 dB/oct): the 220 Hz tone itself stays out.
+            juce::IIRFilter hp1, hp2;
+            hp1.setCoefficients(juce::IIRCoefficients::makeHighPass(48000.0, 4000.0)), hp2.setCoefficients(juce::IIRCoefficients::makeHighPass(48000.0, 4000.0));
+            double high = 0.0, all = 0.0;
+            const int blocks = int(4.0 * 48000 / 512);
+            for (int b = 0, s = 0; b < blocks; ++b) {
+                for (int i = 0; i < 512; ++i, ++s) {
+                    const float fade = std::exp(-1.5f * float(s) / 48000.0f);  // -13 dB per second
+                    const float v = 0.3f * fade * float(std::sin(2.0 * juce::MathConstants<double>::pi * 220.0 * s / 48000.0));
+                    buffer.setSample(0, i, v), buffer.setSample(1, i, v);
+                }
+                derez->processBlock(buffer, midi);
+                for (int i = 0; i < 512; ++i) {
+                    const float y = buffer.getSample(0, i);
+                    const float h = hp2.processSingleSampleRaw(hp1.processSingleSampleRaw(y));
+                    high += double(h) * h, all += double(y) * y;
+                }
+            }
+            const double db = 10.0 * std::log10((high + 1e-20) / (all + 1e-20));
+            if (on > 0.5f) std::printf("  SMOOTH %3.0f %%   %+6.1f dB\n", 100.0 * smooth, db);
+            else std::printf("  DEREZ off    %+6.1f dB  (the clean tone, for reference)\n", db);
+            derez->releaseResources();
+            return db;
+        };
+        derezRun(0.0f, 0.0f);
+        const double raw = derezRun(0.0f), soft = derezRun(0.7f), softest = derezRun(1.0f);
+        if (soft > raw - 6.0 || softest > soft) fail("DEREZ SMOOTH does not remove the grit");
     }
     std::printf(failures == 0 ? "ALL TESTS PASSED\n" : "%d FAILURE(S)\n", failures);
     return failures == 0 ? 0 : 1;
