@@ -69,9 +69,10 @@ body::after { content: ""; position: fixed; inset: 0; pointer-events: none; z-in
 .card.dragging { opacity: .35; }
 .card.drop-before { box-shadow: -4px 0 0 var(--accent); }
 .card.drop-after { box-shadow: 4px 0 0 var(--accent); }
-.move { display: flex; gap: 2px; margin-left: auto; }
-.move button { width: 18px; height: 18px; border: 1px solid var(--line); background: none; color: inherit; font: inherit; font-size: 10px; cursor: pointer; line-height: 1; }
-.move button:hover { border-color: currentColor; color: var(--accent); }
+/* ◂ ▸ at the top of the black spine: move the module in the chain */
+.spine .move { display: flex; flex-direction: column; gap: 2px; }
+.spine .move button { width: 20px; height: 18px; border: 1px solid var(--dark-line); background: none; color: var(--on-dark); font: inherit; font-size: 9px; cursor: pointer; line-height: 1; padding: 0; }
+.spine .move button:hover { border-color: var(--accent); color: var(--accent); }
 
 /* ---------- header ---------- */
 /* header = a full-width band pinned to the top edge, so it reads apart from the modules */
@@ -119,6 +120,11 @@ header { display: grid; grid-template-columns: auto 1fr auto; align-items: cente
   font-family: Archivo, sans-serif; font-weight: 600; font-stretch: 100%; font-size: 12px; letter-spacing: .24em; display: flex; align-items: center; gap: 10px; }
 .freeze i { width: 9px; height: 9px; border: 1.5px solid currentColor; display: block; }
 .freeze[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); }
+/* PANIC: always the same warning red, whatever the theme */
+.panic { height: 42px; padding: 0 16px; border: 1.5px solid #E5483B; background: none; color: #E5483B; cursor: pointer; margin-left: -8px;
+  font-family: Archivo, sans-serif; font-weight: 600; font-size: 12px; letter-spacing: .24em; display: flex; align-items: center; gap: 10px; }
+.panic i { width: 9px; height: 9px; background: currentColor; display: block; }
+.panic:hover, .panic.fired { background: #E5483B; color: #fff; }
 .freeze[aria-pressed="true"] i { background: currentColor; }
 
 /* ---------- cards ---------- */
@@ -275,6 +281,7 @@ body.learning [data-mapid^="m0"], body.learning [data-mapid^="m1"], body.learnin
       <div class="themes" id="themes"></div>
       <div id="globalKnobs" style="display:flex;gap:10px"></div>
       <button class="freeze" id="freeze" aria-pressed="false"><i></i>FREEZE</button>
+      <button class="panic" id="panic" title="Emergency: silence, clear every tail and buffer"><i></i>PANIC</button>
     </div>
   </header>
 
@@ -506,7 +513,7 @@ function stretchModes() {
   const button = grab.firstChild;
   button.onclick = () => { bridge.send('stretch_grab', true); setTimeout(() => bridge.send('stretch_grab', false), 120); glitch(); };
   bridge.register('stretch_grab', 'toggle', () => {});
-  row.append(seg(['Smear', 'Capture'], 0, null, 'stretch_mode'), grab);
+  row.append(seg(['Blur', 'Smear', 'Capture'], 0, null, 'stretch_mode'), grab);
   return row;
 }
 function knobRow(list, opts) { const row = document.createElement('div'); row.className = 'knobs'; list.forEach(k => row.appendChild(knob(k, opts))); return row; }
@@ -581,7 +588,8 @@ const MODS = {
 
 function buildCard(el) {
   const mod = el.dataset.mod, m = MODS[mod], inChain = CHAIN_DEFAULT.includes(mod);
-  el.innerHTML = `<div class="spine" title="${inChain ? 'Drag to move' : ''}"><div class="label">${m.name}</div><button class="power" title="On / off"></button></div><div class="body"></div>`;
+  const arrows = inChain ? '<div class="move"><button title="Earlier in the chain">◂</button><button title="Later in the chain">▸</button></div>' : '';
+  el.innerHTML = `<div class="spine" title="${inChain ? 'Drag to move' : ''}">${arrows}<div class="label">${m.name}</div><button class="power" title="On / off"></button></div><div class="body"></div>`;
   const power = el.querySelector('.power'), powerId = mod + '_on';
   power.onclick = () => { el.classList.toggle('off'); bridge.send(powerId, !el.classList.contains('off')); };
   if (LIVE_MODS.includes(mod)) bridge.register(powerId, 'toggle', on => el.classList.toggle('off', !on));
@@ -590,11 +598,9 @@ function buildCard(el) {
   const top = document.createElement('div'); top.className = 'top';
   top.innerHTML = `<div class="code">${m.code}</div>`;
   if (inChain) {
-    const move = document.createElement('div'); move.className = 'move';
-    move.innerHTML = '<button title="Earlier in the chain">◂</button><button title="Later in the chain">▸</button>';
+    const move = el.querySelector('.spine .move');
     move.children[0].onclick = () => moveModule(mod, -1);
     move.children[1].onclick = () => moveModule(mod, +1);
-    top.append(move);
   }
   top.insertAdjacentHTML('beforeend', icon(mod));
   body.append(top);
@@ -657,7 +663,7 @@ function dragHandle(el) {
   let target = null, after = false;
   const clear = () => document.querySelectorAll('.drop-before, .drop-after').forEach(c => c.classList.remove('drop-before', 'drop-after'));
   spine.addEventListener('pointerdown', e => {
-    if (e.target.closest('.power')) return;
+    if (e.target.closest('.power, .move')) return;
     spine.setPointerCapture(e.pointerId); el.classList.add('dragging');
   });
   spine.addEventListener('pointermove', e => {
@@ -917,6 +923,14 @@ document.addEventListener('click', () => document.querySelector('.preset-menu')?
 document.getElementById('prev').onclick = () => loadPreset(presetIndex - 1);
 document.getElementById('next').onclick = () => loadPreset(presetIndex + 1);
 buildPresetMenu(); showPreset(0, true);
+const panicBtn = document.getElementById('panic');
+panicBtn.onclick = () => {
+  if (bridge.juce) bridge.juce.getNativeFunction('panic')();
+  showFreeze(false);
+  live.spectrum = live.spectrum && live.spectrum.map(() => 0);
+  panicBtn.classList.add('fired'); setTimeout(() => panicBtn.classList.remove('fired'), 400);
+  glitch();
+};
 const freezeBtn = document.getElementById('freeze');
 const showFreeze = on => { if (on !== state.freeze) glitch(); state.freeze = on; freezeBtn.setAttribute('aria-pressed', on); };
 freezeBtn.onclick = () => { showFreeze(!state.freeze); bridge.send('freeze', state.freeze); };

@@ -11,9 +11,12 @@ namespace stasis {
 // played back through PaulStretch frames (long FFT, random phases, sine-window
 // overlap-add, see paul_stretch.h).
 //
-//  SMEAR    the read head follows the live input at 1/stretch speed. When it falls
-//           too far behind, it jumps forward: PaulStretch frames are independent, so
-//           a jump is inaudible.
+//  BLUR     a continuous pad of the present: every frame reads the latest window and
+//           the spectrum is averaged over a memory of stretch/8 seconds (×8 → 1 s,
+//           ×1000 → 2 min). Notes swell in and fade out over that memory; it never
+//           runs out and never jumps.
+//  SMEAR    the read head follows the live input at 1/stretch speed (slow motion of
+//           the past). When it falls too far behind, it jumps forward.
 //  CAPTURE  capture() freezes the last `captureSeconds`; that passage is then
 //           stretched in an endless loop, whatever comes in afterwards.
 //
@@ -31,7 +34,7 @@ namespace stasis {
 // ever does a whole frame's work, so there are no CPU spikes.
 class CaptureStretch {
 public:
-    enum class Mode { Smear, Capture };
+    enum class Mode { Smear, Capture, Blur };
 
     struct Params {
         Mode mode = Mode::Smear;
@@ -53,6 +56,8 @@ public:
             next_[c].assign(size_t(hop_), 0.0f);
         }
         spec_.resize(size_t(size_));
+        blurL_.assign(size_t(size_ / 2), 0.0f);
+        blurR_.assign(size_t(size_ / 2), 0.0f);
         analysis_.resize(size_t(size_));
         synthesis_.resize(size_t(size_));
         double sumSq = 0.0;
@@ -179,7 +184,11 @@ private:
             case 0: {  // read the frame
                 const double inHop = double(hop_) / std::max(1.0f, params_.stretch);
                 long long centre;
-                if (params_.mode == Mode::Capture) {
+                if (params_.mode == Mode::Blur) {
+                    centre = (long long)written_ - size_ / 2;  // the latest full window
+                    const double memory = std::max(0.05, double(params_.stretch) / 8.0);
+                    blurKeep_ = float(std::exp(-double(hop_) / (memory * sampleRate_)));
+                } else if (params_.mode == Mode::Capture) {
                     centre = (long long)capturePos_;
                     capturePos_ += inHop;
                     if (capturedLength_ > 0 && capturePos_ >= double(capturedLength_)) capturePos_ -= double(capturedLength_);
@@ -203,9 +212,22 @@ private:
                     const Fft::Complex a = spec_[size_t(k)], b = std::conj(spec_[size_t(size_ - k)]);
                     const Fft::Complex left = 0.5f * (a + b), right = Fft::Complex(0.0f, -0.5f) * (a - b);
                     const Fft::Complex u = phases_[rng_.next() & (kPhases - 1)];
-                    const float magL = std::abs(left);
-                    const Fft::Complex newL = magL * u;
-                    const Fft::Complex newR = magL > 1.0e-9f ? u * right * std::conj(left) / magL : std::abs(right) * u;
+                    float magL = std::abs(left), magR = std::abs(right);
+                    Fft::Complex newL, newR;
+                    if (params_.mode == Mode::Blur) {
+                        // Power averaged over the memory, per channel; the stereo phase
+                        // difference comes from the current frame.
+                        const size_t kk = size_t(k);
+                        blurL_[kk] = blurKeep_ * blurL_[kk] + (1.0f - blurKeep_) * magL * magL;
+                        blurR_[kk] = blurKeep_ * blurR_[kk] + (1.0f - blurKeep_) * magR * magR;
+                        const float denom = magL * magR;
+                        const Fft::Complex image = denom > 1.0e-12f ? right * std::conj(left) / denom : Fft::Complex(1.0f, 0.0f);
+                        newL = std::sqrt(blurL_[kk]) * u;
+                        newR = std::sqrt(blurR_[kk]) * u * image;
+                    } else {
+                        newL = magL * u;
+                        newR = magL > 1.0e-9f ? u * right * std::conj(left) / magL : magR * u;
+                    }
                     // Pack again: Z[k] = L + iR, Z[N-k] = conj(L) + i·conj(R).
                     spec_[size_t(k)] = newL + Fft::Complex(0.0f, 1.0f) * newR;
                     spec_[size_t(size_ - k)] = std::conj(newL) + Fft::Complex(0.0f, 1.0f) * std::conj(newR);
@@ -241,6 +263,8 @@ private:
     std::vector<float> analysis_, synthesis_;
     std::vector<float> ring_[2], captured_[2], accum_[2], output_[2], next_[2];
     std::vector<Fft::Complex> spec_;
+    std::vector<float> blurL_, blurR_;
+    float blurKeep_ = 0.9f;
     std::array<Fft::Complex, kPhases> phases_{};
     uint64_t written_ = 0, captureFrom_ = 0;
     double readPos_ = 0.0, capturePos_ = 0.0;

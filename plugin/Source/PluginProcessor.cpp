@@ -80,9 +80,7 @@ void StasisProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
     if (engine.needsReset() && !resetPending_.exchange(true))
         juce::MessageManager::callAsync([safe = juce::WeakReference<StasisProcessor>(this)] {
             if (safe == nullptr) return;
-            safe->suspendProcessing(true);
-            safe->engine.prepare(float(safe->getSampleRate()));
-            safe->suspendProcessing(false);
+            safe->resetEngine();
             safe->resetPending_.store(false);
         });
 
@@ -93,6 +91,17 @@ void StasisProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
 }
 
 juce::AudioProcessorEditor* StasisProcessor::createEditor() { return new StasisEditor(*this); }
+
+void StasisProcessor::resetEngine() {
+    suspendProcessing(true);  // waits for the audio callback, then keeps it out
+    engine.prepare(float(getSampleRate()));
+    suspendProcessing(false);
+}
+
+void StasisProcessor::panic() {
+    if (auto* freeze = apvts.getParameter("freeze")) freeze->setValueNotifyingHost(0.0f);
+    resetEngine();
+}
 
 juce::StringArray StasisProcessor::getLaneTargets() const {
     juce::StringArray ids;
