@@ -8,8 +8,33 @@ namespace stasis {
 // Tape echo: wow (slow random + sine) and flutter on a Hermite-interpolated line,
 // ADAA saturation, tape bandwidth filters and hiss inside the feedback loop.
 // Delay-time changes glide like a tape speed change (pitch bends, no clicks).
+// SYNC locks the time to the host tempo (1/1 .. 1/32, dotted, triplet).
 class TapeEcho {
 public:
+    // SYNC divisions of a 4/4 bar: straight, dotted (x1.5) and triplet (x2/3).
+    enum class Division { Whole, Half, HalfDotted, HalfTriplet, Quarter, QuarterDotted, QuarterTriplet,
+                          Eighth, EighthDotted, EighthTriplet, Sixteenth, SixteenthDotted, SixteenthTriplet, ThirtySecond };
+
+    static float divisionBeats(Division d) {  // in quarter notes
+        switch (d) {
+            case Division::Whole: return 4.0f;
+            case Division::Half: return 2.0f;
+            case Division::HalfDotted: return 3.0f;
+            case Division::HalfTriplet: return 4.0f / 3.0f;
+            case Division::Quarter: return 1.0f;
+            case Division::QuarterDotted: return 1.5f;
+            case Division::QuarterTriplet: return 2.0f / 3.0f;
+            case Division::Eighth: return 0.5f;
+            case Division::EighthDotted: return 0.75f;
+            case Division::EighthTriplet: return 1.0f / 3.0f;
+            case Division::Sixteenth: return 0.25f;
+            case Division::SixteenthDotted: return 0.375f;
+            case Division::SixteenthTriplet: return 1.0f / 6.0f;
+            case Division::ThirtySecond: return 0.125f;
+        }
+        return 1.0f;
+    }
+
     struct Params {
         float timeMs = 420.0f;
         float feedback = 0.6f;   // > 1 self-oscillates, tamed by the saturation
@@ -21,6 +46,9 @@ public:
         float hiss = 0.2f;       // 0..1
         float spread = 0.06f;    // right channel time offset ratio
         bool pingPong = false;
+        bool sync = false;       // SYNC: time follows the host tempo instead of timeMs
+        float bpm = 120.0f;      // host tempo, updated by the plugin every block
+        Division division = Division::QuarterDotted;
     };
 
     void prepare(float sampleRate) {
@@ -40,11 +68,22 @@ public:
         flutterB_.setRate(11.0f);
         setParams(params_);
         time_ = targetTime_;
+        snapNextParams_ = true;
     }
 
     void setParams(const Params& p) {
         params_ = p;
-        targetTime_ = std::clamp(p.timeMs * 0.001f * sampleRate_, 4.0f, kMaxSeconds * sampleRate_ / (1.0f + p.spread) - 64.0f);
+        // In SYNC both channels stay on the grid: no left/right offset.
+        spread_ = p.sync ? 0.0f : p.spread;
+        const float ms = p.sync ? divisionBeats(p.division) * 60000.0f / std::max(p.bpm, 20.0f) : p.timeMs;
+        // Tempo or division changes glide like a tape speed change, as in free mode.
+        targetTime_ = std::clamp(ms * 0.001f * sampleRate_, 4.0f, kMaxSeconds * sampleRate_ / (1.0f + spread_) - 64.0f);
+        // The first settings after prepare() apply at once: a glide there would bend the
+        // pitch of the first echoes.
+        if (snapNextParams_) {
+            time_ = targetTime_;
+            snapNextParams_ = false;
+        }
         for (int c = 0; c < 2; ++c) {
             lowCut_[c].setCutoff(p.lowCutHz, sampleRate_);
             highCut_[c].set(p.highCutHz, 0.6f, sampleRate_);
@@ -66,7 +105,7 @@ public:
             time_ += (targetTime_ - time_) * glide;
 
             const float d = time_ * speed_;
-            const float y[2] = {lines_[0].read(d), lines_[1].read(d * (1.0f + params_.spread))};
+            const float y[2] = {lines_[0].read(d), lines_[1].read(d * (1.0f + spread_))};
 
             float fb[2];
             for (int c = 0; c < 2; ++c) {
@@ -99,8 +138,9 @@ private:
     Svf highCut_[2];
     Lfo wowA_, wowB_, flutterA_, flutterB_;
     Rng noise_{0xBEEF};
-    float time_ = 0.0f, targetTime_ = 0.0f, speed_ = 1.0f;
+    float time_ = 0.0f, targetTime_ = 0.0f, speed_ = 1.0f, spread_ = 0.0f;
     uint32_t controlCounter_ = 0;
+    bool snapNextParams_ = false;
 };
 
 }  // namespace stasis

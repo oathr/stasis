@@ -312,8 +312,17 @@ const MODS = {
   stretch:{ n: '04', name: 'STRETCH', code: 'Capture · 30 s', build: b => b.append(seg(['Paul', 'Freeze', 'Cloud'], 0),
             knobRow([{ l: 'Factor', t: .6, f: t => '×' + Math.round(Math.pow(1000, t)), on: v => state.stretch = v },
                      { l: 'Window', t: .7, f: expo(.1, 4, ' s', 2) }, { l: 'Smear', t: .4, f: pct }, { l: 'Mix', t: .5, f: pct }])) },
-  echo:   { n: '05', name: 'ECHO',    code: 'Tape · ping-pong', build: b => b.append(seg(['Tape', 'Digi', 'Diffuse', 'BBD'], 0),
-            knobRow([{ l: 'Time', t: .55, f: expo(20, 2500, ' ms', 0) }, { l: 'Fdbk', t: .6, f: pct }, { l: 'Wow', t: .4, f: pct }, { l: 'Mix', t: .35, f: pct }])) },
+  echo:   { n: '05', name: 'ECHO',    code: 'Tape · ping-pong · 80 bpm', build: b => {
+            // SYNC: TIME snaps to divisions of the host tempo (straight, dotted, triplet)
+            const DIVS = ['1/32', '1/16T', '1/16', '1/16.', '1/8T', '1/8', '1/8.', '1/4T', '1/4', '1/4.', '1/2T', '1/2', '1/2.', '1/1'];
+            let row = null;
+            const knobs = sync => knobRow([
+              { l: 'Time', t: sync ? 9 / 13 : .55, f: sync ? (t => DIVS[Math.round(t * (DIVS.length - 1))]) : expo(20, 2500, ' ms', 0) },
+              { l: 'Fdbk', t: .6, f: pct }, { l: 'Wow', t: .4, f: pct }, { l: 'Mix', t: .35, f: pct }]);
+            const modes = seg(['Tape', 'Digi', 'Diffuse', 'BBD'], 0);
+            const sync = seg(['Free', 'Sync'], 1, i => { const next = knobs(i === 1); row.replaceWith(next); row = next; });
+            row = knobs(true);
+            b.append(modes, sync, row); } },
   focus:  { n: '07', name: 'FOCUS',   code: 'MIDI · 0 latency', build: b => {
             const keys = document.createElement('div'); keys.className = 'keys';
             ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'].forEach(k => { const d = document.createElement('div'); d.textContent = k.replace('#', '♯');
