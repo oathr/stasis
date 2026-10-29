@@ -148,6 +148,18 @@ header { display: grid; grid-template-columns: auto 1fr auto; align-items: cente
 .intervals button:last-child { border-right: 0; }
 .intervals button[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); }
 
+/* TONAL ◂▸ NOISE cursor: centre = unchanged, thumb pulls towards one side */
+.tonal-row { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 10px; }
+.tonal-row .seg { flex-wrap: nowrap; gap: 2px; }
+.tonal-row .seg button { padding: 3px 5px; font-size: 8.5px; }
+.cursor { display: grid; grid-template-columns: auto 1fr auto 44px; align-items: center; gap: 8px; font-size: 8.5px; letter-spacing: .14em; color: var(--muted); user-select: none; }
+.cursor .track { position: relative; height: 18px; cursor: ew-resize; touch-action: none; }
+.cursor .track::before { content: ""; position: absolute; left: 0; right: 0; top: 50%; border-top: 1px solid var(--line); }
+.cursor .track::after { content: ""; position: absolute; left: 50%; top: 4px; bottom: 4px; border-left: 1px solid var(--muted); }
+.cursor .fill { position: absolute; top: calc(50% - 1.5px); height: 3px; background: var(--accent); }
+.cursor .thumb { position: absolute; top: 3px; width: 6px; height: 12px; margin-left: -3px; background: currentColor; color: var(--ink); }
+.cursor .val { color: var(--ink); font-weight: 500; text-align: right; }
+
 /* ---------- MOTION ---------- */
 .motion-body { display: grid; grid-template-columns: 1fr 1fr 130px; gap: 0 22px; }
 .lanes { display: grid; grid-auto-rows: 29px; }
@@ -293,6 +305,34 @@ function seg(options, active, onPick) {
   });
   return el;
 }
+// Bipolar horizontal cursor (-1 .. +1), drag to move, double-click to centre.
+function cursor(left, right, value) {
+  const el = document.createElement('div'); el.className = 'cursor';
+  el.innerHTML = `<span>${left}</span><div class="track"><div class="fill"></div><div class="thumb"></div></div><span>${right}</span><span class="val"></span>`;
+  const track = el.querySelector('.track');
+  let v = value;
+  const draw = () => {
+    const x = (v + 1) * 50;
+    el.querySelector('.thumb').style.left = x + '%';
+    const fill = el.querySelector('.fill');
+    fill.style.left = Math.min(x, 50) + '%'; fill.style.width = Math.abs(x - 50) + '%';
+    el.querySelector('.val').textContent = (v >= 0 ? '+' : '') + v.toFixed(2);
+  };
+  const set = e => { const r = track.getBoundingClientRect(); v = Math.max(-1, Math.min(1, ((e.clientX - r.left) / r.width) * 2 - 1)); draw(); };
+  track.addEventListener('pointerdown', e => { track.setPointerCapture(e.pointerId); set(e); });
+  track.addEventListener('pointermove', e => { if (track.hasPointerCapture(e.pointerId)) set(e); });
+  track.addEventListener('dblclick', () => { v = 0; draw(); });
+  draw();
+  return el;
+}
+// Where TONAL ◂▸ NOISE sits: before SPACE (the reverb rebuilds its tail from what is kept)
+// or after it (the tail itself is filtered).
+function tonalRow() {
+  const el = document.createElement('div'); el.className = 'tonal-row';
+  const where = seg(['Pre', 'Post'], 1); where.title = 'Before or after SPACE';
+  el.append(cursor('NOISE', 'TONAL', .4), where);
+  return el;
+}
 function knobRow(list, opts) { const row = document.createElement('div'); row.className = 'knobs'; list.forEach(k => row.appendChild(knob(k, opts))); return row; }
 
 // ---------- live state driving the visual ----------
@@ -330,8 +370,9 @@ const MODS = {
             b.append(seg(['Key', 'Harm', 'Auto'], 0), keys, knobRow([{ l: 'Focus', t: .6, f: pct }, { l: 'Depth', t: .9, f: pct }, { l: 'Mix', t: 1, f: pct }])); } },
   air:    { n: '08', name: 'AIR',     code: 'Breath · width', build: b => b.append(knobRow([
             { l: 'Breath', t: .3, f: pct }, { l: 'Width', t: .66, f: lin(0, 150, '%') }, { l: 'Lo-fi', t: .1, f: pct }])) },
-  color:  { n: '09', name: 'COLOR',   code: 'Three words · wet only', build: b => b.append(knobRow([
-            { l: 'Bass', t: .35, f: bip('', 1, 2) }, { l: 'Mud', t: .8, f: t => t.toFixed(2) }, { l: 'Air', t: .65, f: bip('', 1, 2) }])) },
+  color:  { n: '09', name: 'COLOR',   code: 'Final · wet only', build: b => b.append(knobRow([
+            { l: 'Bass', t: .35, f: bip('', 1, 2) }, { l: 'Mud', t: .8, f: t => t.toFixed(2) }, { l: 'Air', t: .65, f: bip('', 1, 2) }]),
+            tonalRow()) },
   space:  { n: '06', name: 'SPACE',   code: 'FDN-16 · diffuse-8 · cathedral', build: b => {
             const body = document.createElement('div'); body.className = 'space-body';
             body.innerHTML = `<div class="viz"><canvas id="viz"></canvas><div class="hud">
@@ -483,7 +524,7 @@ freezeBtn.onclick = () => { state.freeze = !state.freeze; freezeBtn.setAttribute
 // smears it sideways (slit-scan).
 const viz = document.getElementById('viz');
 const STEP = 7;
-let vctx, VW = 0, VH = 0, cols = [], rows = 0, scroll = 0, tick = 0, smear = 0;
+let vctx, VW = 0, VH = 0, cols = [], rows = 0, scroll = 0, tick = 0, smear = 0, colIndex = 0, lastT = 0;
 const partials = [45, 52, 55, 59, 60, 64, 69, 76].map((m, i) => ({ m, amp: .45 + ((i * 37) % 10) / 18, drift: i * 1.7 }));
 function resizeViz() {
   const dpr = devicePixelRatio || 1;
@@ -494,6 +535,7 @@ function resizeViz() {
 }
 function column(t) {
   const col = new Float32Array(rows);
+  col.odd = (colIndex++) & 1;  // stagger belongs to the column, so it never flips when the paper scrolls
   for (let y = 0; y < rows; y++) {
     const midi = 30 + (1 - y / rows) * 88;  // ~23 Hz .. 12 kHz
     let v = 0;
@@ -510,12 +552,17 @@ function column(t) {
   }
   return col;
 }
-function drawViz() {
+// Smoothness: speed follows real time (not the frame rate), x and age are continuous,
+// dots grow from nothing instead of popping at a threshold, and new columns fade in at
+// the right edge and old ones out at the left.
+function drawViz(now) {
+  const dt = lastT && now ? Math.min(50, now - lastT) / (1000 / 60) : 1;
+  if (now) lastT = now;
   const css = getComputedStyle(document.documentElement);
   const dotColor = css.getPropertyValue('--on-dark').trim(), acc = css.getPropertyValue('--accent').trim(), spark = css.getPropertyValue('--spark').trim();
   const nCols = Math.ceil(VW / STEP) + 2;
   if (!state.freeze) {
-    scroll += .45 + state.stretch * .9;
+    scroll += (.45 + state.stretch * .9) * dt;
     while (scroll >= STEP) { scroll -= STEP; cols.push(column(tick)); tick += 90; }
     while (cols.length > nCols) cols.shift();
   }
@@ -523,16 +570,20 @@ function drawViz() {
   const memory = .25 + .75 * state.decay;
   for (let c = 0; c < cols.length; c++) {
     const x = VW - (cols.length - 1 - c) * STEP - scroll + STEP * .5;
-    const age = (cols.length - 1 - c) / nCols;                 // 0 = now (right), 1 = oldest (left)
-    const fade = Math.max(0, 1 - age / memory);
+    const age = Math.max(0, (VW - x) / VW);                    // 0 = now (right), 1 = oldest (left), continuous
+    const s = t => t * t * (3 - 2 * t);
+    const fade = s(Math.max(0, 1 - age / memory));
+    const edge = s(Math.min(1, Math.max(0, (VW - x) / (STEP * 3)))) * s(Math.min(1, Math.max(0, x / (STEP * 4))));
     const col = cols[c];
     for (let y = 0; y < rows; y++) {
-      const e = col[y] * (.25 + .75 * fade);
-      if (e < .06) continue;
-      const r = Math.min(STEP * .62, STEP * .5 * Math.sqrt(e));
-      const yy = y * STEP + (c & 1 ? STEP * .5 : 0);          // staggered: round, organic halftone
-      vctx.fillStyle = e > 1 ? acc : (y < rows * .28 && state.shimmer > .3 && e > .55 ? spark : dotColor);
-      vctx.globalAlpha = .35 + .65 * fade;
+      const e = col[y] * (.25 + .75 * fade) * edge;
+      if (e < .015) continue;
+      const r = Math.min(STEP * .62, STEP * .5 * Math.sqrt(e - .015));  // grows from zero: no popping
+      if (r < .2) continue;
+      const yy = y * STEP + (col.odd ? STEP * .5 : 0);         // staggered: round, organic halftone
+      const hot = Math.min(1, Math.max(0, (e - .9) / .3));     // accent blends in instead of switching
+      vctx.fillStyle = hot > .5 ? acc : (y < rows * .28 && state.shimmer > .3 && e > .55 ? spark : dotColor);
+      vctx.globalAlpha = (.35 + .65 * fade) * Math.min(1, e / .12);
       vctx.beginPath(); vctx.arc(x, yy, r, 0, Math.PI * 2); vctx.fill();
     }
   }
@@ -576,7 +627,7 @@ function fit() { document.getElementById('stage').style.transform = `scale(${Mat
 addEventListener('resize', fit); fit();
 resizeViz();
 for (let k = 0; k < 400; k++) drawViz();  // start with a tail already on the paper
-(function loop() { drawViz(); drawLanes(); requestAnimationFrame(loop); })();
+(function loop(now) { drawViz(now); drawLanes(); requestAnimationFrame(loop); })();
 </script>
 </body>
 </html>
