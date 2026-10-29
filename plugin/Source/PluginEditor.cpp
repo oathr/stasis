@@ -206,6 +206,7 @@ void StasisEditor::timerCallback() {
         status->setProperty("cpu", processor_.cpuLoad.load() * 100.0f);
         status->setProperty("classes", int(processor_.engine.focusClasses()));
         status->setProperty("midi", int(processor_.engine.midiClasses()));
+        status->setProperty("res", int(processor_.engine.resonatorClasses()));
         status->setProperty("sampleRate", processor_.getSampleRate());
         webView_.emitEventIfBrowserIsVisible("stasis_status", juce::var(status));
     }

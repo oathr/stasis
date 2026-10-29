@@ -1,6 +1,7 @@
 #pragma once
 
 #include <stasis/air.h>
+#include <stasis/bloom.h>
 #include <stasis/grain.h>
 #include <stasis/capture_stretch.h>
 #include <stasis/color.h>
@@ -11,6 +12,7 @@
 #include <stasis/pitch.h>
 #include <stasis/plate_reverb.h>
 #include <stasis/resonant_focus.h>
+#include <stasis/resonator.h>
 #include <stasis/shape.h>
 #include <stasis/space_reverb.h>
 #include <stasis/tape_echo.h>
@@ -64,12 +66,15 @@ public:
         echo_.prepare(sampleRate);
         space_.prepare(sampleRate);
         plate_.prepare(sampleRate);
+        bloom_.prepare(sampleRate);
+        resonator_.prepare(sampleRate);
         focus_.prepare(sampleRate);
         keys_.prepare(sampleRate);
         keys_.setParams({1.5f, 0.45f, 7});
         color_.prepare(sampleRate);
         tonal_.prepare(sampleRate);
         for (auto& b : buffers_) b.assign(kMaxBlock, 0.0f);
+        for (auto& b : preSpace_) b.assign(kMaxBlock, 0.0f);
         modulated_.assign(params::all().size(), 0.0f);
         for (size_t i = 0; i < lanes_.size(); ++i) {
             lanes_[i].prepare(sampleRate, uint32_t(i + 1) * 7919u);
@@ -139,6 +144,8 @@ public:
     uint16_t focusClasses() const { return focusClasses_.load(std::memory_order_relaxed); }
     // Pitch classes of the MIDI notes held right now, whether FOCUS is on or not.
     uint16_t midiClasses() const { return midiClasses_.load(std::memory_order_relaxed); }
+    // Pitch classes SPACE › RESONATOR rings on (0 when another type is selected).
+    uint16_t resonatorClasses() const { return resonatorClasses_.load(std::memory_order_relaxed); }
 
 private:
     enum Module { kDerez, kStretch, kEcho, kSpace, kFocus, kColor, kShape, kPitch, kAir, kGrain, kModules };
@@ -299,7 +306,8 @@ private:
             lastBpm_ = bpm;
         }
 
-        plateSelected_ = int(v(values, iType)) == 1;
+        spaceType_ = int(v(values, iType));
+        plateSelected_ = spaceType_ == 1;
         if (changed({iType, iSize, iDecay, iTone, iMod, iPre, iShimmer, iShimmerPitch, iWidth, iFreeze})) {
             const int type = int(v(values, iType));
             const float tone = v(values, iTone);
@@ -319,6 +327,8 @@ private:
                 if (type == 0) {
                     p.earlyLevel = 0.45f;
                     hfRatio = 0.6f;
+                } else if (type == 4) {
+                    p.earlyLevel = 0.0f;  // BLOOM: nothing at the attack, the feeder brings it in
                 } else if (type == 3) {
                     hfRatio = 0.35f;
                     p.hfCrossoverHz = 3000.0f;
@@ -333,6 +343,22 @@ private:
                 p.shimmerSemitones = std::round((2.0f * v(values, iShimmerPitch) - 1.0f) * 24.0f);
                 p.width = 1.5f * v(values, iWidth);
                 p.freeze = freeze_;
+                if (type == 4) {
+                    // The swell grows with DECAY and SIZE.
+                    BloomFeeder::Params b;
+                    b.size = p.size;
+                    b.swellSeconds = std::clamp(0.3f * p.decaySeconds, 1.0f, 4.0f) * (0.6f + 0.8f * p.size);
+                    bloom_.setParams(b);
+                } else if (type == 5) {
+                    // RESONATOR: the combs ring for DECAY, the reverb behind them is shorter.
+                    resonatorParams_.size = p.size;
+                    resonatorParams_.decaySeconds = std::min(p.decaySeconds, 30.0f);
+                    resonatorParams_.tone = tone;
+                    resonatorParams_.freeze = freeze_;
+                    resonator_.setParams(resonatorParams_);
+                    p.decaySeconds = std::min(p.decaySeconds * 0.5f, 12.0f);
+                    p.earlyLevel = 0.1f;
+                }
                 space_.setParams(p);
             }
         }
@@ -430,6 +456,17 @@ private:
             focus_.setScale(0);
             focusClasses_.store(notes_.pitchClasses(), std::memory_order_relaxed);
         }
+        // RESONATOR rings on the MIDI notes held, else on what FOCUS AUTO hears, and keeps
+        // the last chord when they stop.
+        if (spaceType_ == 5 && on_[kSpace]) {
+            uint16_t classes = notes_.pitchClasses();
+            if (classes == 0 && on_[kFocus] && focusAuto_) classes = keys_.pitchClasses();
+            if (classes != 0 && classes != resonatorParams_.classes) {
+                resonatorParams_.classes = classes;
+                resonator_.setParams(resonatorParams_);
+            }
+        }
+        resonatorClasses_.store(spaceType_ == 5 ? resonatorParams_.classes : 0, std::memory_order_relaxed);
 
         const uint64_t order = order_.load(std::memory_order_relaxed);
         for (size_t slot = 0; slot < params::kModules.size(); ++slot) {
@@ -442,7 +479,21 @@ private:
                 case 4: runModule(kEcho, wetL, wetR, n, [&](auto... a) { echo_.process(a...); }); break;
                 case 5:
                     if (tonalPre_) runTonal(wetL, wetR, n);
-                    runModule(kSpace, wetL, wetR, n, [&](auto... a) { plateSelected_ ? plate_.process(a...) : space_.process(a...); });
+                    runModule(kSpace, wetL, wetR, n, [&](const float* inL, const float* inR, float* outL, float* outR, int count) {
+                        if (plateSelected_) return plate_.process(inL, inR, outL, outR, count);
+                        if (spaceType_ != 4 && spaceType_ != 5) return space_.process(inL, inR, outL, outR, count);
+                        float* preL = preSpace_[0].data();
+                        float* preR = preSpace_[1].data();
+                        if (spaceType_ == 4) {
+                            bloom_.process(inL, inR, preL, preR, count);
+                            space_.process(preL, preR, outL, outR, count);
+                        } else {
+                            // The combs into the reverb, plus a little of them dry for definition.
+                            resonator_.process(inL, inR, preL, preR, count);
+                            space_.process(preL, preR, outL, outR, count);
+                            for (int i = 0; i < count; ++i) outL[i] += 0.35f * preL[i], outR[i] += 0.35f * preR[i];
+                        }
+                    });
                     break;
                 case 6: runModule(kFocus, wetL, wetR, n, [&](auto... a) { focus_.process(a...); }); break;
                 case 8: runModule(kColor, wetL, wetR, n, [&](auto... a) { color_.process(a...); }); break;
@@ -524,6 +575,11 @@ private:
     TapeEcho echo_;
     SpaceReverb space_;
     PlateReverb plate_;
+    BloomFeeder bloom_;
+    Resonator resonator_;
+    Resonator::Params resonatorParams_;
+    std::array<std::vector<float>, 2> preSpace_;  // BLOOM / RESONATOR output, into the reverb
+    int spaceType_ = 3;
     ResonantFocus focus_;
     KeyDetector keys_;
     NoteSet notes_;
@@ -545,7 +601,7 @@ private:
 
     std::array<float, kVisualSize> visual_{};
     std::atomic<int> visualWrite_{0};
-    std::atomic<uint16_t> focusClasses_{0}, midiClasses_{0};
+    std::atomic<uint16_t> focusClasses_{0}, midiClasses_{0}, resonatorClasses_{0};
     std::atomic<uint64_t> order_{defaultOrder()};
     std::array<Lfo, 12> lanes_;
     std::array<int, 12> laneRate_{}, laneShape_{}, laneDepth_{};

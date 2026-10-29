@@ -155,7 +155,7 @@ inline const std::vector<Spec>& all() {
         {"echo_mix", "Echo Mix", Kind::Float, 0.35f, {}, pct},
         // SPACE
         {"space_on", "Space On", Kind::Bool, 1.0f},
-        {"space_type", "Space Type", Kind::Choice, 3.0f, {"Room", "Plate", "Hall", "Cathedral"}},
+        {"space_type", "Space Type", Kind::Choice, 3.0f, {"Room", "Plate", "Hall", "Cathedral", "Bloom", "Resonator"}},
         {"space_size", "Space Size", Kind::Float, 0.9f, {}, [](float t) { return fmt("%.2f", t); }},
         {"space_decay", "Space Decay", Kind::Float, 0.75f, {}, [](float t) { return t > 0.98f ? std::string("inf") : fmt("%.1f s", decaySeconds(t)); }},
         {"space_tone", "Space Tone", Kind::Float, 0.45f, {}, pct},

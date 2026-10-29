@@ -381,6 +381,76 @@ int main(int argc, char** argv) {
         const double downOctave = pitchRun(0.25f, 0.5f, 220.0, "-12 st");
         if (std::abs(upOctave) > 1.5 || std::abs(shifted) > 1.5 || std::abs(downOctave) > 1.5) fail("PITCH MIX 50 % is not half and half");
 
+        // SPACE alone at 100 % wet, one type (index of 6). Feeds `input(sample)` for `seconds`,
+        // MIDI `note` held from the start (-1: none); returns the left output.
+        const auto spaceRun = [&](int type, double seconds, const std::function<float(int)>& input, int note = -1) {
+            auto space = formats.createPluginInstance(*found[0], 48000.0, 512, error);
+            space->setPlayConfigDetails(2, 2, 48000.0, 512);
+            space->prepareToPlay(48000.0, 512);
+            const auto setS = [&](const juce::String& name, float value) {
+                for (auto* p : space->getParameters())
+                    if (p->getName(64) == name) return p->setValueNotifyingHost(value);
+                fail("no parameter " + name);
+            };
+            setS("Echo On", 0.0f), setS("Color On", 0.0f), setS("Space On", 1.0f), setS("Space Mix", 1.0f), setS("Dry / Wet", 1.0f);
+            setS("Space Type", float(type) / 5.0f), setS("Space Decay", 0.48f), setS("Space Predelay", 0.0f);
+            juce::AudioBuffer<float> buffer(2, 512);
+            juce::MidiBuffer midi;
+            std::vector<float> out;
+            for (int b = 0, s = 0; b < int(seconds * 48000 / 512); ++b) {
+                for (int i = 0; i < 512; ++i, ++s) buffer.setSample(0, i, input(s)), buffer.setSample(1, i, input(s));
+                midi.clear();
+                if (b == 0 && note >= 0) midi.addEvent(juce::MidiMessage::noteOn(1, note, 0.8f), 0);
+                space->processBlock(buffer, midi);
+                out.insert(out.end(), buffer.getReadPointer(0), buffer.getReadPointer(0) + 512);
+            }
+            space->releaseResources();
+            return out;
+        };
+
+        // BLOOM: a click in; the energy envelope (50 ms windows) must rise to its peak
+        // instead of starting there, as HALL does.
+        std::printf("\nSPACE BLOOM vs HALL (a click in, DECAY 5 s):\n");
+        const auto envelope = [&](int type) {
+            const auto out = spaceRun(type, 3.0, [](int s) { return s == 4800 ? 0.5f : 0.0f; });
+            std::vector<double> windows;
+            for (size_t w = 4800; w + 2400 <= out.size(); w += 2400) {
+                double e = 0.0;
+                for (size_t i = w; i < w + 2400; ++i) e += double(out[i]) * out[i];
+                windows.push_back(e);
+            }
+            const auto peak = std::max_element(windows.begin(), windows.end());
+            const double peakMs = 50.0 * double(peak - windows.begin()) + 25.0, peakDb = 10.0 * std::log10(*peak + 1e-20);
+            const double firstDb = 10.0 * std::log10(windows[0] + 1e-20) - peakDb;
+            std::printf("  %-6s energy peak at %4.0f ms   first 50 ms %+5.1f dB under it   peak window %+5.1f dB\n",
+                        type == 4 ? "BLOOM" : "HALL", peakMs, firstDb, peakDb);
+            return std::make_pair(peakMs, firstDb);
+        };
+        const auto hall = envelope(2), bloom = envelope(4);
+        // A big HALL's diffusion already takes ~150 ms to build: BLOOM must come clearly later.
+        if (bloom.first < hall.first + 300.0 || bloom.second > -10.0) fail("BLOOM does not swell");
+
+        // RESONATOR: white noise in, MIDI A2 held; the output must ring on A (110 / 220 / 440 Hz)
+        // well above the notes in between.
+        std::printf("\nSPACE RESONATOR (noise in, MIDI A held):\n");
+        juce::Random noise(7);
+        const auto ring = spaceRun(5, 4.0, [&](int) { return 0.1f * (noise.nextFloat() * 2.0f - 1.0f); }, 45);
+        const auto energy = [&](double hz) {  // over the last 2 s
+            const double w = 2.0 * juce::MathConstants<double>::pi * hz / 48000.0, k = 2.0 * std::cos(w);
+            double s1 = 0.0, s2 = 0.0;
+            for (size_t i = ring.size() - 96000; i < ring.size(); ++i) {
+                const double s = ring[i] + k * s1 - s2;
+                s2 = s1, s1 = s;
+            }
+            return s1 * s1 + s2 * s2 - k * s1 * s2;
+        };
+        double onNote = 0.0, between = 0.0;
+        for (const double hz : {110.0, 220.0, 440.0}) onNote += energy(hz);
+        for (const double hz : {311.1, 622.3, 233.1, 466.2}) between += energy(hz);
+        const double tuned = 10.0 * std::log10((onNote / 3.0 + 1e-20) / (between / 4.0 + 1e-20));
+        std::printf("  energy on A vs between the notes: %+5.1f dB\n", tuned);
+        if (tuned < 15.0) fail("RESONATOR does not ring on the MIDI note");
+
         const double raw = derezRun(0.0f), soft = derezRun(0.7f), softest = derezRun(1.0f);
         if (soft > raw - 6.0 || softest > soft) fail("DEREZ SMOOTH does not remove the grit");
     }
