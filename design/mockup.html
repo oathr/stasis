@@ -503,17 +503,6 @@ function tonalRow() {
   el.append(cursor('NOISE', 'TONAL', 0, 'tonal'), where);
   return el;
 }
-// SMEAR / CAPTURE, and ⟳ to capture again (a momentary press of stretch_grab).
-function stretchModes() {
-  const row = document.createElement('div'); row.style.cssText = 'display:flex;gap:4px;align-items:center';
-  const grab = document.createElement('div'); grab.className = 'seg';
-  grab.innerHTML = '<button title="Capture the last LOOP seconds again">⟳</button>';
-  const button = grab.firstChild;
-  button.onclick = () => { bridge.send('stretch_grab', true); setTimeout(() => bridge.send('stretch_grab', false), 120); glitch(); };
-  bridge.register('stretch_grab', 'toggle', () => {});
-  row.append(seg(['Blur', 'Smear', 'Capture'], 0, null, 'stretch_mode'), grab);
-  return row;
-}
 function knobRow(list, opts) { const row = document.createElement('div'); row.className = 'knobs'; list.forEach(k => row.appendChild(knob(k, opts))); return row; }
 
 // ---------- live state driving the visual ----------
@@ -536,9 +525,9 @@ const MODS = {
             { id: 'pitch_semi', l: 'Semi', t: .75, f: t => { const v = Math.round((2 * t - 1) * 24); return (v >= 0 ? '+' : '') + v + ' st'; } },
             { id: 'pitch_shift', l: 'Shift', t: .5, f: t => { const x = 2 * t - 1, v = 50 * x * x * x; return (v >= 0 ? '+' : '') + v.toFixed(Math.abs(v) < 10 ? 1 : 0) + ' Hz'; } },
             { id: 'pitch_mix', l: 'Mix', t: .4, f: pct }])) },
-  stretch:{ n: '04', name: 'STRETCH', code: 'Paul · 30 s', build: b => b.append(stretchModes(),
-            knobRow([{ id: 'stretch_factor', l: 'Factor', t: .3, f: t => '×' + Math.round(Math.pow(1000, t)), on: v => state.stretch = v },
-                     { id: 'stretch_loop', l: 'Loop', t: .4, f: expo(1, 30, ' s', 1) }, { id: 'stretch_mix', l: 'Mix', t: .5, f: pct }])) },
+  stretch:{ n: '04', name: 'STRETCH', code: 'Blur · continuous pad', build: b => b.append(
+            knobRow([{ id: 'stretch_factor', l: 'Memory', t: .3, f: t => { const s = Math.pow(1000, t) / 8; return s.toFixed(s < 10 ? 1 : 0) + ' s'; }, on: v => state.stretch = v },
+                     { id: 'stretch_mix', l: 'Mix', t: .5, f: pct }])) },
   echo:   { n: '05', name: 'ECHO',    code: 'Tape · host sync', build: b => {
             // SYNC: TIME snaps to divisions of the host tempo (straight, dotted, triplet)
             const DIVS = ['1/32', '1/16T', '1/16', '1/16.', '1/8T', '1/8', '1/8.', '1/4T', '1/4', '1/4.', '1/2T', '1/2', '1/2.', '1/1'];
@@ -734,7 +723,7 @@ const MAPPABLE = {
   shape: [['shape_tilt', 'Tilt'], ['shape_drive', 'Drive'], ['shape_harm', 'Harm']],
   derez: [['derez_interval', 'Interval'], ['derez_crush', 'Crush'], ['derez_bits', 'Bits'], ['derez_mix', 'Mix']],
   pitch: [['pitch_semi', 'Semi'], ['pitch_shift', 'Shift'], ['pitch_mix', 'Mix']],
-  stretch: [['stretch_factor', 'Factor'], ['stretch_loop', 'Loop'], ['stretch_mix', 'Mix']],
+  stretch: [['stretch_factor', 'Memory'], ['stretch_mix', 'Mix']],
   echo: [['echo_time', 'Time (free)'], ['echo_div', 'Time (sync)'], ['echo_fdbk', 'Feedback'], ['echo_mix', 'Mix']],
   space: [['space_size', 'Size'], ['space_decay', 'Decay'], ['space_tone', 'Tone'], ['space_mod', 'Mod'], ['space_pre', 'Pre-delay'], ['space_mix', 'Mix'],
           ['shimmer_depth', 'Shimmer depth'], ['shimmer_pitch', 'Shimmer pitch'], ['space_width', 'Width']],

@@ -37,7 +37,7 @@ inline std::string bip(float t, float scale, const char* unit, const char* f = "
 
 // Units shared by the engine and the labels.
 inline float stretchFactor(float t) { return std::max(1.0f, std::pow(1000.0f, t)); }
-inline float captureSeconds(float t) { return std::pow(30.0f, t); }
+inline float blurMemory(float t) { return stretchFactor(t) / 8.0f; }  // seconds: 0.125 .. 125
 inline float echoTimeMs(float t) { return 20.0f * std::pow(125.0f, t); }
 inline int echoDivision(float t) { return int(std::lround(t * 13.0f)); }
 inline float decaySeconds(float t) { return t > 0.98f ? INFINITY : 0.5f * std::pow(120.0f, t); }
@@ -109,10 +109,8 @@ inline const std::vector<Spec>& all() {
         {"derez_mix", "Derez Mix", Kind::Float, 0.7f, {}, pct},
         // STRETCH
         {"stretch_on", "Stretch On", Kind::Bool, 0.0f},
-        {"stretch_mode", "Stretch Mode", Kind::Choice, 0.0f, {"Blur", "Smear", "Capture"}},
-        {"stretch_grab", "Stretch Recapture", Kind::Bool, 0.0f},  // a press freezes the last LOOP seconds again
-        {"stretch_factor", "Stretch Factor", Kind::Float, 0.3f, {}, [](float t) { return fmt("x%.0f", stretchFactor(t)); }},
-        {"stretch_loop", "Stretch Loop", Kind::Float, 0.4f, {}, [](float t) { return fmt("%.1f s", captureSeconds(t)); }},
+        // STRETCH is BLUR only: MEMORY = how long the pad remembers what was played.
+        {"stretch_factor", "Stretch Memory", Kind::Float, 0.3f, {}, [](float t) { return fmt(blurMemory(t) < 10.0f ? "%.1f s" : "%.0f s", double(blurMemory(t))); }},
         {"stretch_mix", "Stretch Mix", Kind::Float, 0.5f, {}, pct},
         // ECHO
         {"echo_on", "Echo On", Kind::Bool, 1.0f},

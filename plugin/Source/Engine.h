@@ -77,7 +77,6 @@ public:
         for (auto& g : moduleGain_) g = 0.0f;
         tonalGain_ = mixGain_ = outGain_ = -1.0f;  // snap on the first block
         last_.assign(params::all().size(), NAN);
-        stretchMode_ = -1;
         visual_.fill(0.0f);
         visualWrite_ = 0;
     }
@@ -178,8 +177,7 @@ private:
         static const int iMix = indexOf("mix"), iOut = indexOf("out"), iFreeze = indexOf("freeze");
         static const int iDerezOn = indexOf("derez_on"), iInterval = indexOf("derez_interval"), iCrush = indexOf("derez_crush"),
                          iBits = indexOf("derez_bits"), iDerezMix = indexOf("derez_mix");
-        static const int iStretchOn = indexOf("stretch_on"), iStretchMode = indexOf("stretch_mode"), iFactor = indexOf("stretch_factor"),
-                         iLoop = indexOf("stretch_loop"), iStretchMix = indexOf("stretch_mix");
+        static const int iStretchOn = indexOf("stretch_on"), iFactor = indexOf("stretch_factor"), iStretchMix = indexOf("stretch_mix");
         static const int iEchoOn = indexOf("echo_on"), iEchoMode = indexOf("echo_mode"), iSync = indexOf("echo_sync"), iTime = indexOf("echo_time"),
                          iDiv = indexOf("echo_div"), iFdbk = indexOf("echo_fdbk"), iEchoMix = indexOf("echo_mix");
         static const int iSpaceOn = indexOf("space_on"), iType = indexOf("space_type"), iSize = indexOf("space_size"), iDecay = indexOf("space_decay"),
@@ -235,20 +233,12 @@ private:
             derez_.setParams(p);
         }
 
-        const int mode = int(v(values, iStretchMode));
-        if (changed({iStretchMode, iFactor, iLoop})) {
+        if (changed({iFactor})) {
             CaptureStretch::Params p;
-            p.mode = mode == 2 ? CaptureStretch::Mode::Capture : mode == 1 ? CaptureStretch::Mode::Smear : CaptureStretch::Mode::Blur;
+            p.mode = CaptureStretch::Mode::Blur;
             p.stretch = stretchFactor(v(values, iFactor));
-            p.captureSeconds = captureSeconds(v(values, iLoop));
             stretch_.setParams(p);
         }
-        // Switching to CAPTURE, or pressing RECAPTURE, freezes the last LOOP seconds.
-        static const int iGrab = indexOf("stretch_grab");
-        const bool grab = v(values, iGrab) > 0.5f;
-        if (mode == 2 && ((stretchMode_ != 2 && stretchMode_ != -1) || (grab && !grab_))) stretch_.capture();
-        stretchMode_ = mode;
-        grab_ = grab;
 
         if (changed({iEchoMode, iSync, iTime, iDiv, iFdbk}) || std::abs(bpm - lastBpm_) > 1.0e-3f) {
             static constexpr TapeEcho::Division kDivisions[] = {
@@ -490,8 +480,7 @@ private:
     float rampCoef_ = 0.001f, mixTarget_ = 0.5f, mixGain_ = -1.0f, outTarget_ = 1.0f, outGain_ = 1.0f;
     float tonalBalance_ = 0.0f, tonalGain_ = -1.0f, lastBpm_ = 0.0f;
     bool tonalPre_ = false, freeze_ = false, plateSelected_ = false, focusAuto_ = false;
-    int stretchMode_ = -1;
-    bool grab_ = false;
+
 
     std::array<float, kVisualSize> visual_{};
     std::atomic<int> visualWrite_{0};

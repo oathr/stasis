@@ -503,6 +503,7 @@ Règle : **chaque phase se termine par des écoutes et des mesures** (CPU, IR, n
 - **v0.5** :
   - STRETCH : mode BLUR (défaut), un pad continu du présent, spectre moyenné sur FACTOR/8 secondes ; SMEAR et CAPTURE restent ;
   - bouton PANIC ;
+  - puis STRETCH réduit à BLUR seul (MEMORY + MIX) : SMEAR et CAPTURE retirés de l'interface et du moteur du plugin (ils restent dans `capture_stretch.h` pour l'outil de rendu) ;
   - flèches ◂ ▸ dans la tranche noire de chaque module.
 - **Reste à faire** :
   - embarquer les polices (aujourd'hui chargées depuis Google Fonts : sans réseau, l'interface passe sur des polices de secours).

@@ -81,19 +81,15 @@ Inspiré du DeRez d'Airwindows, mais au lieu de changer la hauteur de façon cha
 
 La fondamentale vient de la note MIDI la plus grave tenue, sinon La2 (110 Hz). Mesure : 100 % de l'énergie reste juste, contre 9 à 77 % pour un DeRez classique.
 
-### 04 · STRETCH — PaulStretch en temps réel
-Étirement extrême par trames FFT de 32768 points à phases aléatoires (PaulStretch), 4 trames superposées. Un test vérifie qu'un clic ressort en souffle lisse et jamais en répétitions (`stasis_render --analyse`).
+### 04 · STRETCH — un pad continu (BLUR)
+Étire en permanence **ce qui est joué maintenant** : trames FFT de 32768 points à phases aléatoires (comme PaulStretch), spectre moyenné dans le temps. Les notes montent et s'éteignent en douceur ; le pad ne s'arrête jamais et ne saute jamais.
 
 | Contrôle | Effet |
 |---|---|
-| `BLUR` (défaut) | Un pad continu **du présent** : le spectre est moyenné sur une mémoire de FACTOR/8 secondes (×8 → 1 s, ×80 → 10 s, ×1000 → 2 min). Les notes montent et s'éteignent en douceur, sans fin ni saut |
-| `SMEAR` | Rejoue l'entrée au ralenti (×8 : une seconde jouée dure huit secondes) ; prend du retard sur le jeu |
-| `CAPTURE` | Fige les dernières secondes et les étire en boucle |
-| `⟳` | Recapture les dernières secondes |
-| `FACTOR` | Étirement ×1 à ×1000 |
-| `LOOP` | Durée capturée (1 à 30 s) |
+| `MEMORY` | Durée sur laquelle le pad se souvient du jeu : 0,1 s à 2 min (1 s par défaut) |
 | `MIX` | Dosage |
 
+Un test vérifie qu'un clic ressort en souffle lisse et jamais en répétitions (`stasis_render --analyse`).
 
 ### 05 · ECHO — écho à bande
 Saturation (tanh anti-repliement), filtres de bande et souffle dans la boucle, sans wow ni flutter : les répétitions restent justes. Les changements de temps glissent comme une bande qui change de vitesse.
@@ -176,7 +172,6 @@ Le potard modulé affiche un arc et un point orange qui suivent le LFO ; survole
 | Triplet Rain | Focused Choir | Slow Bloom |
 | Echoes of the Room | Bottomless | Infinite Drone |
 
-Les presets en CAPTURE (Frozen Orchard, Infinite Drone) figent ce qui vient d'être joué : jouer quelques secondes, puis appuyer sur `⟳`.
 
 ## Installation
 
