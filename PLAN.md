@@ -74,7 +74,7 @@ Légende : ★ = cœur de gamme (v1) · ◆ = expérimental / signature unique
 - **SMEAR** : la tête de lecture suit le direct à 1/stretch de sa vitesse. Quand elle prend trop de retard, elle saute en avant, sans que ça s'entende puisque chaque frame est indépendante.
 - **CAPTURE** : `capture()` fige les N dernières secondes et les étire en boucle à l'infini.
 - **Latence** : une demi-fenêtre, sur le wet uniquement.
-- **À faire pour le plugin** : répartir le calcul de chaque frame sur plusieurs blocs, pour éviter les pics de CPU.
+- **Temps réel** ✅ : chaque trame est calculée en 12 étapes réparties sur les blocs audio (FFT découpée par passes, gauche et droite dans une seule FFT complexe), et une capture est copiée par morceaux. Pire bloc mesuré : 0,37 ms, contre 2,9 ms avant. En échange, la sortie arrive un demi-buffer plus tard (~0,34 s à 48 kHz, sur le wet seulement).
 
 ### 04 · ECHO — délais
 | Élément | Algorithme retenu | Pourquoi |
@@ -461,10 +461,36 @@ Règle : **chaque phase se termine par des écoutes et des mesures** (CPU, IR, n
 
 ---
 
+### Phase 1 — état (v0.1)
+- **Cibles** : ✅ **Windows en priorité, VST3, testé dans Ableton**. AU, CLAP et le reste viendront plus tard.
+- **Plugin JUCE 8** (`plugin/`) :
+  - `Params.h` : la table des 44 paramètres, partagée par l'hôte, l'interface et le moteur ;
+  - `Engine.h` : la chaîne audio, sans JUCE ;
+  - processeur et éditeur WebView.
+- **Chaîne branchée** : DEREZ ► STRETCH ► ECHO ► [TONAL pre] ► SPACE (Room / Plate / Hall / Cathedral, shimmer) ► FOCUS (zéro latence, MIDI ou AUTO) ► COLOR ► [TONAL post].
+  - Chaque module a son interrupteur, avec un fondu de 30 ms à l'activation et à la coupure.
+  - Le tempo de l'hôte pilote l'ECHO en SYNC, le MIDI entrant pilote FOCUS et DEREZ.
+  - Latence déclarée : 0 (le dry n'est jamais retardé).
+- **Interface** : `design/mockup.html` est l'interface du plugin, embarquée dans le binaire.
+  - Chaque contrôle porte l'`id` de son paramètre ; dans un navigateur seul, la page fonctionne toujours.
+  - Le visualiseur affiche le vrai spectre du wet ; le statut affiche le CPU et les notes suivies par FOCUS.
+  - SHAPE, PITCH, AIR et MOTION sont grisés : pas encore dans le moteur.
+- **Tests** : `stasis_hosttest` charge le VST3 comme un DAW, à 44,1 / 48 / 96 kHz et avec des buffers de 64 à 2048. Il lance de l'automation aléatoire, envoie du MIDI, puis sauve et recharge l'état.
+  - CPU moyen : 1 à 3 % d'un cœur.
+  - Pire bloc en automation : 41 % du temps réel à 64 échantillons / 48 kHz.
+  - Un changement de tous les paramètres d'un coup (preset) coûte environ 2 ms dans le moteur.
+- **Build Windows** : `.github/workflows/build.yml` (GitHub Actions) compile le VST3 Windows et macOS, lance le test et met les plugins en téléchargement.
+- **Reste à faire** :
+  - embarquer les polices (aujourd'hui chargées depuis Google Fonts : sans réseau, l'interface passe sur des polices de secours) ;
+  - un bouton pour relancer une capture ;
+  - les presets ;
+  - MOTION ;
+  - SHAPE, PITCH, AIR.
+
 ## 9. Décisions à prendre avant de coder
 1. ~~**Usage**~~ → ✅ **personnel, puis open source (GPLv3) si le résultat est bon**
-2. **Plateformes** : macOS seul au début, ou macOS + Windows dès la v1 ?
-3. **Formats prioritaires** : VST3 + AU + CLAP ? AAX (Pro Tools) nécessaire ?
-4. **DAW principal** de test (Ableton, Logic, Bitwig…) ?
+2. ~~**Plateformes**~~ → ✅ **Windows en priorité**
+3. ~~**Formats**~~ → ✅ **VST3 d'abord**, le reste plus tard
+4. ~~**DAW**~~ → ✅ **Ableton**
 5. **Nom** du plugin.
 6. Validation du principe « 12 lignes de modulation fixes » vs cibles assignables.

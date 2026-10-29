@@ -45,9 +45,9 @@ public:
             input_[c].assign(size_t(size_), 0.0f);
             accum_[c].assign(size_t(size_), 0.0f);
             output_[c].assign(size_t(hop_), 0.0f);
-            spec_[c].resize(size_t(size_));
             dryDelay_[c].prepare(size_ + 8);
         }
+        spec_.resize(size_t(size_));
         mag_.assign(bins, 0.0f);
         prefix_.assign(bins + 1, 0.0);
         tonal_.assign(bins, 0.0f);
@@ -83,12 +83,16 @@ public:
 private:
     void processFrame() {
         const size_t bins = mag_.size();
-        for (int c = 0; c < 2; ++c) {
-            for (int i = 0; i < size_; ++i) spec_[c][size_t(i)] = input_[c][size_t(i)] * window_[size_t(i)];
-            fft_.forward(spec_[c]);
-        }
+        // Both channels in one complex FFT: z = left + i·right.
+        for (int i = 0; i < size_; ++i)
+            spec_[size_t(i)] = Fft::Complex(input_[0][size_t(i)], input_[1][size_t(i)]) * window_[size_t(i)];
+        fft_.forward(spec_);
         // Mask from the mid (L+R) magnitude: both channels share it, the image stays put.
-        for (size_t k = 0; k < bins; ++k) mag_[k] = std::abs(spec_[0][k] + spec_[1][k]);
+        for (size_t k = 0; k < bins; ++k) {
+            const Fft::Complex a = spec_[k], b = std::conj(spec_[(size_t(size_) - k) % size_t(size_)]);
+            const Fft::Complex left = 0.5f * (a + b), right = Fft::Complex(0.0f, -0.5f) * (a - b);
+            mag_[k] = std::abs(left + right);
+        }
         for (size_t k = 0; k < bins; ++k) prefix_[k + 1] = prefix_[k] + mag_[k];
 
         const float semis = 0.5f + 3.5f * std::clamp(params_.bandwidth, 0.0f, 1.0f);
@@ -130,19 +134,22 @@ private:
 
         const float b = std::clamp(params_.balance, -1.0f, 1.0f);
         const float norm = 1.0f / (1.5f * float(size_));  // Hann² at 75 % overlap sums to 1.5
+        // The gain is real and the same for both channels and for bins k and N-k, so it
+        // applies to z directly.
         double energyIn = 0.0, energyOut = 0.0;
+        for (size_t k = 0; k < bins; ++k) {
+            const float gain = b >= 0.0f ? (1.0f - b) + b * weight_[k] : (1.0f + b) + (-b) * (1.0f - weightWide_[k]);
+            const size_t mirror = (size_t(size_) - k) % size_t(size_);
+            const double e = std::norm(spec_[k]) + (mirror != k ? std::norm(spec_[mirror]) : 0.0);
+            energyIn += e;
+            energyOut += e * gain * gain;
+            spec_[k] *= gain;
+            if (mirror != k) spec_[mirror] *= gain;
+        }
+        fft_.inverse(spec_);
         for (int c = 0; c < 2; ++c) {
-            auto& spec = spec_[c];
-            for (size_t k = 0; k < bins; ++k) {
-                const float gain = b >= 0.0f ? (1.0f - b) + b * weight_[k] : (1.0f + b) + (-b) * (1.0f - weightWide_[k]);
-                energyIn += std::norm(spec[k]);
-                spec[k] *= gain;
-                energyOut += std::norm(spec[k]);
-                if (k > 0 && k < bins - 1) spec[size_t(size_) - k] = std::conj(spec[k]);
-            }
-            fft_.inverse(spec);
             auto& acc = accum_[c];
-            for (int i = 0; i < size_; ++i) acc[size_t(i)] += spec[size_t(i)].real() * window_[size_t(i)] * norm;
+            for (int i = 0; i < size_; ++i) acc[size_t(i)] += (c == 0 ? spec_[size_t(i)].real() : spec_[size_t(i)].imag()) * window_[size_t(i)] * norm;
             std::copy(acc.begin(), acc.begin() + hop_, output_[c].begin());
             std::move(acc.begin() + hop_, acc.end(), acc.begin());
             std::fill(acc.end() - hop_, acc.end(), 0.0f);
@@ -162,7 +169,7 @@ private:
     std::vector<float> window_, mag_, tonal_, tonalWide_, weight_, weightWide_;
     std::vector<double> prefix_;
     std::vector<float> input_[2], accum_[2], output_[2];
-    std::vector<Fft::Complex> spec_[2];
+    std::vector<Fft::Complex> spec_;
     DelayLine dryDelay_[2];
     float maskCoef_ = 0.5f, makeup_ = 1.0f;
 };

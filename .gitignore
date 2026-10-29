@@ -1,3 +1,4 @@
 build/
+build-*/
 renders/
 .DS_Store
