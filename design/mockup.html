@@ -1150,16 +1150,22 @@ function drawGrains(now) {
   [0, 12, 24].forEach(st => { ctx.beginPath(); ctx.moveTo(0, yOf(st) + .5); ctx.lineTo(W, yOf(st) + .5); ctx.stroke(); });  // octaves
   while (grains.length && now - grains[0].at > GRAIN_WINDOW + 4000) grains.shift();
   let recent = 0;
-  // One dot per grain, at its note (height) and time; its size is its volume.
+  // One hexagon per grain, at its note (height) and time; its size is its volume.
+  // Hexagons tile like the spectrum's staggered halftone, so both views read as one.
+  const hex = (x, y, r) => {
+    ctx.beginPath();
+    for (let k = 0; k < 6; k++) { const a = Math.PI / 6 + k * Math.PI / 3; k ? ctx.lineTo(x + r * Math.cos(a), y + r * Math.sin(a)) : ctx.moveTo(x + r * Math.cos(a), y + r * Math.sin(a)); }
+    ctx.closePath(); ctx.fill();
+  };
   grains.forEach(g => {
     const age = now - g.at; if (age < 1000) recent++;
     const x = W - (age + g.len * 500) / GRAIN_WINDOW * W, y = yOf(g.st);  // centred on the grain
-    if (x < -8) return;
+    if (x < -10) return;
     const level = g.level ?? .15;
-    const r = 1.2 + 6 * Math.sqrt(Math.min(1, level / .35));
+    const r = 1.6 + 6.5 * Math.sqrt(Math.min(1, level / .35));
     ctx.fillStyle = [ink, acc, spark][Math.min(2, Math.floor(g.st / 12))];  // the brand's three inks: one per octave
     ctx.globalAlpha = Math.max(.2, 1 - age / GRAIN_WINDOW);
-    ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
+    hex(x, y, r);
   });
   ctx.globalAlpha = 1;
   document.getElementById('grainRate').textContent = recent + ' /S';
