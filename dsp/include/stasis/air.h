@@ -8,6 +8,8 @@ namespace stasis {
 // AIR: matter and space around the sound.
 //  BREATH  0..1  airy noise that follows the signal's envelope (it breathes with the
 //                music and stops with it), band-passed 2-9 kHz, decorrelated L/R
+//  SMOOTH  seconds  how slowly the breath follows: the envelope is the signal's power
+//                through two one-poles in series (no ripple from the waveform itself)
 //  WIDTH   0..1  mid/side: 0 mono .. 0.67 unchanged .. 1 = 150 % width
 //  LO-FI   0..1  worn medium: the top closes (16 → 3.5 kHz), the resolution drops
 //                (16 → 8 bits) and a soft saturation rounds the peaks
@@ -17,11 +19,11 @@ public:
         float breath = 0.0f;
         float width = 0.67f;
         float lofi = 0.0f;
+        float smoothSeconds = 0.14f;
     };
 
     void prepare(float sampleRate) {
         sampleRate_ = sampleRate;
-        envCoef_ = smoothingCoef(0.08f, sampleRate);
         for (int c = 0; c < 2; ++c) {
             noiseHp_[c].set(SvfEq::Type::Highpass, 2000.0f, 0.7f, 0.0f, sampleRate);
             noiseLp_[c].set(SvfEq::Type::Lowpass, 9000.0f, 0.7f, 0.0f, sampleRate);
@@ -36,6 +38,7 @@ public:
         const float bits = 16.0f - 8.0f * lofi;
         step_ = std::pow(2.0f, 1.0f - bits);
         sideGain_ = std::clamp(p.width, 0.0f, 1.0f) * 1.5f;  // 0.67 → 1.0
+        envCoef_ = smoothingCoef(0.5f * std::max(p.smoothSeconds, 0.005f), sampleRate_);  // two stages ≈ the whole time
     }
 
     void process(const float* inL, const float* inR, float* outL, float* outR, int numSamples) {
@@ -48,11 +51,12 @@ public:
             x[0] = mid + side;
             x[1] = mid - side;
             // Breath: noise shaped by the envelope.
-            const float level = std::abs(mid);
-            env_ += envCoef_ * (level - env_);
+            power1_ += envCoef_ * (mid * mid - power1_);
+            power2_ += envCoef_ * (power1_ - power2_);
+            const float env = std::sqrt(std::max(power2_, 0.0f)) * 0.9003f;  // RMS → mean |x| of a sine: the same level as before
             for (int c = 0; c < 2; ++c) {
                 float v = x[c];
-                if (breath > 0.0f) v += breath * env_ * noiseLp_[c].process(noiseHp_[c].process(noise_.bipolar()));
+                if (breath > 0.0f) v += breath * env * noiseLp_[c].process(noiseHp_[c].process(noise_.bipolar()));
                 if (lofi > 0.0f) {
                     v = lofiLp_[c].process(v);
                     v = std::round(v / step_) * step_;
@@ -70,7 +74,7 @@ private:
     Params params_;
     SvfEq noiseHp_[2], noiseLp_[2], lofiLp_[2];
     Rng noise_{0xA1B2};
-    float env_ = 0.0f, envCoef_ = 0.001f, step_ = 0.0f, sideGain_ = 1.0f;
+    float power1_ = 0.0f, power2_ = 0.0f, envCoef_ = 0.001f, step_ = 0.0f, sideGain_ = 1.0f;
 };
 
 }  // namespace stasis

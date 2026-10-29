@@ -78,6 +78,7 @@ Tous les types sauf TAPE tournent suréchantillonnés ×2 ; repliement mesuré �
 | Contrôle | Effet |
 |---|---|
 | `BREATH` | Souffle (2–9 kHz) qui suit l'enveloppe du son et s'arrête avec lui |
+| `SMOOTH` | Douceur avec laquelle le souffle suit le son : 20 ms (nerveux) à 1 s (une vague lente). 140 ms par défaut |
 | `WIDTH` | Largeur stéréo, de mono à 150 % |
 | `LO-FI` | Support usé : aigus qui se ferment (16 → 3,5 kHz), résolution qui baisse, crêtes arrondies |
 
@@ -110,14 +111,13 @@ Rejoue de petits bouts de ce qui vient d'être joué, sous une enveloppe, à des
 |---|---|
 | `PULSE` / `SCATTER` / `DRIFT` | Hasard : horloge régulière (CHANCE saute des coups) ; écarts aléatoires (Poisson) ; vitesse qui dérive lentement (×0,25 à ×4) : grappes puis silences |
 | `SINE` / `TRI` / `SQUARE` / `PERC` | Enveloppe de chaque grain (SQUARE a des rampes de 2 %, sans clic ; PERC attaque vite et décroît) |
-| Clavier (Do → Si) | Transpositions autorisées au-dessus du son joué : Do = unisson, Sol = quinte, etc. (touches blanches et noires comme un piano) |
-| `+0` / `+1` / `+2` | Octaves : l'ensemble choisi est répété 1, 2 ou 3 octaves plus haut. Ça élargit la tessiture, sans transposer le reste |
+| `−12` `−7` `−5` `−3` `0` `+3` `+5` `+7` `+12` | Transpositions autorisées, en demi-tons, par rapport au son lui-même (pas besoin de détecter la note) : `0` = unisson, `+7` = quinte au-dessus, `−12` = octave en dessous. Par défaut : 0, +7, +12 |
 | `FREE` / `SYNC` | FREE : `DENSITY` en grains par seconde (0,5 à 40). SYNC : `RATE` en division du tempo de l'hôte (1/32 à 1/1, pointées, triolets) ; en PULSE, les grains tombent sur la grille du morceau, en SCATTER / DRIFT le hasard reste autour de cette cadence |
 | `CHANCE` | Probabilité qu'un grain prévu joue vraiment |
 | `SIZE` | 20 ms à 2 s |
 | `MIX` | Dosage (à 100 % : seulement les notes) |
 
-Le petit écran **GRAIN**, en haut à droite, dessine chaque grain par un hexagone : sa hauteur donne la transposition (lignes = octaves), sa taille son volume, sa couleur son octave (blanc, bleu, pêche). Mesuré sur un son continu à 220 Hz (unisson + quinte, +1 octave) : 66 % de silence entre les notes, énergie sur 220 / 330 / 440 / 660 Hz, une note non autorisée 50 dB plus bas.
+Le petit écran **GRAIN**, en haut à droite, dessine chaque grain par un hexagone : sa hauteur donne la transposition (lignes : −12, 0, +12), sa taille son volume, sa couleur sa direction (blanc à l'unisson, bleu au-dessus, pêche en dessous). Le testeur d'hôte vérifie que −12, 0 et +12 tombent sur la bonne octave (+18 à +24 dB). Mesuré avant le passage aux intervalles, sur un son continu à 220 Hz (unisson, quinte et leur octave) : 66 % de silence entre les notes, énergie sur 220 / 330 / 440 / 660 Hz, une note non autorisée 50 dB plus bas.
 
 ### 05 · ECHO — écho à bande
 Saturation (tanh anti-repliement), filtres de bande et souffle dans la boucle, sans wow ni flutter : les répétitions restent justes. Les changements de temps glissent comme une bande qui change de vitesse.
@@ -226,7 +226,7 @@ Même chose avec l'artefact **STASIS-VST3-macOS**, à copier dans `~/Library/Aud
 
 ## Utilisation dans Ableton Live
 - **Sur une piste audio ou un synthé** : glisser STASIS comme effet audio, après l'instrument.
-- **Envoyer le MIDI à STASIS** (pour FOCUS et DEREZ) : créer une piste MIDI, régler sa sortie *MIDI To* sur la piste qui contient STASIS, puis choisir **STASIS** dans le second menu. Jouer sur cette piste : les notes s'allument dans FOCUS.
+- **Envoyer le MIDI à STASIS** (pour FOCUS et DEREZ) : créer une piste MIDI, régler sa sortie *MIDI To* sur la piste qui contient STASIS, puis choisir **STASIS** dans le second menu. Jouer sur cette piste : les notes reçues s'affichent en haut à droite (`MIDI`) et s'allument sur le clavier de FOCUS, même module éteint ; **FOCUS doit être allumé** pour filtrer le son. La piste MIDI doit jouer un clip, ou être armée (ou en monitoring *In*) pour un clavier joué en direct.
 - **Sans MIDI** : FOCUS en `AUTO` détecte les notes ; DEREZ prend La2 comme fondamentale.
 - **Tempo** : ECHO en `SYNC` suit le tempo du projet.
 - **En send** : mettre `MIX` à 100 % et doser avec le retour d'effet.

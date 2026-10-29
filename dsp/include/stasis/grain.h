@@ -18,9 +18,8 @@ namespace stasis {
 //  SYNC     the rate follows the host tempo (a note division). PULSE then fires on
 //           the host's grid (phase-locked to the song position while it plays);
 //           SCATTER and DRIFT keep their randomness around that average rate.
-//  NOTES    bit n = n semitones above the source is allowed (0 = unison, 7 = fifth)
-//  OCTAVES  0, 1 or 2: the allowed set is repeated 1, 2 or 3 octaves up. It widens the
-//           range; it does not shift the notes already allowed.
+//  INTERVALS  bit i = kIntervals[i] semitones from the source is allowed: relative to
+//             whatever is playing, so no note detection is needed
 //
 // Each grain: a random slice from the last ~1.5 s, a random pan, a level scaled by the
 // expected overlap so the cloud stays at about the input level.
@@ -28,6 +27,7 @@ class GrainCloud {
 public:
     enum class Algo { Pulse, Scatter, Drift };
     enum class Envelope { Sine, Triangle, Square, Perc };
+    static constexpr std::array<int, 9> kIntervals = {-12, -7, -5, -3, 0, 3, 5, 7, 12};
 
     struct Params {
         Algo algo = Algo::Scatter;
@@ -35,8 +35,7 @@ public:
         float density = 4.0f;     // grains per second
         float chance = 0.7f;      // 0..1
         float sizeMs = 200.0f;
-        uint16_t notes = 0x81;    // unison and fifth
-        int octaves = 1;
+        uint16_t intervals = 0x190;  // unison, fifth, octave (bits of kIntervals)
         float spread = 0.8f;      // pan width 0..1
         bool sync = false;
         float divisionBeats = 0.5f;  // SYNC: one grain per this many quarter notes (average)
@@ -145,14 +144,12 @@ private:
     }
 
     void spawn(float size, float level) {
-        // Allowed transpositions: the chosen intervals, repeated over the octaves.
-        std::array<int, 36> choices{};
+        // Allowed transpositions: the chosen intervals (none chosen = unison).
+        std::array<int, kIntervals.size()> choices{};
         int count = 0;
-        const uint16_t notes = params_.notes & 0x0FFF ? params_.notes : uint16_t(1);
-        for (int octave = 0; octave <= std::clamp(params_.octaves, 0, 2); ++octave)
-            for (int st = 0; st < 12; ++st)
-                if (notes & (1u << st)) choices[size_t(count++)] = st + 12 * octave;
-        const int semitones = choices[size_t(rng_.next() % uint32_t(count))];
+        for (size_t i = 0; i < kIntervals.size(); ++i)
+            if (params_.intervals & (1u << i)) choices[size_t(count++)] = kIntervals[i];
+        const int semitones = count > 0 ? choices[size_t(rng_.next() % uint32_t(count))] : 0;
 
         Voice* voice = nullptr;
         for (auto& v : voices_)
