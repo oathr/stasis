@@ -44,7 +44,7 @@ inline const std::vector<Preset>& all() {
         {"ECHO", "Octave Repeats", {{"echo_div", 8 / 13.f}, {"echo_fdbk", .65f}, {"echo_mix", .5f},
                                     {"derez_on", 1}, {"derez_interval", 0.75f}, {"derez_crush", .5f}, {"derez_mix", .5f},
                                     {"space_type", 2}, {"space_decay", .48f}, {"space_mix", .3f}},
-         "shape,pitch,stretch,echo,derez,space,focus,air,color"},
+         "shape,pitch,stretch,grain,echo,derez,space,focus,air,color"},
         {"ECHO", "Slow Motion", {{"stretch_on", 1}, {"stretch_factor", .2f}, {"stretch_mix", .5f},
                                  {"echo_div", 11 / 13.f}, {"echo_fdbk", .6f}, {"echo_mix", .45f},
                                  {"space_type", 0}, {"space_size", .4f}, {"space_decay", .3f}, {"space_mix", .3f}}},
@@ -56,7 +56,7 @@ inline const std::vector<Preset>& all() {
                                   {"color_harsh", .6f}, {"color_air", .35f}, {"color_lpf", .6f}}},
         {"ECHO", "Echoes of the Room", {{"space_type", 2}, {"space_decay", .5f}, {"space_mix", .6f},
                                         {"echo_div", 11 / 13.f}, {"echo_fdbk", .55f}, {"echo_mix", .5f}},
-         "shape,derez,pitch,stretch,space,echo,focus,air,color"},
+         "shape,derez,pitch,stretch,grain,space,echo,focus,air,color"},
 
         // -------------------------------------------------------------- REVERB
         {"REVERB", "Cathedral 25", {{"echo_on", 0}, {"space_type", 3}, {"space_size", 1}, {"space_decay", .82f}, {"space_tone", .4f},

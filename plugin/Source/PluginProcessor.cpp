@@ -143,7 +143,7 @@ void StasisProcessor::applyPreset(int index) {
         if (auto* param = apvts.getParameter(spec.id.c_str())) param->setValueNotifyingHost(param->convertTo0to1(value));
     }
     const juce::String order(preset.order);
-    setModuleOrder(juce::StringArray::fromTokens(order.isEmpty() ? juce::String("shape,derez,pitch,stretch,echo,space,focus,air,color") : order, ",", ""));
+    setModuleOrder(juce::StringArray::fromTokens(order.isEmpty() ? juce::String(stasis::params::kDefaultOrderNames) : order, ",", ""));
     currentPreset_ = index;
     juce::MessageManager::callAsync([safe = juce::WeakReference<StasisProcessor>(this)] {
         if (safe == nullptr) return;
@@ -160,8 +160,12 @@ juce::StringArray StasisProcessor::getModuleOrder() const {
     return names;
 }
 
-void StasisProcessor::setModuleOrder(const juce::StringArray& names) {
+void StasisProcessor::setModuleOrder(const juce::StringArray& input) {
     const auto& modules = stasis::params::kModules;
+    // An order saved before a module existed: the new module takes its default place
+    // (GRAIN goes right after STRETCH).
+    juce::StringArray names = input;
+    if (!names.contains("grain") && names.size() == int(modules.size()) - 1) names.insert(names.indexOf("stretch") + 1, "grain");
     if (names.size() != int(modules.size())) return;
     uint64_t order = 0, seen = 0;
     for (int slot = 0; slot < names.size(); ++slot) {

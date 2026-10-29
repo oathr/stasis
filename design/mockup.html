@@ -183,6 +183,14 @@ header { display: grid; grid-template-columns: auto 1fr auto; align-items: cente
 .filters { display: flex; gap: 18px; align-items: center; font-size: 8.5px; letter-spacing: .14em; color: var(--muted); }
 .filters .knob.small .v { color: var(--ink); }
 .viz { position: relative; background: var(--dark); overflow: hidden; }
+.vizrow { display: grid; grid-template-columns: 1fr 330px; gap: 14px; min-height: 0; }
+#grainviz { width: 100%; height: 100%; display: block; }
+
+/* GRAIN */
+.grain-modes { display: flex; gap: 10px; flex-wrap: wrap; }
+.grain-notes { display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: center; }
+.grain-notes .keys button { height: 24px; background: none; border: 1px solid var(--dark-line); color: var(--on-dark-muted); font: inherit; font-size: 8px; cursor: pointer; padding: 0; }
+.grain-notes .keys button[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
 .viz canvas { width: 100%; height: 100%; display: block; }
 .viz .hud { position: absolute; inset: 0; pointer-events: none; padding: 8px 10px; display: flex; flex-direction: column; justify-content: space-between; color: var(--on-dark); }
 .viz .hud div { display: flex; justify-content: space-between; font-size: 9px; font-weight: 400; letter-spacing: .12em; }
@@ -284,9 +292,14 @@ body.learning [data-mapid^="m0"], body.learning [data-mapid^="m1"], body.learnin
   </header>
 
   <div class="grid" id="grid">
-    <div class="viz" id="vizband"><canvas id="viz"></canvas><div class="hud">
-      <div><span>STASIS · SPECTRUM OF THE WET</span><span id="hudRt" class="acc">RT60 25.0 S</span></div>
-      <div><span>20 HZ ↑ 12 KHZ · TIME ←</span><span id="hudState">LIVE</span></div></div></div>
+    <div class="vizrow">
+      <div class="viz" id="vizband"><canvas id="viz"></canvas><div class="hud">
+        <div><span>STASIS · SPECTRUM OF THE WET</span><span id="hudRt" class="acc">RT60 25.0 S</span></div>
+        <div><span>20 HZ ↑ 12 KHZ · TIME ←</span><span id="hudState">LIVE</span></div></div></div>
+      <div class="viz" id="grainband"><canvas id="grainviz"></canvas><div class="hud">
+        <div><span>GRAIN</span><span id="grainRate" class="acc">— /S</span></div>
+        <div><span>+0 ↑ +35 ST · TIME ←</span><span id="grainState">OFF</span></div></div></div>
+    </div>
     <!-- The chain: modules in processing order, drawn in two rows, linked by a wire. -->
     <div class="chain" id="chain"><svg class="wire" id="wire"></svg><div class="row"></div><div class="row"></div></div>
     <section class="card dark" data-mod="motion"></section>
@@ -305,6 +318,7 @@ const ICON = {
   focus:   '<path d="M3 8V3h5M16 3h5v5M21 16v5h-5M8 21H3v-5"/><circle cx="12" cy="12" r="3.2"/><path d="M12 6v2.2M12 15.8V18M6 12h2.2M15.8 12H18"/>',
   air:     '<circle cx="5" cy="19" r="1.8"/><circle cx="10.5" cy="14.5" r="1.3"/><circle cx="15.5" cy="10" r="1"/><circle cx="19.5" cy="5.5" r=".7"/><circle cx="7" cy="9" r=".6"/><circle cx="17" cy="17" r=".9"/>',
   color:   '<path d="M6 3.5v17M12 3.5v17M18 3.5v17"/><rect x="4.4" y="13" width="3.2" height="2.2"/><rect x="10.4" y="6.5" width="3.2" height="2.2"/><rect x="16.4" y="15.5" width="3.2" height="2.2"/>',
+  grain:   '<path d="M3 20.5h18"/><path d="M4 20V15M8 20v-7M12 20V9M16 20v-5M20 20v-9" stroke-dasharray="1 1.6"/><circle cx="8" cy="11" r="1.4"/><circle cx="12" cy="7" r="1.4"/><circle cx="20" cy="9" r="1.4"/>',
   motion:  '<path d="M2.5 12c2.4-6.2 4.8-6.2 7.2 0s4.8 6.2 7.2 0c1.3-3.2 2.6-4 4.6-4"/><path d="M2.5 19.5h19" stroke-dasharray="1 1.8"/>',
 };
 const icon = id => `<div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.25" stroke-linecap="square">${ICON[id]}</svg></div>`;
@@ -379,6 +393,7 @@ const bridge = {
     for (const id of this.controls.keys()) this.listen(id);
     window.__JUCE__.backend.addEventListener('stasis_spectrum', bands => { live.spectrum = bands; });
     window.__JUCE__.backend.addEventListener('stasis_motion', m => { live.lanes = m.lanes; live.targets = m.targets; });
+    window.__JUCE__.backend.addEventListener('stasis_grains', list => list.forEach(g => grains.push({ at: performance.now(), ...g })));
     const showTargets = ids => ids.forEach((id, i) => setLaneTarget(i, id, true));
     J.getNativeFunction('getLaneTargets')().then(showTargets);
     window.__JUCE__.backend.addEventListener('stasis_targets', showTargets);
@@ -510,7 +525,7 @@ const state = { size: .9, decay: .75, tone: .45, shimmer: .5, freeze: false, str
 
 // ---------- modules ----------
 // Modules that exist in the audio engine (the others are design only for now).
-const LIVE_MODS = ['shape', 'derez', 'pitch', 'stretch', 'echo', 'space', 'focus', 'air', 'color', 'motion'];
+const LIVE_MODS = ['shape', 'derez', 'pitch', 'stretch', 'grain', 'echo', 'space', 'focus', 'air', 'color', 'motion'];
 const MODS = {
   shape:  { n: '01', name: 'SHAPE',   code: 'Tilt · drive', build: b => b.append(knobRow([
             { id: 'shape_tilt', l: 'Tilt', t: .5, f: bip(' dB', 6, 1) }, { id: 'shape_drive', l: 'Drive', t: .2, f: pct }, { id: 'shape_harm', l: 'Harm', t: .3, f: pct }])) },
@@ -525,10 +540,30 @@ const MODS = {
             { id: 'pitch_semi', l: 'Semi', t: .75, f: t => { const v = Math.round((2 * t - 1) * 24); return (v >= 0 ? '+' : '') + v + ' st'; } },
             { id: 'pitch_shift', l: 'Shift', t: .5, f: t => { const x = 2 * t - 1, v = 50 * x * x * x; return (v >= 0 ? '+' : '') + v.toFixed(Math.abs(v) < 10 ? 1 : 0) + ' Hz'; } },
             { id: 'pitch_mix', l: 'Mix', t: .4, f: pct }])) },
-  stretch:{ n: '04', name: 'STRETCH', code: 'Blur · continuous pad', build: b => b.append(
+  stretch:{ n: '04', name: 'STRETCH', code: 'Blur · pad', build: b => b.append(
             knobRow([{ id: 'stretch_factor', l: 'Memory', t: .3, f: t => { const s = Math.pow(1000, t) / 8; return s.toFixed(s < 10 ? 1 : 0) + ' s'; }, on: v => state.stretch = v },
                      { id: 'stretch_mix', l: 'Mix', t: .5, f: pct }])) },
-  echo:   { n: '05', name: 'ECHO',    code: 'Tape · host sync', build: b => {
+  grain:  { n: '11', name: 'GRAIN',   units: 2, code: 'Random notes from the sound', build: b => {
+            const modes = document.createElement('div'); modes.className = 'grain-modes';
+            modes.append(seg(['Pulse', 'Scatter', 'Drift'], 1, null, 'grain_algo'), seg(['Sine', 'Tri', 'Square', 'Perc'], 0, null, 'grain_env'));
+            // Allowed intervals above the source; the octave choice widens the range.
+            const notes = document.createElement('div'); notes.className = 'grain-notes';
+            const keys = document.createElement('div'); keys.className = 'keys';
+            ['1', '♭2', '2', '♭3', '3', '4', '♯4', '5', '♭6', '6', '♭7', '7'].forEach((label, i) => {
+              const k = document.createElement('button'); k.textContent = label; k.title = `+${i} semitones`;
+              let on = i === 0 || i === 7;
+              const show = v => { on = !!v; k.setAttribute('aria-pressed', on); };
+              k.onclick = () => { show(!on); bridge.send('grain_n' + i, on); };
+              bridge.register('grain_n' + i, 'toggle', show); show(on);
+              keys.append(k);
+            });
+            notes.append(keys, seg(['+0', '+1', '+2'], 1, null, 'grain_octaves'));
+            b.append(modes, notes, knobRow([
+              { id: 'grain_density', l: 'Density', t: .45, f: t => (0.5 * Math.pow(80, t)).toFixed(1) + '/s' },
+              { id: 'grain_chance', l: 'Chance', t: .7, f: pct },
+              { id: 'grain_size', l: 'Size', t: .45, f: t => Math.round(20 * Math.pow(100, t)) + ' ms' },
+              { id: 'grain_mix', l: 'Mix', t: .7, f: pct }])); } },
+  echo:   { n: '05', name: 'ECHO',    code: 'Tape · sync', build: b => {
             // SYNC: TIME snaps to divisions of the host tempo (straight, dotted, triplet)
             const DIVS = ['1/32', '1/16T', '1/16', '1/16.', '1/8T', '1/8', '1/8.', '1/4T', '1/4', '1/4.', '1/2T', '1/2', '1/2.', '1/1'];
             let row = null;
@@ -596,7 +631,7 @@ function buildCard(el) {
 }
 
 // ---------- the chain: order, layout, wire ----------
-const CHAIN_DEFAULT = ['shape', 'derez', 'pitch', 'stretch', 'echo', 'space', 'focus', 'air', 'color'];
+const CHAIN_DEFAULT = ['shape', 'derez', 'pitch', 'stretch', 'grain', 'echo', 'space', 'focus', 'air', 'color'];
 let order = CHAIN_DEFAULT.slice();
 const cards = {};
 function setOrder(next, fromHost) {
@@ -724,6 +759,7 @@ const MAPPABLE = {
   derez: [['derez_interval', 'Interval'], ['derez_crush', 'Crush'], ['derez_bits', 'Bits'], ['derez_mix', 'Mix']],
   pitch: [['pitch_semi', 'Semi'], ['pitch_shift', 'Shift'], ['pitch_mix', 'Mix']],
   stretch: [['stretch_factor', 'Memory'], ['stretch_mix', 'Mix']],
+  grain: [['grain_density', 'Density'], ['grain_chance', 'Chance'], ['grain_size', 'Size'], ['grain_mix', 'Mix']],
   echo: [['echo_time', 'Time (free)'], ['echo_div', 'Time (sync)'], ['echo_fdbk', 'Feedback'], ['echo_mix', 'Mix']],
   space: [['space_size', 'Size'], ['space_decay', 'Decay'], ['space_tone', 'Tone'], ['space_mod', 'Mod'], ['space_pre', 'Pre-delay'], ['space_mix', 'Mix'],
           ['shimmer_depth', 'Shimmer depth'], ['shimmer_pitch', 'Shimmer pitch'], ['space_width', 'Width']],
@@ -1052,11 +1088,53 @@ function drawLanes() {
   Object.values(knobsById).forEach(k => { if (!k.modded) k.showMod(null); });
 }
 
+// ---------- GRAIN view: each grain drawn as its envelope, height = transposition ----------
+const grainCanvas = document.getElementById('grainviz');
+const grains = [];  // { at (ms), len (s), st, pan, env }
+const GRAIN_WINDOW = 6000;  // ms shown
+let simNext = 0;
+function simulateGrains(now) {  // a plain browser: invent grains from the knobs
+  if (bridge.juce || cards.grain?.classList.contains('off')) return;
+  const density = .5 * Math.pow(80, bridge.value('grain_density', .45)), size = 20 * Math.pow(100, bridge.value('grain_size', .45)) / 1000;
+  if (now < simNext) return;
+  simNext = now - Math.log(Math.random() + 1e-6) * 1000 / density;
+  if (Math.random() > bridge.value('grain_chance', .7)) return;
+  const allowed = []; for (let o = 0; o <= bridge.value('grain_octaves', 1); o++) for (let i = 0; i < 12; i++) if (bridge.value('grain_n' + i, i === 0 || i === 7)) allowed.push(i + 12 * o);
+  grains.push({ at: now, len: size, st: allowed[Math.floor(Math.random() * allowed.length)] ?? 0, pan: Math.random() * 1.6 - .8, env: bridge.value('grain_env', 0) });
+}
+function drawGrains(now) {
+  simulateGrains(now);
+  const dpr = devicePixelRatio || 1, W = grainCanvas.offsetWidth, H = grainCanvas.offsetHeight;
+  if (grainCanvas.width !== W * dpr) { grainCanvas.width = W * dpr; grainCanvas.height = H * dpr; }
+  const ctx = grainCanvas.getContext('2d'); ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, W, H);
+  const css = getComputedStyle(document.documentElement), acc = css.getPropertyValue('--accent').trim(), spark = css.getPropertyValue('--spark').trim();
+  const line = css.getPropertyValue('--dark-line').trim();
+  const top = 22, bottom = H - 22, yOf = st => bottom - (st / 35) * (bottom - top);
+  ctx.strokeStyle = line; ctx.lineWidth = 1;
+  [0, 12, 24].forEach(st => { ctx.beginPath(); ctx.moveTo(0, yOf(st) + .5); ctx.lineTo(W, yOf(st) + .5); ctx.stroke(); });  // octaves
+  while (grains.length && now - grains[0].at > GRAIN_WINDOW + 4000) grains.shift();
+  let recent = 0;
+  grains.forEach(g => {
+    const age = now - g.at; if (age < 1000) recent++;
+    const w = Math.max(3, g.len * 1000 / GRAIN_WINDOW * W), x1 = W - age / GRAIN_WINDOW * W, x0 = x1 - w, y = yOf(g.st), h = 16;
+    if (x1 < 0) return;
+    const shape = p => g.env === 0 ? Math.sin(Math.PI * p) : g.env === 1 ? 1 - Math.abs(2 * p - 1) : g.env === 2 ? 1 : Math.min(1, p / .03) * Math.pow(1 - p, 3);
+    ctx.globalAlpha = Math.max(.25, 1 - age / GRAIN_WINDOW);
+    ctx.fillStyle = Math.abs(g.pan) > .5 ? spark : acc;
+    ctx.beginPath(); ctx.moveTo(x0, y);
+    for (let i = 0; i <= 16; i++) ctx.lineTo(x0 + w * i / 16, y - h * shape(i / 16));
+    ctx.closePath(); ctx.fill();
+  });
+  ctx.globalAlpha = 1;
+  document.getElementById('grainRate').textContent = recent + ' /S';
+  document.getElementById('grainState').textContent = cards.grain?.classList.contains('off') ? 'OFF' : 'LIVE';
+}
+
 function fit() { document.getElementById('stage').style.transform = `scale(${Math.min(innerWidth / 1500, innerHeight / 1120)})`; }
 addEventListener('resize', fit); fit();
 resizeViz();
 for (let k = 0; k < 1800; k++) drawViz();  // start with a tail already on the paper
-(function loop(now) { drawViz(now); drawLanes(); requestAnimationFrame(loop); })();
+(function loop(now) { drawViz(now); drawLanes(); drawGrains(now || 0); requestAnimationFrame(loop); })();
 </script>
 <script type="module">
 // In the plugin only: load JUCE's bridge (served by the plugin) and bind the controls.

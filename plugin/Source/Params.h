@@ -46,6 +46,8 @@ inline float derezBits(float t) { return 16.0f - 14.0f * t; }
 inline float highpassHz(float t) { return t <= 0.0f ? 0.0f : 20.0f * std::pow(50.0f, t); }      // off, 20 Hz .. 1 kHz
 inline float lowpassHz(float t) { return t >= 1.0f ? 0.0f : 1000.0f * std::pow(20.0f, t); }     // 1 kHz .. 20 kHz, off
 inline float derezSemitones(float t) { return std::round((2.0f * t - 1.0f) * 24.0f); }
+inline float grainDensity(float t) { return 0.5f * std::pow(80.0f, t); }  // 0.5 .. 40 grains per second
+inline float grainSizeMs(float t) { return 20.0f * std::pow(100.0f, t); }   // 20 ms .. 2 s
 inline float pitchSemitones(float t) { return std::round((2.0f * t - 1.0f) * 24.0f); }
 // ±50 Hz with fine control near 0 (cubic): ±1 Hz beats live in the middle of the travel.
 inline float shiftHz(float t) { const float x = 2.0f * t - 1.0f; return 50.0f * x * x * x; }
@@ -55,7 +57,11 @@ inline const std::array<const char*, 14> kDivisionNames = {"1/32", "1/16T", "1/1
                                                            "1/4T", "1/4",   "1/4.", "1/2T",  "1/2", "1/2.", "1/1"};
 // The modules of the chain, in their default order. The order is part of the state
 // (not a parameter): the UI changes it, the engine reads it.
-inline const std::array<const char*, 9> kModules = {"shape", "derez", "pitch", "stretch", "echo", "space", "focus", "air", "color"};
+// Indices are stable (new modules are added at the end); kDefaultOrder is the order
+// a new instance starts with.
+inline const std::array<const char*, 10> kModules = {"shape", "derez", "pitch", "stretch", "echo", "space", "focus", "air", "color", "grain"};
+inline const std::array<int, 10> kDefaultOrder = {0, 1, 2, 3, 9, 4, 5, 6, 7, 8};  // SHAPE DEREZ PITCH STRETCH GRAIN ECHO SPACE FOCUS AIR COLOR
+inline const char* const kDefaultOrderNames = "shape,derez,pitch,stretch,grain,echo,space,focus,air,color";
 
 // MOTION: 12 LFO lanes. The user maps each one to any knob (the mapping is part of the
 // state, not a parameter); by default only lane 1 is mapped, to the global DRY / WET.
@@ -101,6 +107,21 @@ inline const std::vector<Spec>& all() {
         {"air_breath", "Air Breath", Kind::Float, 0.3f, {}, pct},
         {"air_width", "Air Width", Kind::Float, 0.67f, {}, [](float t) { return pct(1.5f * t); }},
         {"air_lofi", "Air Lo-fi", Kind::Float, 0.1f, {}, pct},
+        // GRAIN
+        {"grain_on", "Grain On", Kind::Bool, 0.0f},
+        {"grain_algo", "Grain Algorithm", Kind::Choice, 1.0f, {"Pulse", "Scatter", "Drift"}},
+        {"grain_env", "Grain Envelope", Kind::Choice, 0.0f, {"Sine", "Triangle", "Square", "Perc"}},
+        {"grain_density", "Grain Density", Kind::Float, 0.45f, {}, [](float t) { return fmt("%.1f /s", double(grainDensity(t))); }},
+        {"grain_chance", "Grain Chance", Kind::Float, 0.7f, {}, pct},
+        {"grain_size", "Grain Size", Kind::Float, 0.45f, {}, [](float t) { return fmt("%.0f ms", double(grainSizeMs(t))); }},
+        {"grain_mix", "Grain Mix", Kind::Float, 0.7f, {}, pct},
+        {"grain_octaves", "Grain Octaves", Kind::Choice, 1.0f, {"+0", "+1", "+2"}},
+        {"grain_n0", "Grain Unison", Kind::Bool, 1.0f},     {"grain_n1", "Grain b2", Kind::Bool, 0.0f},
+        {"grain_n2", "Grain 2", Kind::Bool, 0.0f},          {"grain_n3", "Grain b3", Kind::Bool, 0.0f},
+        {"grain_n4", "Grain 3", Kind::Bool, 0.0f},          {"grain_n5", "Grain 4", Kind::Bool, 0.0f},
+        {"grain_n6", "Grain #4", Kind::Bool, 0.0f},         {"grain_n7", "Grain 5", Kind::Bool, 1.0f},
+        {"grain_n8", "Grain b6", Kind::Bool, 0.0f},         {"grain_n9", "Grain 6", Kind::Bool, 0.0f},
+        {"grain_n10", "Grain b7", Kind::Bool, 0.0f},        {"grain_n11", "Grain 7", Kind::Bool, 0.0f},
         // DEREZ (before SPACE)
         {"derez_on", "Derez On", Kind::Bool, 0.0f},
         {"derez_interval", "Derez Interval", Kind::Float, 0.25f, {}, [](float t) { return fmt("%+.0f st", double(derezSemitones(t))); }},
