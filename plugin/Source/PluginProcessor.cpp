@@ -184,6 +184,14 @@ void StasisProcessor::setStateInformation(const void* data, int sizeInBytes) {
         if (state.hasProperty("targets")) {
             const auto ids = juce::StringArray::fromTokens(state.getProperty("targets").toString(), ",", "");
             for (int lane = 0; lane < 12; ++lane) setLaneTarget(lane, lane < ids.size() ? ids[lane] : juce::String());
+        } else {
+            // Saved before MOTION was assignable (v0.3 and earlier): its lanes had fixed
+            // targets and non-zero depths, which would now land on other knobs. Start
+            // MOTION from scratch: default targets, every depth at 0.
+            for (int lane = 0; lane < 12; ++lane) {
+                setLaneTarget(lane, stasis::params::kDefaultTargets[size_t(lane)]);
+                if (auto* depth = apvts.getParameter(stasis::params::laneId(lane, "depth").c_str())) depth->setValueNotifyingHost(0.0f);
+            }
         }
         juce::MessageManager::callAsync([safe = juce::WeakReference<StasisProcessor>(this)] {
             if (safe == nullptr) return;
