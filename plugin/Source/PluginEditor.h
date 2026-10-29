@@ -38,6 +38,7 @@ private:
     std::vector<stasis::Fft::Complex> spectrum_;
     stasis::Fft fft_;
     int statusCounter_ = 0;
+    uint32_t grainCursor_ = 0;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(StasisEditor)
 };

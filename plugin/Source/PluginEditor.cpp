@@ -167,6 +167,22 @@ void StasisEditor::timerCallback() {
     motion->setProperty("lanes", lanes);
     motion->setProperty("targets", targets);
     webView_.emitEventIfBrowserIsVisible("stasis_motion", juce::var(motion));
+
+    // GRAIN: the grains that played since the last tick.
+    stasis::GrainCloud::Event events[64];
+    const int count = processor_.engine.grainEvents(events, 64, grainCursor_);
+    if (count > 0) {
+        juce::Array<juce::var> grains;
+        for (int i = 0; i < count; ++i) {
+            auto* g = new juce::DynamicObject();
+            g->setProperty("st", events[i].semitones);
+            g->setProperty("len", events[i].seconds);
+            g->setProperty("pan", events[i].pan);
+            g->setProperty("env", events[i].envelope);
+            grains.add(juce::var(g));
+        }
+        webView_.emitEventIfBrowserIsVisible("stasis_grains", grains);
+    }
     if (++statusCounter_ % 10 == 0) {
         auto* status = new juce::DynamicObject();
         status->setProperty("cpu", processor_.cpuLoad.load() * 100.0f);

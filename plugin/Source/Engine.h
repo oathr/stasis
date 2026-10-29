@@ -1,6 +1,7 @@
 #pragma once
 
 #include <stasis/air.h>
+#include <stasis/grain.h>
 #include <stasis/capture_stretch.h>
 #include <stasis/color.h>
 #include <stasis/key_detector.h>
@@ -45,6 +46,7 @@ public:
     void prepare(float sampleRate) {
         sampleRate_ = sampleRate;
         shape_.prepare(sampleRate);
+        grain_.prepare(sampleRate);
         pitch_.prepare(sampleRate);
         air_.prepare(sampleRate);
         limiterGain_ = 1.0f;
@@ -112,7 +114,7 @@ public:
     // that runs k-th, 4 bits per slot. Any thread may set it.
     static uint64_t defaultOrder() {
         uint64_t order = 0;
-        for (uint64_t i = 0; i < params::kModules.size(); ++i) order |= i << (4 * i);
+        for (size_t slot = 0; slot < params::kDefaultOrder.size(); ++slot) order |= uint64_t(params::kDefaultOrder[slot]) << (4 * slot);
         return order;
     }
     void setOrder(uint64_t order) { order_.store(order, std::memory_order_relaxed); }
@@ -126,11 +128,14 @@ public:
     void setLaneTarget(int lane, int paramIndex) { laneTarget_[size_t(lane)].store(paramIndex, std::memory_order_relaxed); }
     int laneTargetIndex(int lane) const { return laneTarget_[size_t(lane)].load(std::memory_order_relaxed); }
 
+    // GRAIN events for the UI's grain view.
+    int grainEvents(GrainCloud::Event* out, int max, uint32_t& cursor) const { return grain_.readEvents(out, max, cursor); }
+
     // Pitch classes FOCUS is following (MIDI, or what AUTO hears). Bit n = class n.
     uint16_t focusClasses() const { return focusClasses_.load(std::memory_order_relaxed); }
 
 private:
-    enum Module { kDerez, kStretch, kEcho, kSpace, kFocus, kColor, kShape, kPitch, kAir, kModules };
+    enum Module { kDerez, kStretch, kEcho, kSpace, kFocus, kColor, kShape, kPitch, kAir, kGrain, kModules };
 
     float v(const float* values, int index) const { return values[index]; }
 
@@ -212,6 +217,25 @@ private:
         if (changed({iTilt, iDrive, iHarm})) shape_.setParams({2.0f * v(values, iTilt) - 1.0f, v(values, iDrive), v(values, iHarm)});
         if (changed({iSemi, iShift})) pitch_.setParams({pitchSemitones(v(values, iSemi)), shiftHz(v(values, iShift))});
         if (changed({iBreath, iWidthAir, iLofi})) air_.setParams({v(values, iBreath), v(values, iWidthAir), v(values, iLofi)});
+        static const int iGrainOn = indexOf("grain_on"), iAlgo = indexOf("grain_algo"), iEnv = indexOf("grain_env"), iDensity = indexOf("grain_density"),
+                         iChance = indexOf("grain_chance"), iGrainSize = indexOf("grain_size"), iGrainMix = indexOf("grain_mix"),
+                         iOctaves = indexOf("grain_octaves"), iNote0 = indexOf("grain_n0");
+        on_[kGrain] = v(values, iGrainOn) > 0.5f;
+        mix_[kGrain] = v(values, iGrainMix);
+        if (changed({iAlgo, iEnv, iDensity, iChance, iGrainSize, iOctaves, iNote0, iNote0 + 1, iNote0 + 2, iNote0 + 3, iNote0 + 4, iNote0 + 5,
+                     iNote0 + 6, iNote0 + 7, iNote0 + 8, iNote0 + 9, iNote0 + 10, iNote0 + 11})) {
+            GrainCloud::Params p;
+            p.algo = GrainCloud::Algo(std::clamp(int(v(values, iAlgo)), 0, 2));
+            p.envelope = GrainCloud::Envelope(std::clamp(int(v(values, iEnv)), 0, 3));
+            p.density = grainDensity(v(values, iDensity));
+            p.chance = v(values, iChance);
+            p.sizeMs = grainSizeMs(v(values, iGrainSize));
+            p.octaves = std::clamp(int(v(values, iOctaves)), 0, 2);
+            p.notes = 0;
+            for (int i = 0; i < 12; ++i)
+                if (v(values, iNote0 + i) > 0.5f) p.notes = uint16_t(p.notes | (1u << i));  // grain_n0..n11 follow each other
+            grain_.setParams(p);
+        }
         mix_[kDerez] = v(values, iDerezMix);
         mix_[kStretch] = v(values, iStretchMix);
         mix_[kEcho] = v(values, iEchoMix);
@@ -406,6 +430,7 @@ private:
                     break;
                 case 6: runModule(kFocus, wetL, wetR, n, [&](auto... a) { focus_.process(a...); }); break;
                 case 8: runModule(kColor, wetL, wetR, n, [&](auto... a) { color_.process(a...); }); break;
+                case 9: runModule(kGrain, wetL, wetR, n, [&](auto... a) { grain_.process(a...); }); break;
             }
         }
         if (!tonalPre_) runTonal(wetL, wetR, n);
@@ -457,6 +482,7 @@ public:
 private:
     float sampleRate_ = 48000.0f;
     Shape shape_;
+    GrainCloud grain_;
     Pitch pitch_;
     Air air_;
     float limiterGain_ = 1.0f, limiterRelease_ = 0.001f;
