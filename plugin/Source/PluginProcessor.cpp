@@ -76,6 +76,16 @@ void StasisProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
     for (size_t i = 0; i < raw_.size(); ++i) values_[i] = raw_[i]->load(std::memory_order_relaxed);
     engine.process(values_.data(), bpm, buffer.getWritePointer(0), buffer.getWritePointer(1), numSamples);
 
+    // The safety guard saw NaN/Inf: rebuild the engine off the audio thread.
+    if (engine.needsReset() && !resetPending_.exchange(true))
+        juce::MessageManager::callAsync([safe = juce::WeakReference<StasisProcessor>(this)] {
+            if (safe == nullptr) return;
+            safe->suspendProcessing(true);
+            safe->engine.prepare(float(safe->getSampleRate()));
+            safe->suspendProcessing(false);
+            safe->resetPending_.store(false);
+        });
+
     const double elapsed = juce::Time::highResolutionTicksToSeconds(juce::Time::getHighResolutionTicks() - start);
     const double budget = numSamples / std::max(1.0, getSampleRate());
     const float load = float(elapsed / budget);

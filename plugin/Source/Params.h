@@ -45,6 +45,10 @@ inline float predelayMs(float t) { return std::pow(500.0f, t); }
 inline float derezBits(float t) { return 16.0f - 14.0f * t; }
 inline float highpassHz(float t) { return t <= 0.0f ? 0.0f : 20.0f * std::pow(50.0f, t); }      // off, 20 Hz .. 1 kHz
 inline float lowpassHz(float t) { return t >= 1.0f ? 0.0f : 1000.0f * std::pow(20.0f, t); }     // 1 kHz .. 20 kHz, off
+inline float derezSemitones(float t) { return std::round((2.0f * t - 1.0f) * 24.0f); }
+inline float pitchSemitones(float t) { return std::round((2.0f * t - 1.0f) * 24.0f); }
+// ±50 Hz with fine control near 0 (cubic): ±1 Hz beats live in the middle of the travel.
+inline float shiftHz(float t) { const float x = 2.0f * t - 1.0f; return 50.0f * x * x * x; }
 inline int derezMultiple(float t) { return int(std::lround(32.0f * std::pow(2.0f / 32.0f, t))); }
 
 inline const std::array<const char*, 14> kDivisionNames = {"1/32", "1/16T", "1/16", "1/16.", "1/8T", "1/8", "1/8.",
@@ -75,17 +79,31 @@ inline float laneRateT(float hz) { return std::log(hz / 0.001f) / std::log(20000
 inline float driftScale(float t) { return std::pow(4.0f, 2.0f * t - 1.0f); }  // ×0.25 .. ×4
 inline std::string laneId(int lane, const char* what) { return (lane < 9 ? "m0" : "m") + std::to_string(lane + 1) + "_" + what; }
 
-inline const std::array<float, 9> kIntervals = {-24, -12, -7, -1, 0, 1, 7, 12, 24};
 
 inline const std::vector<Spec>& all() {
     static const std::vector<Spec> specs = {
         // Global
-        {"mix", "Mix", Kind::Float, 0.5f, {}, pct},
+        {"mix", "Dry / Wet", Kind::Float, 1.0f, {}, pct},
         {"out", "Output", Kind::Float, 0.5f, {}, [](float t) { return bip(t, 12.0f, " dB"); }},
         {"freeze", "Freeze", Kind::Bool, 0.0f},
+        // SHAPE
+        {"shape_on", "Shape On", Kind::Bool, 0.0f},
+        {"shape_tilt", "Shape Tilt", Kind::Float, 0.5f, {}, [](float t) { return bip(t, 6.0f, " dB"); }},
+        {"shape_drive", "Shape Drive", Kind::Float, 0.2f, {}, pct},
+        {"shape_harm", "Shape Harmonics", Kind::Float, 0.3f, {}, pct},
+        // PITCH
+        {"pitch_on", "Pitch On", Kind::Bool, 0.0f},
+        {"pitch_semi", "Pitch Semitones", Kind::Float, 0.75f, {}, [](float t) { return fmt("%+.0f st", double(pitchSemitones(t))); }},
+        {"pitch_shift", "Pitch Shift", Kind::Float, 0.5f, {}, [](float t) { return fmt("%+.1f Hz", double(shiftHz(t))); }},
+        {"pitch_mix", "Pitch Mix", Kind::Float, 0.4f, {}, pct},
+        // AIR
+        {"air_on", "Air On", Kind::Bool, 0.0f},
+        {"air_breath", "Air Breath", Kind::Float, 0.3f, {}, pct},
+        {"air_width", "Air Width", Kind::Float, 0.67f, {}, [](float t) { return pct(1.5f * t); }},
+        {"air_lofi", "Air Lo-fi", Kind::Float, 0.1f, {}, pct},
         // DEREZ (before SPACE)
         {"derez_on", "Derez On", Kind::Bool, 0.0f},
-        {"derez_interval", "Derez Interval", Kind::Choice, 1.0f, {"-24", "-12", "-7", "-1", "0", "+1", "+7", "+12", "+24"}},
+        {"derez_interval", "Derez Interval", Kind::Float, 0.25f, {}, [](float t) { return fmt("%+.0f st", double(derezSemitones(t))); }},
         {"derez_crush", "Derez Crush", Kind::Float, 0.6f, {}, [](float t) { return "n=" + std::to_string(derezMultiple(t)); }},
         {"derez_bits", "Derez Bits", Kind::Float, 0.55f, {}, [](float t) { return fmt("%.1f", derezBits(t)); }},
         {"derez_mix", "Derez Mix", Kind::Float, 0.7f, {}, pct},

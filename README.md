@@ -41,17 +41,39 @@ MIDI IN ─────────┴──────────────
 - Par défaut, le crunch et l'étirement nourrissent l'écho, qui nourrit la reverb.
 - Le visualiseur, en haut, montre le spectre réel du wet.
 - Chaque module a un interrupteur (le carré en bas de sa tranche) avec un fondu de 30 ms, sans clic.
-- `MIX` (en haut) dose le wet par rapport au dry, `OUT` règle le niveau de sortie (±12 dB).
+- `DRY / WET` (en haut, 100 % par défaut) dose le wet par rapport au dry, `OUTPUT` règle le niveau de sortie (±12 dB).
+- **Limiteur de sécurité invisible** en toute fin : rien ne dépasse −0,3 dBFS, et si un bug produisait des valeurs aberrantes (NaN), la sortie se coupe 0,25 s et le moteur se réinitialise. Les oreilles ne risquent rien.
 - `FREEZE` fige la reverb : la queue tient indéfiniment, sans dériver.
 
 ## Les modules
 
-### 02 · DEREZ — réduction de résolution *accordée*
+### SHAPE — la première touche
+| Contrôle | Effet |
+|---|---|
+| `TILT` | Bascule ±6 dB autour de 800 Hz : sombre ◂▸ brillant |
+| `DRIVE` | Saturation tanh sans repliement (ADAA), niveau conservé vers −12 dBFS |
+| `HARM` | Asymétrie : harmoniques paires, chaleur « lampe » |
+
+### PITCH — transposition et décalage
+| Contrôle | Effet |
+|---|---|
+| `SEMI` | Transposition −24 … +24 demi-tons (phase vocoder, justesse ±0,5 Hz à 440 Hz) |
+| `SHIFT` | Décalage de fréquence ±50 Hz (réglage fin au centre) : toutes les fréquences bougent du même nombre de Hz, de battements lents (±1 Hz) au métallique. Bande parasite −43 à −49 dB |
+| `MIX` | Dosage |
+
+### AIR — matière et largeur
+| Contrôle | Effet |
+|---|---|
+| `BREATH` | Souffle (2–9 kHz) qui suit l'enveloppe du son et s'arrête avec lui |
+| `WIDTH` | Largeur stéréo, de mono à 150 % |
+| `LO-FI` | Support usé : aigus qui se ferment (16 → 3,5 kHz), résolution qui baisse, crêtes arrondies |
+
+### DEREZ — réduction de résolution *accordée*
 Inspiré du DeRez d'Airwindows, mais au lieu de changer la hauteur de façon chaotique, la fréquence d'échantillonnage réduite est calée sur la note jouée : le repliement tombe sur un intervalle musical.
 
 | Contrôle | Effet |
 |---|---|
-| Intervalle `-24 … +24` | Hauteur du repliement : octaves, quinte, demi-tons |
+| Curseur `−24 … +24` | Hauteur du repliement, au demi-ton (repères à chaque octave) |
 | `CRUSH` | Force de la réduction (n = rapport à la fondamentale) |
 | `BITS` | Profondeur, de 16 à 2 bits |
 | `MIX` | Dosage |
@@ -132,9 +154,6 @@ Chaque ligne fait bouger un potard autour de la position choisie, au plus de ±2
 | `MOTION` / `DRIFT` | Profondeur globale, vitesse globale (×0,25 à ×4) |
 
 Les tracés montrent les vraies valeurs des LFO du moteur.
-
-### Bientôt
-`SHAPE` (tilt, drive), `PITCH` (transposition, formants) et `AIR` (souffle, largeur) sont dessinés mais pas encore dans le moteur audio : ils apparaissent grisés. Ils prennent quand même leur place dans la chaîne.
 
 ## Presets
 30 presets d'usine, en trois familles. Clic sur le nom du preset pour ouvrir la liste, ‹ › pour passer au suivant. Ils apparaissent aussi comme *programmes* VST3 dans l'hôte.
@@ -237,7 +256,7 @@ Les modules à FFT longue répartissent leur calcul sur plusieurs blocs audio : 
 - [x] **Phase 1** — plugin VST3 (Windows prioritaire), interface intégrée, tests, CI
 - [ ] Polices embarquées dans le plugin (aujourd'hui chargées depuis Google Fonts)
 - [x] Ordre des modules au choix, 30 presets, MOTION, COLOR à 5 bandes + filtres
-- [ ] SHAPE, PITCH, AIR
+- [x] SHAPE, PITCH, AIR ; limiteur de sécurité
 - [ ] Reverbs expérimentales : Spectral, Modal, Bloom, 80s
 - [ ] AU, CLAP ; signature et installeurs
 

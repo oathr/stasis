@@ -1,13 +1,16 @@
 #pragma once
 
+#include <stasis/air.h>
 #include <stasis/capture_stretch.h>
 #include <stasis/color.h>
 #include <stasis/key_detector.h>
 #include <stasis/lfo.h>
 #include <stasis/note_set.h>
 #include <stasis/pitched_derez.h>
+#include <stasis/pitch.h>
 #include <stasis/plate_reverb.h>
 #include <stasis/resonant_focus.h>
+#include <stasis/shape.h>
 #include <stasis/space_reverb.h>
 #include <stasis/tape_echo.h>
 #include <stasis/tonal_noise.h>
@@ -36,6 +39,13 @@ public:
 
     void prepare(float sampleRate) {
         sampleRate_ = sampleRate;
+        shape_.prepare(sampleRate);
+        pitch_.prepare(sampleRate);
+        air_.prepare(sampleRate);
+        limiterGain_ = 1.0f;
+        limiterRelease_ = smoothingCoef(0.15f, sampleRate);
+        mute_ = 0;
+        needsReset_.store(false);
         derez_.prepare(sampleRate);
         derez_.setRoot(110.0f);  // A2, when no MIDI note is held
         stretch_.prepare(sampleRate);
@@ -109,7 +119,7 @@ public:
     uint16_t focusClasses() const { return focusClasses_.load(std::memory_order_relaxed); }
 
 private:
-    enum Module { kDerez, kStretch, kEcho, kSpace, kFocus, kColor, kModules };
+    enum Module { kDerez, kStretch, kEcho, kSpace, kFocus, kColor, kShape, kPitch, kAir, kModules };
 
     float v(const float* values, int index) const { return values[index]; }
 
@@ -166,6 +176,17 @@ private:
         on_[kSpace] = v(values, iSpaceOn) > 0.5f;
         on_[kFocus] = v(values, iFocusOn) > 0.5f;
         on_[kColor] = v(values, iColorOn) > 0.5f;
+        static const int iShapeOn = indexOf("shape_on"), iTilt = indexOf("shape_tilt"), iDrive = indexOf("shape_drive"), iHarm = indexOf("shape_harm");
+        static const int iPitchOn = indexOf("pitch_on"), iSemi = indexOf("pitch_semi"), iShift = indexOf("pitch_shift"), iPitchMix = indexOf("pitch_mix");
+        static const int iAirOn = indexOf("air_on"), iBreath = indexOf("air_breath"), iWidthAir = indexOf("air_width"), iLofi = indexOf("air_lofi");
+        on_[kShape] = v(values, iShapeOn) > 0.5f;
+        on_[kPitch] = v(values, iPitchOn) > 0.5f;
+        on_[kAir] = v(values, iAirOn) > 0.5f;
+        mix_[kShape] = mix_[kAir] = 1.0f;
+        mix_[kPitch] = v(values, iPitchMix);
+        if (changed({iTilt, iDrive, iHarm})) shape_.setParams({2.0f * v(values, iTilt) - 1.0f, v(values, iDrive), v(values, iHarm)});
+        if (changed({iSemi, iShift})) pitch_.setParams({pitchSemitones(v(values, iSemi)), shiftHz(v(values, iShift))});
+        if (changed({iBreath, iWidthAir, iLofi})) air_.setParams({v(values, iBreath), v(values, iWidthAir), v(values, iLofi)});
         mix_[kDerez] = v(values, iDerezMix);
         mix_[kStretch] = v(values, iStretchMix);
         mix_[kEcho] = v(values, iEchoMix);
@@ -180,7 +201,7 @@ private:
 
         if (changed({iInterval, iCrush, iBits})) {
             PitchedDerez::Params p;
-            p.interval = kIntervals[size_t(std::clamp(int(v(values, iInterval)), 0, int(kIntervals.size()) - 1))];
+            p.interval = derezSemitones(v(values, iInterval));
             p.crush = v(values, iCrush);
             p.bits = derezBits(v(values, iBits));
             p.mix = 1.0f;  // the module ramp does the mix
@@ -353,6 +374,9 @@ private:
         const uint64_t order = order_.load(std::memory_order_relaxed);
         for (size_t slot = 0; slot < params::kModules.size(); ++slot) {
             switch (int((order >> (4 * slot)) & 15)) {
+                case 0: runModule(kShape, wetL, wetR, n, [&](auto... a) { shape_.process(a...); }); break;
+                case 2: runModule(kPitch, wetL, wetR, n, [&](auto... a) { pitch_.process(a...); }); break;
+                case 7: runModule(kAir, wetL, wetR, n, [&](auto... a) { air_.process(a...); }); break;
                 case 1: runModule(kDerez, wetL, wetR, n, [&](auto... a) { derez_.process(a...); }); break;
                 case 3: runModule(kStretch, wetL, wetR, n, [&](auto... a) { stretch_.process(a...); }); break;
                 case 4: runModule(kEcho, wetL, wetR, n, [&](auto... a) { echo_.process(a...); }); break;
@@ -362,7 +386,6 @@ private:
                     break;
                 case 6: runModule(kFocus, wetL, wetR, n, [&](auto... a) { focus_.process(a...); }); break;
                 case 8: runModule(kColor, wetL, wetR, n, [&](auto... a) { color_.process(a...); }); break;
-                default: break;  // SHAPE, PITCH, AIR: not in the engine yet
             }
         }
         if (!tonalPre_) runTonal(wetL, wetR, n);
@@ -375,15 +398,50 @@ private:
         for (int i = 0; i < n; ++i) {
             mixGain_ += (mixTarget_ - mixGain_) * rampCoef_;
             outGain_ += (outTarget_ - outGain_) * rampCoef_;
-            left[i] = outGain_ * (left[i] + mixGain_ * (wetL[i] - left[i]));
-            right[i] = outGain_ * (right[i] + mixGain_ * (wetR[i] - right[i]));
+            float l = outGain_ * (left[i] + mixGain_ * (wetL[i] - left[i]));
+            float r = outGain_ * (right[i] + mixGain_ * (wetR[i] - right[i]));
+            safety(l, r);
+            left[i] = l;
+            right[i] = r;
             visual_[size_t(w)] = 0.5f * (wetL[i] + wetR[i]);
             w = (w + 1) % kVisualSize;
         }
         visualWrite_.store(w, std::memory_order_release);
     }
 
+    // Safety, invisible: a peak limiter at -0.3 dBFS (instant attack, 150 ms release)
+    // and a guard against NaN/Inf. A non-finite sample mutes the output for 0.25 s and
+    // asks the plugin to reset the engine, so a bug can never reach the ears.
+    void safety(float& l, float& r) {
+        if (!std::isfinite(l) || !std::isfinite(r)) {
+            mute_ = int(0.25f * sampleRate_);
+            needsReset_.store(true, std::memory_order_relaxed);
+        }
+        if (mute_ > 0) {
+            --mute_;
+            l = r = 0.0f;
+            return;
+        }
+        constexpr float kCeiling = 0.966f;  // -0.3 dBFS
+        const float peak = std::max(std::abs(l), std::abs(r));
+        const float needed = peak > kCeiling ? kCeiling / peak : 1.0f;
+        limiterGain_ = needed < limiterGain_ ? needed : limiterGain_ + (1.0f - limiterGain_) * limiterRelease_;
+        l = std::clamp(l * limiterGain_, -kCeiling, kCeiling);
+        r = std::clamp(r * limiterGain_, -kCeiling, kCeiling);
+    }
+
+public:
+    // Set when the safety guard saw a non-finite sample; the plugin then calls prepare().
+    bool needsReset() const { return needsReset_.load(std::memory_order_relaxed); }
+
+private:
     float sampleRate_ = 48000.0f;
+    Shape shape_;
+    Pitch pitch_;
+    Air air_;
+    float limiterGain_ = 1.0f, limiterRelease_ = 0.001f;
+    int mute_ = 0;
+    std::atomic<bool> needsReset_{false};
     PitchedDerez derez_;
     CaptureStretch stretch_;
     TapeEcho echo_;

@@ -487,9 +487,13 @@ Règle : **chaque phase se termine par des écoutes et des mesures** (CPU, IR, n
   - 30 presets (ECHO / REVERB / AMBIENT), aussi exposés comme programmes VST3 ;
   - STRETCH à 4 trames superposées (fluctuation 0,45 dB au lieu de 2,3 dB), bouton ⟳ de recapture ;
   - ECHO sans wow ni flutter.
+- **v0.3** :
+  - SHAPE (tilt, drive ADAA calé à −12 dBFS, harmoniques paires), PITCH (phase vocoder ±24 st + décaleur de fréquence ±50 Hz, réjection 43–49 dB), AIR (souffle qui suit l'enveloppe, largeur M/S, lo-fi) : tous les modules sont actifs ;
+  - DEREZ : curseur en demi-tons au lieu des boutons ;
+  - DRY/WET global à 100 % par défaut, grand et étiqueté ;
+  - limiteur de sécurité invisible (−0,3 dBFS, attaque instantanée) et garde anti-NaN qui coupe et réinitialise le moteur.
 - **Reste à faire** :
-  - embarquer les polices (aujourd'hui chargées depuis Google Fonts : sans réseau, l'interface passe sur des polices de secours) ;
-  - SHAPE, PITCH, AIR.
+  - embarquer les polices (aujourd'hui chargées depuis Google Fonts : sans réseau, l'interface passe sur des polices de secours).
 
 ## 9. Décisions à prendre avant de coder
 1. ~~**Usage**~~ → ✅ **personnel, puis open source (GPLv3) si le résultat est bon**
