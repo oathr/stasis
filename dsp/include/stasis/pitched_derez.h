@@ -1,5 +1,6 @@
 #pragma once
 
+#include "color.h"
 #include "common.h"
 #include "note_set.h"
 #include "pitch_shifter.h"
@@ -17,6 +18,10 @@ namespace stasis {
 //  INTERVAL  semitones applied before the crush (clean pitch shift)
 //  CRUSH     0..1 → n from 32 (gentle) down to 2 (brutal)
 //  BITS      16 .. 2, continuous
+//  SMOOTH    0..1: 0 = the raw staircase and hard bit steps; towards 1 the held values
+//            are joined by slopes, the bit steps become soft (no jumps, so no crackle on
+//            quiet sounds) and a 12 dB/oct low-pass follows the rate down to 0.6 R,
+//            which removes the images (pure grit) and keeps the tuned aliases
 //  ROOT      lowest held MIDI note, else setRoot() (AUTO detector or a fixed note)
 //  FREE      unlocked mode: R in Hz, the classic chaotic DeRez
 //
@@ -28,6 +33,7 @@ public:
         float interval = 0.0f;  // semitones
         float crush = 0.5f;     // 0..1
         float bits = 16.0f;     // 2..16
+        float smooth = 0.7f;    // 0..1
         float mix = 1.0f;
         bool free = false;
         float freeRateHz = 4000.0f;
@@ -71,6 +77,9 @@ public:
         const float inc = rate_ / sampleRate_;
         const float bits = std::clamp(params_.bits, 2.0f, 16.0f);
         const float scale = std::pow(2.0f, bits - 1.0f);
+        const float smooth = std::clamp(params_.smooth, 0.0f, 1.0f);
+        // Soft bit steps: the rounding ramps over this share of a step (0 = a hard step).
+        const float ramp = 0.85f * smooth;
         const float mix = std::clamp(params_.mix, 0.0f, 1.0f);
         const float* in[2] = {inL, inR};
         float* out[2] = {outL, outR};
@@ -93,16 +102,20 @@ public:
                 if (step) {
                     // Sample the input at the exact hold instant (linear between samples).
                     float v = ch.lastInput + (shifted[c] - ch.lastInput) * (1.0f - d);
-                    v = std::round(v * scale) / scale;
-                    const float h = v - ch.held;
+                    v = quantize(v * scale, ramp) / scale;
+                    const float h = (v - ch.held) * (1.0f - smooth);  // what is left of the step
+                    ch.previous = ch.held;
                     ch.held = v;
-                    current = v;
                     // 2-point polyBLEP: smooth the step across this and the previous sample.
                     correction = -h * (1.0f - d) * (1.0f - d) * 0.5f;
                     ch.pending += h * d * d * 0.5f;
                 }
+                // SMOOTH: from the held value towards a slope between the last two holds.
+                const float slope = ch.previous + (ch.held - ch.previous) * std::min(phase_, 1.0f);
+                current = ch.held + smooth * (slope - ch.held);
                 ch.lastInput = shifted[c];
-                const float y = ch.pending;  // previous sample, now final
+                float y = ch.pending;  // previous sample, now final
+                if (smooth > 0.0f) y = ch.lowpass.process(y);
                 ch.pending = current + correction;
                 const float dry = ch.dryDelay;
                 ch.dryDelay = in[c][n];
@@ -113,14 +126,33 @@ public:
 
 private:
     struct Channel {
-        float held = 0.0f, lastInput = 0.0f, pending = 0.0f, dryDelay = 0.0f;
+        float held = 0.0f, previous = 0.0f, lastInput = 0.0f, pending = 0.0f, dryDelay = 0.0f;
+        SvfEq lowpass;
     };
+
+    // Rounding to the nearest step; amp (0..1 of a step) turns the jump into a smooth
+    // S-curve centred between two steps: continuous, so quiet sounds hiss instead of crackle.
+    static float quantize(float x, float ramp) {
+        const float k = std::floor(x), f = x - k;
+        if (ramp <= 0.0f) return f < 0.5f ? k : k + 1.0f;
+        const float t = std::clamp((f - 0.5f) / ramp + 0.5f, 0.0f, 1.0f);
+        return k + t * t * (3.0f - 2.0f * t);
+    }
+
+    void updateFilter() {
+        // Off (20 kHz) at SMOOTH 0, down to 0.6 R at 1, on a log scale.
+        const float smooth = std::clamp(params_.smooth, 0.0f, 1.0f);
+        const float top = 0.45f * sampleRate_, low = std::clamp(0.6f * rate_, 200.0f, top);
+        const float hz = top * std::pow(low / top, smooth);
+        for (auto& ch : channels_) ch.lowpass.set(SvfEq::Type::Lowpass, hz, 0.707f, 0.0f, sampleRate_);
+    }
 
     void updateRate() {
         if (params_.free) {
             rate_ = std::clamp(params_.freeRateHz, 50.0f, sampleRate_ * 0.5f);
             shifterL_.setWindowSamples(0.06f * sampleRate_);
             shifter_.setWindowSamples(0.06f * sampleRate_);
+            updateFilter();
             return;
         }
         float root = rootHz_;
@@ -141,6 +173,7 @@ private:
         float multiple = std::round(32.0f * std::pow(2.0f / 32.0f, std::clamp(params_.crush, 0.0f, 1.0f)));
         multiple = std::clamp(multiple, 1.0f, std::max(1.0f, std::floor(0.5f * sampleRate_ / target)));
         rate_ = target * multiple;
+        updateFilter();
     }
 
     float sampleRate_ = 48000.0f;

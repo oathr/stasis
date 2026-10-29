@@ -70,8 +70,9 @@ body::after { content: ""; position: fixed; inset: 0; pointer-events: none; z-in
 .card.drop-before { box-shadow: -4px 0 0 var(--accent); }
 .card.drop-after { box-shadow: 4px 0 0 var(--accent); }
 /* ◂ ▸ at the top of the black spine: move the module in the chain */
-.spine .move { display: flex; flex-direction: column; gap: 2px; }
-.spine .move button { width: 20px; height: 18px; border: 1px solid var(--dark-line); background: none; color: var(--on-dark); font: inherit; font-size: 9px; cursor: pointer; line-height: 1; padding: 0; }
+.spine .move { display: flex; flex-direction: column; gap: 3px; }
+.spine .move button { width: 24px; height: 22px; border: 1px solid var(--dark-line); background: none; color: var(--on-dark); cursor: pointer; padding: 0; display: grid; place-items: center; }
+.spine .move svg { width: 9px; height: 11px; fill: currentColor; display: block; }
 .spine .move button:hover { border-color: var(--accent); color: var(--accent); }
 
 /* ---------- header ---------- */
@@ -184,8 +185,7 @@ header { display: grid; grid-template-columns: auto 1fr auto; align-items: cente
 .filters { display: flex; gap: 18px; align-items: center; font-size: 8.5px; letter-spacing: .14em; color: var(--muted); }
 .filters .knob.small .v { color: var(--ink); }
 .viz { position: relative; background: var(--dark); overflow: hidden; }
-.vizrow { display: grid; grid-template-columns: 1fr 330px; gap: 14px; min-height: 0; }
-#grainviz { width: 100%; height: 100%; display: block; }
+.vizrow { display: grid; grid-template-columns: 1fr; min-height: 0; }
 
 /* GRAIN */
 .grain-modes { display: flex; gap: 10px; flex-wrap: wrap; }
@@ -196,6 +196,7 @@ header { display: grid; grid-template-columns: auto 1fr auto; align-items: cente
 .viz .hud { position: absolute; inset: 0; pointer-events: none; padding: 8px 10px; display: flex; flex-direction: column; justify-content: space-between; color: var(--on-dark); }
 .viz .hud div { display: flex; justify-content: space-between; font-size: 9px; font-weight: 400; letter-spacing: .12em; }
 .viz .hud .acc { color: var(--accent); }
+.viz .hud .grain { color: var(--accent); margin-right: 14px; }
 .sub { border-top: 1px solid var(--line); padding-top: 9px; display: grid; gap: 8px; }
 .sub .title { display: flex; justify-content: space-between; font-size: 9px; font-weight: 400; letter-spacing: .14em; color: var(--muted); }
 
@@ -301,10 +302,7 @@ body.learning [data-mapid^="m0"], body.learning [data-mapid^="m1"], body.learnin
     <div class="vizrow">
       <div class="viz" id="vizband"><canvas id="viz"></canvas><div class="hud">
         <div><span>STASIS · SPECTRUM OF THE WET</span><span id="hudRt" class="acc">RT60 25.0 S</span></div>
-        <div><span>20 HZ ↑ 12 KHZ · TIME ←</span><span id="hudState">LIVE</span></div></div></div>
-      <div class="viz" id="grainband"><canvas id="grainviz"></canvas><div class="hud">
-        <div><span>GRAIN</span><span id="grainRate" class="acc">— /S</span></div>
-        <div><span>+0 ↑ +35 ST · TIME ←</span><span id="grainState">OFF</span></div></div></div>
+        <div><span>20 HZ ↑ 12 KHZ · TIME ←</span><span><span id="hudGrain" class="grain"></span><span id="hudState">LIVE</span></span></div></div></div>
     </div>
     <!-- The chain: modules in processing order, drawn in two rows, linked by a wire. -->
     <div class="chain" id="chain"><svg class="wire" id="wire"></svg><div class="row"></div><div class="row"></div></div>
@@ -568,8 +566,11 @@ const MODS = {
             const st = v => { const n = Math.round(v * 24); return (n > 0 ? '+' : '') + n + ' st'; };
             const interval = cursor('−24', '+24', -.5, 'derez_interval', { format: st, steps: 24 });
             interval.classList.add('pitch-cursor');
-            b.append(interval, knobRow([{ id: 'derez_crush', l: 'Crush', t: .6, f: t => 'n=' + Math.round(32 * Math.pow(2 / 32, t)) },
-                                     { id: 'derez_bits', l: 'Bits', t: .55, f: lin(16, 2, '', 1) }, { id: 'derez_mix', l: 'Mix', t: .7, f: pct }])); } },
+            const knobs = knobRow([{ id: 'derez_crush', l: 'Crush', t: .6, f: t => 'n=' + Math.round(32 * Math.pow(2 / 32, t)) },
+                                   { id: 'derez_bits', l: 'Bits', t: .55, f: lin(16, 2, '', 1) }, { id: 'derez_smooth', l: 'Smooth', t: .7, f: pct },
+                                   { id: 'derez_mix', l: 'Mix', t: .7, f: pct }]);
+            knobs.classList.add('two');
+            b.append(interval, knobs); } },
   pitch:  { n: '03', name: 'PITCH',   code: 'Vocoder · shift', build: b => b.append(knobRow([
             { id: 'pitch_semi', l: 'Semi', t: .75, f: t => { const v = Math.round((2 * t - 1) * 24); return (v >= 0 ? '+' : '') + v + ' st'; } },
             { id: 'pitch_shift', l: 'Shift', t: .5, f: t => { const x = 2 * t - 1, v = 50 * x * x * x; return (v >= 0 ? '+' : '') + v.toFixed(Math.abs(v) < 10 ? 1 : 0) + ' Hz'; } },
@@ -654,7 +655,7 @@ const MODS = {
 
 function buildCard(el) {
   const mod = el.dataset.mod, m = MODS[mod], inChain = CHAIN_DEFAULT.includes(mod);
-  const arrows = inChain ? '<div class="move"><button title="Earlier in the chain">◂</button><button title="Later in the chain">▸</button></div>' : '';
+  const arrows = inChain ? '<div class="move"><button title="Earlier in the chain"><svg viewBox="0 0 9 11"><path d="M8 0v11L0 5.5z"/></svg></button><button title="Later in the chain"><svg viewBox="0 0 9 11"><path d="M1 0v11l8-5.5z"/></svg></button></div>' : '';
   el.innerHTML = `<div class="spine" title="${inChain ? 'Drag to move' : ''}">${arrows}<div class="label">${m.name}</div><button class="power" title="On / off"></button></div><div class="body"></div>`;
   const power = el.querySelector('.power'), powerId = mod + '_on';
   power.onclick = () => { el.classList.toggle('off'); bridge.send(powerId, !el.classList.contains('off')); };
@@ -1059,7 +1060,7 @@ function drawViz(now) {
   const nCols = Math.ceil(VW / STEP) + 2;
   if (!state.freeze) {
     scroll += (.45 + state.stretch * .9) * dt;
-    while (scroll >= STEP) { scroll -= STEP; cols.push(column(tick)); tick += 90; }
+    while (scroll >= STEP) { scroll -= STEP; const col = column(tick); col.grain = grainCells(col, now || performance.now()); cols.push(col); tick += 90; }
     while (cols.length > nCols) cols.shift();
   }
   vctx.clearRect(0, 0, VW, VH);
@@ -1072,13 +1073,22 @@ function drawViz(now) {
     const edge = s(Math.min(1, Math.max(0, (VW - x) / (STEP * 3)))) * s(Math.min(1, Math.max(0, x / (STEP * 4))));
     const col = cols[c];
     for (let y = 0; y < rows; y++) {
+      // A grain owns its cell: drawn instead of the spectrum's dot, in the theme's blue,
+      // never faint (a floor on size and opacity), so it reads at a glance.
+      const g = col.grain ? col.grain[y] * (.25 + .75 * fade) * edge : 0;
+      if (g > .015) {
+        vctx.fillStyle = acc;
+        vctx.globalAlpha = .7 + .3 * fade;
+        vctx.beginPath(); vctx.arc(x, y * STEP + (col.odd ? STEP * .5 : 0), Math.min(STEP * .66, STEP * (.36 + .3 * Math.sqrt(g))), 0, Math.PI * 2); vctx.fill();
+        continue;
+      }
       const e = col[y] * (.25 + .75 * fade) * edge;
       if (e < .015) continue;
       const r = Math.min(STEP * .62, STEP * .5 * Math.sqrt(e - .015));  // grows from zero: no popping
       if (r < .2) continue;
       const yy = y * STEP + (col.odd ? STEP * .5 : 0);         // staggered: round, organic halftone
-      const hot = Math.min(1, Math.max(0, (e - .9) / .3));     // accent blends in instead of switching
-      vctx.fillStyle = hot > .5 ? acc : (y < rows * .28 && state.shimmer > .3 && e > .55 ? spark : dotColor);
+      // Blue belongs to the grains; the spectrum stays paper (peach for shimmer at the top).
+      vctx.fillStyle = y < rows * .28 && state.shimmer > .3 && e > .55 ? spark : dotColor;
       vctx.globalAlpha = (.35 + .65 * fade) * Math.min(1, e / .12);
       vctx.beginPath(); vctx.arc(x, yy, r, 0, Math.PI * 2); vctx.fill();
     }
@@ -1132,11 +1142,14 @@ function drawLanes() {
   Object.values(knobsById).forEach(k => { if (!k.modded) k.showMod(null); });
 }
 
-// ---------- GRAIN view: each grain drawn as its envelope, height = transposition ----------
-const grainCanvas = document.getElementById('grainviz');
-const grains = [];  // { at (ms), len (s), st, pan, env }
-const GRAIN_WINDOW = 6000;  // ms shown
-let simNext = 0;
+// ---------- GRAIN in the spectrum: each grain lights the cells of the halftone grid ----------
+// A grain lands in the column of the moment it plays (so it scrolls with the paper) and
+// at its real pitch: the strongest row of the spectrum (the note being played), moved by
+// its interval on the same log-frequency axis. One cell per column, blue, sized by its
+// volume; two grains on one cell keep the louder one, so grains never pile up.
+const grains = [];  // { at (ms), len (s), st, pan, env, level }, waiting to be drawn
+const SPECTRUM_SEMITONES = 88;  // MIDI 30 .. 118, the rows of the spectrum
+let simNext = 0, lastColumnAt = 0, refRow = -1, grainCount = [];
 function simulateGrains(now) {  // a plain browser: invent grains from the knobs
   if (bridge.juce || cards.grain?.classList.contains('off')) return;
   const density = .5 * Math.pow(80, bridge.value('grain_density', .45)), size = 20 * Math.pow(100, bridge.value('grain_size', .45)) / 1000;
@@ -1146,45 +1159,50 @@ function simulateGrains(now) {  // a plain browser: invent grains from the knobs
   const allowed = GRAIN_INTERVALS.filter(([id, , on]) => bridge.value(id, on)).map(([, label]) => parseInt(label.replace('−', '-')));
   grains.push({ at: now, len: size, st: allowed[Math.floor(Math.random() * allowed.length)] ?? 0, pan: Math.random() * 1.6 - .8, env: bridge.value('grain_env', 0), level: .05 + Math.random() * .3 });
 }
-function drawGrains(now) {
-  simulateGrains(now);
-  const dpr = devicePixelRatio || 1, W = grainCanvas.offsetWidth, H = grainCanvas.offsetHeight;
-  if (grainCanvas.width !== W * dpr) { grainCanvas.width = W * dpr; grainCanvas.height = H * dpr; }
-  const ctx = grainCanvas.getContext('2d'); ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, W, H);
-  const css = getComputedStyle(document.documentElement), acc = css.getPropertyValue('--accent').trim(), spark = css.getPropertyValue('--spark').trim();
-  const line = css.getPropertyValue('--dark-line').trim(), ink = css.getPropertyValue('--on-dark').trim();
-  const top = 22, bottom = H - 22, yOf = st => bottom - ((st + 12) / 24) * (bottom - top);
-  ctx.strokeStyle = line; ctx.lineWidth = 1;
-  [-12, 0, 12].forEach(st => { ctx.beginPath(); ctx.moveTo(0, yOf(st) + .5); ctx.lineTo(W, yOf(st) + .5); ctx.stroke(); });  // octave below, unison, octave above
-  while (grains.length && now - grains[0].at > GRAIN_WINDOW + 4000) grains.shift();
-  let recent = 0;
-  // One hexagon per grain, at its note (height) and time; its size is its volume.
-  // Hexagons tile like the spectrum's staggered halftone, so both views read as one.
-  const hex = (x, y, r) => {
-    ctx.beginPath();
-    for (let k = 0; k < 6; k++) { const a = Math.PI / 6 + k * Math.PI / 3; k ? ctx.lineTo(x + r * Math.cos(a), y + r * Math.sin(a)) : ctx.moveTo(x + r * Math.cos(a), y + r * Math.sin(a)); }
-    ctx.closePath(); ctx.fill();
-  };
-  grains.forEach(g => {
-    const age = now - g.at; if (age < 1000) recent++;
-    const x = W - (age + g.len * 500) / GRAIN_WINDOW * W, y = yOf(g.st);  // centred on the grain
-    if (x < -10) return;
-    const level = g.level ?? .15;
-    const r = 1.6 + 6.5 * Math.sqrt(Math.min(1, level / .35));
-    ctx.fillStyle = g.st > 0 ? acc : g.st < 0 ? spark : ink;  // the brand's three inks: above, below, unison
-    ctx.globalAlpha = Math.max(.2, 1 - age / GRAIN_WINDOW);
-    hex(x, y, r);
-  });
-  ctx.globalAlpha = 1;
-  document.getElementById('grainRate').textContent = recent + ' /S';
-  document.getElementById('grainState').textContent = cards.grain?.classList.contains('off') ? 'OFF' : 'LIVE';
+// The envelope of a grain at phase p (0..1), as GRAIN shapes it.
+function grainEnvelope(env, p) {
+  if (env === 1) return 1 - Math.abs(2 * p - 1);              // triangle
+  if (env === 2) return Math.min(1, p / .02, (1 - p) / .02);  // square, 2 % ramps
+  if (env === 3) return Math.min(1, p / .01) * Math.exp(-5 * p);  // perc
+  return Math.sin(Math.PI * p);                               // sine
+}
+// Called for each new column of the spectrum: the grains that sounded since the last one.
+function grainCells(col, now) {
+  const cells = new Float32Array(rows);
+  // The note being played: the strongest row, followed smoothly so grains do not jitter.
+  let peak = -1, best = .08;
+  for (let y = 0; y < rows; y++) if (col[y] > best) { best = col[y]; peak = y; }
+  if (peak >= 0) refRow = refRow < 0 ? peak : refRow + (peak - refRow) * .3;
+  const since = lastColumnAt || now;
+  lastColumnAt = now;
+  let fired = 0;
+  for (let i = grains.length - 1; i >= 0; i--) {
+    const g = grains[i], start = g.at, end = g.at + g.len * 1000;
+    if (start > now) continue;
+    if (end < since) { grains.splice(i, 1); continue; }  // already drawn, over
+    if (start > since) fired++;
+    // A grain shorter than a column still shows once, at its loudest.
+    const p = end - start < now - since ? .5 : Math.min(1, (now - start) / (end - start));
+    const level = Math.min(1.2, (g.level ?? .15) / .25) * Math.max(.25, grainEnvelope(g.env, p));
+    const center = refRow < 0 ? rows * .5 : refRow;
+    const y = Math.round(center - (g.st || 0) * rows / SPECTRUM_SEMITONES);
+    if (y >= 0 && y < rows) cells[y] = Math.max(cells[y], level);
+  }
+  if (grains.length > 400) grains.splice(0, grains.length - 400);  // FREEZE stops the paper: do not hoard
+  grainCount.push({ at: now, n: fired });
+  while (grainCount.length && now - grainCount[0].at > 1000) grainCount.shift();
+  return cells;
+}
+function grainHud() {
+  const off = cards.grain?.classList.contains('off');
+  document.getElementById('hudGrain').textContent = off ? '' : 'GRAIN ' + grainCount.reduce((a, c) => a + c.n, 0) + ' /S';
 }
 
 function fit() { document.getElementById('stage').style.transform = `scale(${Math.min(innerWidth / 1500, innerHeight / 1120)})`; }
 addEventListener('resize', fit); fit();
 resizeViz();
 for (let k = 0; k < 1800; k++) drawViz();  // start with a tail already on the paper
-(function loop(now) { drawViz(now); drawLanes(); drawGrains(now || 0); requestAnimationFrame(loop); })();
+(function loop(now) { simulateGrains(now || 0); drawViz(now); drawLanes(); grainHud(); requestAnimationFrame(loop); })();
 </script>
 <script type="module">
 // In the plugin only: load JUCE's bridge (served by the plugin) and bind the controls.
