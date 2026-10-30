@@ -2,6 +2,7 @@
 
 #include <array>
 
+#include "color.h"
 #include "common.h"
 #include "lfo.h"
 #include "spectral_pitch_shifter.h"
@@ -25,6 +26,13 @@ namespace stasis {
 //    (-24..+24), no granular sidebands, so the cascade stays in tune.
 //  - Lows decay *faster* by default (bassMultiplier < 1) and the input is high-passed:
 //    the main source of mud in long ambient tails.
+//  - No treble lost on the way round: a cubic interpolated read loses a little treble on
+//    every pass (two per pass cost ~2 dB at 12 kHz), which capped the tail's brightness
+//    whatever TONE said. The modulated read is now a first-order allpass interpolation
+//    (flat in level) and the in-line allpass reads at whole samples. The modulation
+//    swing is the same as before, all of it on the line.
+//  - TONE (tilt) also shapes the sound going in: a shelf at 3 kHz (-9 .. +5 dB) and one at
+//    250 Hz (+3 .. -3 dB), heard from the first reflection on.
 class SpaceReverb {
 public:
     static constexpr int kLines = 16;
@@ -43,6 +51,7 @@ public:
         float predelayMs = 20.0f;
         float inputHighpassHz = 60.0f;
         float width = 1.0f;            // 0 mono .. 1 natural .. 1.5 extra wide
+        float tilt = 0.0f;             // TONE on the input: -1 dark and warm .. 1 bright and lean
         float shimmer = 0.0f;          // DEPTH 0..1: share of the feedback that gets re-pitched
         float shimmerSemitones = 12.0f;  // PITCH -24..+24
         bool freeze = false;
@@ -66,8 +75,8 @@ public:
             for (int c = kDiffChannels - 1; c > 0; --c) std::swap(perm[size_t(c)], perm[rng.next() % uint32_t(c + 1)]);
         }
 
-        const int maxLine = int((kMaxLineMs + kMaxModMs) * 0.001f * sampleRate) + 8;
-        const int maxAllpass = int((kMaxAllpassMs + kMaxModMs) * 0.001f * sampleRate) + 8;
+        const int maxLine = int((kMaxLineMs + 6.0f * kMaxModMs) * 0.001f * sampleRate) + 8;
+        const int maxAllpass = int(kMaxAllpassMs * 0.001f * sampleRate) + 8;
         for (int i = 0; i < kLines; ++i) {
             const size_t k = size_t(i);
             lines_[k].prepare(maxLine);
@@ -94,8 +103,10 @@ public:
         for (int i = 0; i < kLines; ++i) {
             const size_t k = size_t(i);
             const float x = std::clamp((float(kOrder[k]) + lengthJitter_[k]) / float(kLines - 1), 0.0f, 1.0f);
-            targetLengths_[k] = minMs * std::pow(maxMs / minMs, x) * 0.001f * sampleRate_;
-            allpassLengths_[k] = (2.0f + 10.0f * allpassFraction_[k]) * (0.5f + p.size) * 0.001f * sampleRate_;
+            targetLengths_[k] = std::round(minMs * std::pow(maxMs / minMs, x) * 0.001f * sampleRate_);
+            // Whole samples: the allpass reads exactly.
+            allpassLengths_[k] = std::round((2.0f + 10.0f * allpassFraction_[k]) * (0.5f + p.size) * 0.001f * sampleRate_);
+            allpasses_[k].delay = allpassLengths_[k];
             allpasses_[k].gain = 0.35f + 0.3f * p.diffusion;
             modulators_[k].setRate(p.modRate * modRateJitter_[k]);
             lowSplit_[k].setCutoff(p.lowCrossoverHz, sampleRate_);
@@ -107,6 +118,11 @@ public:
                 diffuserDelay_[size_t(s)][size_t(c)] = std::max(
                     1, int(diffuserSlot_[size_t(s)][size_t(c)] * kStageMs[size_t(s)] * stageScale * 0.001f * sampleRate_));
         for (auto& hp : inputHighpass_) hp.setCutoff(p.inputHighpassHz, sampleRate_);
+        const float tilt = std::clamp(p.tilt, -1.0f, 1.0f);
+        for (int c = 0; c < 2; ++c) {
+            inputLow_[c].set(SvfEq::Type::LowShelf, 250.0f, 0.5f, -3.0f * tilt, sampleRate_);
+            inputHigh_[c].set(SvfEq::Type::HighShelf, 3000.0f, 0.5f, tilt < 0.0f ? 9.0f * tilt : 5.0f * tilt, sampleRate_);
+        }
         const float semitones = std::clamp(p.shimmerSemitones, -24.0f, 24.0f);
         shifter_.setSemitones(semitones);
         // Upward cascades lose their mud, downward ones keep their depth.
@@ -147,8 +163,8 @@ public:
                 }
             }
 
-            float l = inputHighpass_[0].highpass(inL[n] * inputGain);
-            float r = inputHighpass_[1].highpass(inR[n] * inputGain);
+            float l = inputHigh_[0].process(inputLow_[0].process(inputHighpass_[0].highpass(inL[n] * inputGain)));
+            float r = inputHigh_[1].process(inputLow_[1].process(inputHighpass_[1].highpass(inR[n] * inputGain)));
             if (predelay >= 2.0f) {
                 const float pl = predelay_[0].read(predelay), pr = predelay_[1].read(predelay);
                 predelay_[0].write(l);
@@ -178,8 +194,8 @@ public:
             for (int i = 0; i < kLines; ++i) {
                 const size_t k = size_t(i);
                 mod_[k] += modStep_[k];
-                float v = lines_[k].read(lengths_[k] + mod_[k]);
-                v = allpasses_[k].processAt(v, allpassLengths_[k] + 2.0f * mod_[k]);
+                float v = lines_[k].readAllpass(lengths_[k] + 3.0f * mod_[k], interpolation_[k]);
+                v = allpasses_[k].process(v);
                 const float low = lowSplit_[k].lowpass(v);
                 const float rest = v - low;
                 const float mid = highSplit_[k].lowpass(rest);
@@ -284,6 +300,7 @@ private:
     std::array<DelayLine, kLines> lines_;
     std::array<Allpass, kLines> allpasses_;
     std::array<float, kLines> lengths_{}, targetLengths_{}, lengthJitter_{}, allpassLengths_{}, allpassFraction_{};
+    std::array<float, kLines> interpolation_{};  // allpass-interpolation state, per line
     std::array<float, kLines> gainLow_{}, gainMid_{}, gainHigh_{};
     std::array<OnePole, kLines> lowSplit_, highSplit_;
     std::array<Lfo, kLines> modulators_;
@@ -293,6 +310,7 @@ private:
 
     DelayLine predelay_[2];
     OnePole inputHighpass_[2];
+    SvfEq inputLow_[2], inputHigh_[2];
     SpectralPitchShifter shifter_;
     OnePole shimmerHp_, shimmerLp_;
 };

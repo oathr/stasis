@@ -245,10 +245,10 @@ std::vector<Recipe> recipes() {
                      return mix(s.audio, 0.5f, space(s.audio, cathedral()), 1.0f);
                  }});
 
-    r.push_back({"03_plate", "Dattorro plate, decay 0.85", [](const Source& s) {
+    r.push_back({"03_plate", "Dattorro plate, RT60 6 s", [](const Source& s) {
                      PlateReverb::Params p;
-                     p.decay = 0.85f;
-                     p.damping = 0.25f;
+                     p.decaySeconds = 6.0f;
+                     p.dampingHz = 8000.0f;
                      p.size = 1.3f;
                      return mix(s.audio, 0.7f, reverb<PlateReverb>(s.audio, p, seconds(s.audio)), 0.8f);
                  }});
@@ -573,7 +573,7 @@ void analyseReverbs(float fs) {
     reportImpulse<SpaceReverb>("hall", hall(), fs);
     reportImpulse<SpaceReverb>("cathedral", cathedral(), fs);
     PlateReverb::Params plate;
-    plate.decay = 0.85f;
+    plate.decaySeconds = 6.0f;
     plate.size = 1.3f;
     reportImpulse<PlateReverb>("plate", plate, fs);
 

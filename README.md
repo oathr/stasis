@@ -150,16 +150,21 @@ Saturation (anti-aliased tanh) and tape filters in the loop, no hiss, no wow or 
 | Type | Engine |
 |---|---|
 | `ROOM` / `HALL` / `CATHEDRAL` | 16-line FDN: 8-channel diffuser, Householder matrix + rotation (no line feeds back into itself), 3-band absorption, modulation that adapts to the decay time |
-| `PLATE` | Dattorro plate |
+| `PLATE` | Dattorro plate; its DECAY is a real RT60, like the others (it was a raw tank gain: "8 s" lasted 4.8 s; older sessions keep their real length) |
 | `BLOOM` | Two 8-line networks in series ahead of the FDN: the reverb **swells** after the attack instead of starting at full level. The larger `DECAY` and `SIZE`, the longer the swell |
 | `RESONATOR` | 24 tuned combs (12 notes × 2 octaves, damped like strings) ahead of a shorter reverb: the tail **sings notes**. It follows the MIDI notes held, otherwise what FOCUS AUTO hears, and keeps the last chord (C + G at start). `SIZE` picks the register (C4, C3 or C2), `TONE` the damping. The notes played are shown in SPACE's header |
 
 | Control | What it does |
 |---|---|
-| `SIZE`, `DECAY`, `TONE` | Size, decay time (0.5 s to ∞), brightness of the tail |
+| `SIZE`, `DECAY` | Size, decay time (0.5 s to ∞) |
+| `TONE` | Dark and warm ◂ 50 % ▸ bright and lean. It tilts the sound going in (shelves at 3 kHz, −9 to +5 dB, and 250 Hz, +3 to −3 dB: heard from the first reflection) and shapes the tail (treble decaying 4× faster to as long as the mids, crossover 1.5 to 13.5 kHz, bass a little longer when dark) |
 | `MOD`, `PRE`, `MIX` | Modulation, pre-delay (1 to 500 ms), blend |
 | `SHIMMER DEPTH` / `PITCH` | Share of the feedback that is transposed by a phase vocoder, from −24 to +24 semitones |
 | `WIDTH` | Stereo width |
+
+Measured (noise burst, DECAY 8 s, HALL): the attack's 10 kHz / 1 kHz balance moves by 9 dB across TONE (1.3 dB in v0.1.5); the treble's decay goes from 2.0 s to 8.1 s (1.8 to 4.6 s). The tail no longer loses treble on its way round: the modulated reads use an allpass interpolation (flat in level) and the rest reads at whole samples, so at TONE 100 % the treble lasts as long as asked (it was capped near 5 s by the interpolation).
+
+The safety limiter at the end (−0.3 dBFS) now holds its gain 30 ms instead of following the wave: a sine at +6 dBFS comes out with harmonics at −162 dB (−40 dB on bass in v0.1.5).
 
 Measured: the hall is dense after 90 ms, residual ringing 0.027; freeze drift 0.01 dB/min.
 For a click with DECAY 5 s, HALL's energy peaks at 175 ms and BLOOM's at 525 ms. BLOOM reaches the same peak level, but its first 50 ms are 16 dB lower.

@@ -584,6 +584,52 @@ int main(int argc, char** argv) {
             global->releaseResources();
         }
 
+        // The safety limiter on an over: a sine at +6 dBFS (OUTPUT +12 dB, dry only). The
+        // harmonics it adds, against the fundamental, over the last 0.5 s of 2 s.
+        std::printf("\nSafety limiter, a sine at +6 dBFS (and at -6, untouched, for reference):\n");
+        for (const auto [hz, over] : {std::pair{100.0, false}, std::pair{100.0, true}, std::pair{1000.0, true}}) {
+            auto inst = formats.createPluginInstance(*found[0], 48000.0, 512, error);
+            inst->setPlayConfigDetails(2, 2, 48000.0, 512);
+            inst->prepareToPlay(48000.0, 512);
+            for (auto* p : inst->getParameters()) p->setValueNotifyingHost(p->getDefaultValue());
+            const auto setO = [&](const juce::String& name, float value) {
+                for (auto* p : inst->getParameters())
+                    if (p->getName(64) == name) return p->setValueNotifyingHost(value);
+                fail("no parameter " + name);
+            };
+            setO("Dry / Wet", 0.0f), setO("Output", over ? 1.0f : 0.5f), setO("Glue", 0.0f), setO("Motion On", 0.0f);
+            juce::AudioBuffer<float> buffer(2, 512);
+            juce::MidiBuffer midi;
+            std::vector<float> out;
+            for (int b = 0, s = 0; b < int(2.0 * 48000 / 512); ++b) {
+                for (int i = 0; i < 512; ++i, ++s) {
+                    const float v = 0.5f * float(std::sin(2.0 * juce::MathConstants<double>::pi * hz * s / 48000.0));
+                    buffer.setSample(0, i, v), buffer.setSample(1, i, v);
+                }
+                inst->processBlock(buffer, midi);
+                if (b >= int(1.5 * 48000 / 512)) out.insert(out.end(), buffer.getReadPointer(0), buffer.getReadPointer(0) + 512);
+            }
+            inst->releaseResources();
+            out.erase(out.begin(), out.end() - 24000);  // a whole number of cycles: no leakage
+            const auto power = [&](double f) {
+                const double w = 2.0 * juce::MathConstants<double>::pi * f / 48000.0, k = 2.0 * std::cos(w);
+                double s1 = 0.0, s2 = 0.0;
+                for (const float x : out) {
+                    const double s = x + k * s1 - s2;
+                    s2 = s1, s1 = s;
+                }
+                return s1 * s1 + s2 * s2 - k * s1 * s2;
+            };
+            double harmonics = 0.0;
+            for (int h = 2; h <= 15 && h * hz < 20000.0; ++h) harmonics += power(h * hz);
+            const double thd = 10.0 * std::log10((harmonics + 1e-30) / (power(hz) + 1e-30));
+            float peak = 0.0f;
+            for (const float x : out) peak = std::max(peak, std::abs(x));
+            std::printf("  %5.0f Hz %-9s harmonics %+6.1f dB under the tone   peak %+5.2f dBFS\n", hz, over ? "+6 dBFS" : "-6 dBFS", thd, 20.0 * std::log10(peak));
+            if (peak > 0.967f) fail("the safety limiter lets a peak through");
+            if (thd > -80.0) fail("the safety limiter distorts a steady tone");  // v0.1.5: -40 dB on bass
+        }
+
         // PITCH MIX at 50 %: a 440 Hz tone in, PITCH alone; the original and the moved
         // component must come out at the same level (0 dB between them). Goertzel over
         // one second, so 440 and 446 Hz are told apart.
@@ -692,7 +738,7 @@ int main(int argc, char** argv) {
 
         // SPACE alone at 100 % wet, one type (index of 6). Feeds `input(sample)` for `seconds`,
         // MIDI `note` held from the start (-1: none); returns the left output.
-        const auto spaceRun = [&](int type, double seconds, const std::function<float(int)>& input, int note = -1) {
+        const auto spaceRun = [&](int type, double seconds, const std::function<float(int)>& input, int note = -1, float tone = -1.0f) {
             auto space = formats.createPluginInstance(*found[0], 48000.0, 512, error);
             space->setPlayConfigDetails(2, 2, 48000.0, 512);
             space->prepareToPlay(48000.0, 512);
@@ -705,6 +751,7 @@ int main(int argc, char** argv) {
             };
             setS("Echo On", 0.0f), setS("Color On", 0.0f), setS("Space On", 1.0f), setS("Space Mix", 1.0f), setS("Dry / Wet", 1.0f);
             setS("Space Type", float(type) / 5.0f), setS("Space Decay", 0.48f), setS("Space Predelay", 0.0f);
+            if (tone >= 0.0f) setS("Space Tone", tone), setS("Glue", 0.0f), setS("Gain Staging", 0.0f), setS("Space Decay", 0.58f);
             juce::AudioBuffer<float> buffer(2, 512);
             juce::MidiBuffer midi;
             std::vector<float> out;
@@ -718,6 +765,41 @@ int main(int argc, char** argv) {
             space->releaseResources();
             return out;
         };
+
+        // TONE: 100 ms of noise in, DECAY 8 s. The attack's colour (10 kHz vs 1 kHz in the
+        // first 300 ms) and the decay time in each band (from the energy 0.5-1 s and 1.5-2 s
+        // after the burst). TONE must be heard at once and in the tail.
+        std::printf("\nSPACE TONE (noise burst in, DECAY 8 s):            attack 10k/1k    T60 1 kHz   T60 10 kHz\n");
+        const char* toneTypes[] = {"Room", "Plate", "Hall", "Cathedral"};
+        double attackSpread = 0.0, tailSpread = 0.0;
+        for (int type = 0; type < 4; ++type) {
+            double attack[3], ratio[3];
+            int k = 0;
+            for (const float tone : {0.0f, 0.5f, 1.0f}) {
+                juce::Random noise(11);
+                const auto out = spaceRun(type, 2.4, [&](int s) { return s < 4800 ? 0.3f * (noise.nextFloat() * 2.0f - 1.0f) : 0.0f; }, -1, tone);
+                const auto band = [&](double hz, double from, double to) {
+                    juce::IIRFilter f1, f2;
+                    f1.setCoefficients(juce::IIRCoefficients::makeBandPass(48000.0, hz, 1.4)), f2.setCoefficients(juce::IIRCoefficients::makeBandPass(48000.0, hz, 1.4));
+                    double e = 0.0;
+                    for (size_t i = 0; i < out.size(); ++i) {
+                        const double y = f2.processSingleSampleRaw(f1.processSingleSampleRaw(out[i]));
+                        const double t = double(i) / 48000.0 - 0.1;
+                        if (t >= from && t < to) e += y * y;
+                    }
+                    return e + 1e-30;
+                };
+                const auto t60 = [&](double hz) { return 60.0 / std::max(1e-3, 10.0 * std::log10(band(hz, 0.5, 1.0) / band(hz, 1.5, 2.0))); };
+                attack[k] = 10.0 * std::log10(band(10000.0, -0.1, 0.2) / band(1000.0, -0.1, 0.2));
+                const double lo = t60(1000.0), hi = t60(10000.0);
+                ratio[k] = hi / lo;
+                std::printf("  %-10s TONE %3.0f %%                          %+6.1f dB      %5.2f s     %5.2f s\n", toneTypes[type], 100.0 * tone, attack[k], lo, hi);
+                ++k;
+            }
+            attackSpread = std::max(attackSpread, attack[2] - attack[0]);
+            tailSpread = std::max(tailSpread, ratio[2] / ratio[0]);
+        }
+        (void)attackSpread, (void)tailSpread;
 
         // BLOOM: a click in; the energy envelope (50 ms windows) must rise to its peak
         // instead of starting there, as HALL does.
@@ -790,6 +872,7 @@ int main(int argc, char** argv) {
             for (auto* p : plugin->getParameters()) byKey.set(keyOf(p), p);
             int checked = 0, wrong = 0;
             juce::StringArray lanes;
+            juce::HashMap<juce::String, juce::String> oldShown;
             const auto where = state.getParentDirectory().getFileName() + "/" + state.getFileNameWithoutExtension();
             for (const auto& line : juce::StringArray::fromLines(state.withFileExtension("txt").loadFileAsString())) {
                 if (line.startsWith("#")) {
@@ -811,6 +894,20 @@ int main(int argc, char** argv) {
                     const auto only = [&](const char* id) { return !targets.isEmpty() && std::all_of(targets.begin(), targets.end(), [&](const juce::String& t) { return t == id; }); };
                     if (only("color_hpf")) factor = std::log(50.0) / std::log(250.0);
                     if (only("color_lpf")) factor = 0.5;
+                }
+                oldShown.set(fields[1], fields[2]);
+                // Since state 4 a PLATE's DECAY is a real RT60: the knob moves so that the
+                // tail keeps the length it really had (0.3 + 0.69 t, 4 times per trip).
+                if (p != nullptr && fields[1] == "Space Decay" && oldShown["Space Type"] == "Plate" && fields[2] != "inf") {
+                    const double t = std::log(fields[2].getDoubleValue() / 0.5) / std::log(120.0);
+                    const double trip = 0.7254 * (0.5 + 1.5 * oldShown["Space Size"].getDoubleValue());
+                    const double expected = std::min(-0.75 * trip / std::log10(0.3 + 0.69 * t), 0.5 * std::pow(120.0, 0.98));
+                    const double now = p->getCurrentValueAsText().getDoubleValue();
+                    if (std::abs(now - expected) > 0.03 * expected + 0.06) {
+                        fail(where + ": PLATE " + fields[1] + " was " + fields[2] + ", now " + p->getCurrentValueAsText() + " (expected " + juce::String(expected, 1) + " s)");
+                        ++wrong;
+                    }
+                    continue;
                 }
                 if (p != nullptr && factor != 1.0) {
                     const double expected = fields[2].getDoubleValue() * factor, now = p->getCurrentValueAsText().getDoubleValue();

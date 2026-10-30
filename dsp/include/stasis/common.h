@@ -85,6 +85,19 @@ public:
         return ((c3 * t + c2) * t + c1) * t + y0;
     }
 
+    // Fractional read through a first-order allpass (Thiran): flat in level, so a line
+    // read this way on every pass of a feedback loop keeps its treble (the cubic read
+    // above loses ~1 dB at 12 kHz at half a sample). `state` belongs to the caller, one
+    // per read point; meant for slow moves (reverb modulation), not for jumps.
+    float readAllpass(float delay, float& state) const {
+        delay = std::clamp(delay, 1.5f, float(maxDelay()));
+        const int d = int(delay - 0.5f);  // keeps the fraction in [0.5, 1.5): a well-behaved coefficient
+        const float a = delay - float(d);
+        const float eta = (1.0f - a) / (1.0f + a);
+        state = eta * readInt(d) + readInt(d + 1) - eta * state;
+        return state;
+    }
+
 private:
     std::vector<float> buffer_;
     int mask_ = 0;
