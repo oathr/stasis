@@ -51,8 +51,16 @@ public:
 
     float value() const { return value_; }
 
-    float advance(int samples) {
-        const float inc = rate_ * float(samples) / sampleRate_;
+    float advance(int samples) { return advanceBy(rate_ * float(samples) / sampleRate_); }
+    // Tempo sync: move to `phase` (0..1), always forward, so the random shapes keep
+    // stepping once per cycle.
+    float advanceTo(float phase) {
+        float inc = phase - std::floor(phase) - phase_;
+        if (inc < 0.0f) inc += 1.0f;
+        return advanceBy(inc);
+    }
+
+    float advanceBy(float inc) {
         phase_ += inc;
         while (phase_ >= 1.0f) {
             phase_ -= 1.0f;

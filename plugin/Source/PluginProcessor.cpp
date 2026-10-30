@@ -50,9 +50,10 @@ void migrateGrainNotes(juce::ValueTree& state) {
     add("grain_p12", float(find("grain_octaves").getProperty("value", 1.0f)) >= 0.5f);
 }
 
+constexpr int kStateVersion = 3;
+
 // State version 2 (v0.1.3): DEREZ RATE and BITS knobs are reversed (up = clean) and the
 // COLOR bands reach twice as far. Older sessions are moved so they sound the same.
-constexpr int kStateVersion = 2;
 void migrateToVersion2(juce::ValueTree& state) {
     const auto remap = [&](const char* id, auto&& f) {
         auto param = state.getChildWithProperty("id", id);
@@ -61,6 +62,19 @@ void migrateToVersion2(juce::ValueTree& state) {
     for (const char* id : {"derez_crush", "derez_bits"}) remap(id, [](float v) { return 1.0f - v; });
     for (const char* id : {"color_bass", "color_body", "color_air"}) remap(id, [](float v) { return 0.5f + 0.5f * (v - 0.5f); });
     for (const char* id : {"color_mud", "color_harsh"}) remap(id, [](float v) { return 0.5f * v; });
+}
+
+// State version 3 (v0.1.4): every COLOR word is bipolar in dB (BASS / AIR ±24, BODY / MUD /
+// HARSH ±18); MUD and HARSH used to be cut-only amounts. Same sound, new positions.
+void migrateToVersion3(juce::ValueTree& state) {
+    const auto remap = [&](const char* id, float fallback, auto&& f) {
+        auto param = state.getChildWithProperty("id", id);
+        if (param.isValid()) param.setProperty("value", f(float(param.getProperty("value", fallback))), nullptr);
+    };
+    remap("color_bass", 0.5f, [](float v) { return 0.5f + (v - 0.5f) * 18.0f / 24.0f; });
+    remap("color_body", 0.5f, [](float v) { return 0.5f + (v - 0.5f) * 12.0f / 18.0f; });
+    remap("color_air", 0.5f, [](float v) { return 0.5f + (v - 0.5f) * 16.0f / 24.0f; });
+    for (const char* id : {"color_mud", "color_harsh"}) remap(id, 0.0f, [](float v) { return 0.5f - 0.25f * v; });
 }
 
 }  // namespace
@@ -72,6 +86,10 @@ StasisProcessor::StasisProcessor()
       apvts(*this, nullptr, "STASIS", createLayout()) {
     for (const auto& s : stasis::params::all()) raw_.push_back(apvts.getRawParameterValue(s.id.c_str()));
     values_.resize(raw_.size());
+    // A new instance starts on Glacier.
+    const auto& list = stasis::presets::all();
+    for (size_t i = 0; i < list.size(); ++i)
+        if (juce::String(list[i].name) == "Glacier") applyPreset(int(i), false);
 }
 
 bool StasisProcessor::isBusesLayoutSupported(const BusesLayout& layouts) const {
@@ -167,7 +185,7 @@ const juce::String StasisProcessor::getProgramName(int index) {
 
 // Every parameter goes back to its default, then the preset's own values apply. MOTION
 // lanes 1, 2, 3… take the preset's modulations; the others go back to their defaults.
-void StasisProcessor::applyPreset(int index) {
+void StasisProcessor::applyPreset(int index, bool flush) {
     using stasis::params::laneId;
     const auto& list = stasis::presets::all();
     if (index < 0 || index >= int(list.size())) return;
@@ -190,7 +208,7 @@ void StasisProcessor::applyPreset(int index) {
                                                              : juce::String(stasis::params::kDefaultTargets[size_t(lane)]));
     // A clean slate: the previous preset's tails (reverb, echo, stretch…) are flushed,
     // like PANIC, so the new preset is heard on its own.
-    resetEngine();
+    if (flush) resetEngine();
     const juce::String order(preset.order);
     setModuleOrder(juce::StringArray::fromTokens(order.isEmpty() ? juce::String(stasis::params::kDefaultOrderNames) : order, ",", ""));
     currentPreset_ = index;
@@ -243,7 +261,9 @@ void StasisProcessor::setStateInformation(const void* data, int sizeInBytes) {
         if (!xml->hasTagName(apvts.state.getType())) return;
         auto state = juce::ValueTree::fromXml(*xml);
         migrateGrainNotes(state);
-        if (int(state.getProperty("version", 1)) < kStateVersion) migrateToVersion2(state);
+        const int version = int(state.getProperty("version", 1));
+        if (version < 2) migrateToVersion2(state);
+        if (version < 3) migrateToVersion3(state);
         apvts.replaceState(state);
         setModuleOrder(juce::StringArray::fromTokens(state.getProperty("order").toString(), ",", ""));
         currentPreset_ = int(state.getProperty("preset", 0));

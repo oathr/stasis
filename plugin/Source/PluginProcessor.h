@@ -26,7 +26,7 @@ public:
     int getCurrentProgram() override { return currentPreset_; }
     void setCurrentProgram(int index) override { applyPreset(index); }
     const juce::String getProgramName(int index) override;
-    void applyPreset(int index);
+    void applyPreset(int index, bool flush = true);  // flush: clear the tails (not before prepareToPlay)
     std::function<void()> onPresetChanged;  // message thread, set by the editor
     void changeProgramName(int, const juce::String&) override {}
 

@@ -83,6 +83,12 @@ public:
             laneDepth_[i] = params::indexOf(params::laneId(int(i), "depth"));
         }
         rampCoef_ = smoothingCoef(0.03f, sampleRate);
+        levelCoef_ = smoothingCoef(0.6f, sampleRate);
+        makeupCoef_ = smoothingCoef(1.5f, sampleRate);
+        makeupDownCoef_ = smoothingCoef(0.15f, sampleRate);
+        gateCoef_ = smoothingCoef(0.05f, sampleRate);
+        dryLevel_ = wetLevel_ = dryFast_ = 0.0f;
+        makeup_ = 1.0f;
         for (auto& g : moduleGain_) g = 0.0f;
         tonalGain_ = mixGain_ = outGain_ = -1.0f;  // snap on the first block
         last_.assign(params::all().size(), NAN);
@@ -106,8 +112,9 @@ public:
     void process(const float* values, float bpm, double ppq, bool playing, float* left, float* right, int numSamples) {
         for (int start = 0; start < numSamples; start += kMaxBlock) {
             const int n = std::min(kMaxBlock, numSamples - start);
-            grain_.setTransport(bpm, ppq + double(start) * bpm / 60.0 / sampleRate_, playing);
-            update(modulate(values, n), bpm);
+            const double at = ppq + double(start) * bpm / 60.0 / sampleRate_;
+            grain_.setTransport(bpm, at, playing);
+            update(modulate(values, n, bpm, at + double(n) * bpm / 60.0 / sampleRate_, playing), bpm);
             processBlock(left + start, right + start, n);
         }
     }
@@ -154,8 +161,10 @@ private:
 
     // MOTION: each lane sweeps its target between the user's setting (depth 0) and the
     // knob's whole travel (depth 100 %): value = set + depth · (lfo01 − set).
-    const float* modulate(const float* values, int n) {
-        static const int iOn = params::indexOf("motion_on"), iAmount = params::indexOf("motion_amount"), iDrift = params::indexOf("motion_drift");
+    // ppqEnd: song position at the end of this block (tempo sync).
+    const float* modulate(const float* values, int n, float bpm, double ppqEnd, bool playing) {
+        static const int iOn = params::indexOf("motion_on"), iAmount = params::indexOf("motion_amount"), iDrift = params::indexOf("motion_drift"),
+                         iSync = params::indexOf("motion_sync");
         const bool on = values[iOn] > 0.5f;
         if (!on) {  // MOTION off: nothing runs, the parameters pass as they are
             if (motionWasOn_) for (auto& v : laneValues_) v.store(0.0f, std::memory_order_relaxed);
@@ -165,6 +174,8 @@ private:
         motionWasOn_ = true;
         std::copy(values, values + modulated_.size(), modulated_.begin());
         const float amount = values[iAmount], drift = params::driftScale(values[iDrift]);
+        const bool sync = values[iSync] > 0.5f;
+        const float beatsPerSecond = std::clamp(bpm, 20.0f, 999.0f) / 60.0f;
         for (size_t i = 0; i < lanes_.size(); ++i) {
             const float depth = values[laneDepth_[i]];
             const int targetIndex = laneTarget_[i].load(std::memory_order_relaxed);
@@ -173,13 +184,29 @@ private:
                 continue;
             }
             Lfo& lfo = lanes_[i];
-            lfo.setRate(params::laneRateHz(values[laneRate_[i]]) * drift);
             lfo.setShape(values[laneShape_[i]]);
-            const float x = lfo.advance(n);
+            float x;
+            if (sync) {
+                // Locked to the song position while playing, at the tempo otherwise. DRIFT
+                // does not apply: the grid decides.
+                const float beats = params::laneSyncBeats(values[laneRate_[i]]);
+                lfo.setRate(beatsPerSecond / beats);
+                x = playing ? lfo.advanceTo(float(std::fmod(ppqEnd / double(beats), 1.0))) : lfo.advance(n);
+            } else {
+                lfo.setRate(params::laneRateHz(values[laneRate_[i]]) * drift);
+                x = lfo.advance(n);
+            }
             laneValues_[i].store(x, std::memory_order_relaxed);
+            // Around the knob's own position: DEPTH 100 % swings it by the whole travel
+            // each way (a knob at 20 % goes from -80 % to 120 %, held inside 0 .. 100 %).
             float& target = modulated_[size_t(targetIndex)];
-            target = std::clamp(target + amount * depth * (0.5f * (x + 1.0f) - target), 0.0f, 1.0f);
+            target = std::clamp(target + amount * depth * x, 0.0f, 1.0f);
         }
+        // MOTION never makes a tail endless on its own: DECAY stops short of ∞ and
+        // FEEDBACK short of self-sustain, unless the knob itself is already there.
+        static const int iDecay = params::indexOf("space_decay"), iFdbk = params::indexOf("echo_fdbk");
+        modulated_[size_t(iDecay)] = std::min(modulated_[size_t(iDecay)], std::max(values[iDecay], 0.97f));
+        modulated_[size_t(iFdbk)] = std::min(modulated_[size_t(iFdbk)], std::max(values[iFdbk], 0.95f));
         for (size_t i = 0; i < lanes_.size(); ++i) {
             const int t = laneTarget_[i].load(std::memory_order_relaxed);
             laneTargets_[i].store(t >= 0 ? modulated_[size_t(t)] : 0.0f, std::memory_order_relaxed);
@@ -224,7 +251,7 @@ private:
                          iShapeType = indexOf("shape_type");
         static const int iPitchOn = indexOf("pitch_on"), iSemi = indexOf("pitch_semi"), iShift = indexOf("pitch_shift"), iPitchMix = indexOf("pitch_mix");
         static const int iAirOn = indexOf("air_on"), iBreath = indexOf("air_breath"), iWidthAir = indexOf("air_width"), iLofi = indexOf("air_lofi"),
-                         iAirSmooth = indexOf("air_smooth");
+                         iAirSmooth = indexOf("air_smooth"), iTrem = indexOf("air_trem"), iTremRate = indexOf("air_trem_rate");
         on_[kShape] = v(values, iShapeOn) > 0.5f;
         on_[kPitch] = v(values, iPitchOn) > 0.5f;
         on_[kAir] = v(values, iAirOn) > 0.5f;
@@ -233,8 +260,9 @@ private:
         if (changed({iTilt, iDrive, iHarm, iShapeType}))
             shape_.setParams({2.0f * v(values, iTilt) - 1.0f, v(values, iDrive), v(values, iHarm), Shape::Type(std::clamp(int(v(values, iShapeType)), 0, 5))});
         if (changed({iSemi, iShift, iPitchMix})) pitch_.setParams({pitchSemitones(v(values, iSemi)), shiftHz(v(values, iShift)), v(values, iPitchMix)});
-        if (changed({iBreath, iWidthAir, iLofi, iAirSmooth}))
-            air_.setParams({v(values, iBreath), v(values, iWidthAir), v(values, iLofi), airSmoothMs(v(values, iAirSmooth)) / 1000.0f});
+        if (changed({iBreath, iWidthAir, iLofi, iAirSmooth, iTrem, iTremRate}))
+            air_.setParams({v(values, iBreath), v(values, iWidthAir), v(values, iLofi), airSmoothMs(v(values, iAirSmooth)) / 1000.0f,
+                            v(values, iTrem), tremRateHz(v(values, iTremRate))});
         static const int iGrainOn = indexOf("grain_on"), iAlgo = indexOf("grain_algo"), iEnv = indexOf("grain_env"), iDensity = indexOf("grain_density"),
                          iChance = indexOf("grain_chance"), iGrainSize = indexOf("grain_size"), iGrainMix = indexOf("grain_mix"),
                          iInterval0 = indexOf("grain_m12"), iGrainSync = indexOf("grain_sync"), iGrainDiv = indexOf("grain_div");
@@ -377,8 +405,8 @@ private:
             Color::Params p;
             p.bass = 2.0f * v(values, iBass) - 1.0f;
             p.body = 2.0f * v(values, iBody) - 1.0f;
-            p.mud = v(values, iMud);
-            p.harsh = v(values, iHarsh);
+            p.mud = 2.0f * v(values, iMud) - 1.0f;
+            p.harsh = 2.0f * v(values, iHarsh) - 1.0f;
             p.air = 2.0f * v(values, iAir) - 1.0f;
             p.highpassHz = highpassHz(v(values, iHpf));
             p.lowpassHz = lowpassHz(v(values, iLpf));
@@ -521,7 +549,24 @@ private:
                 wr = offsetLine_[size_t(i0)] + frac * (offsetLine_[size_t(i1)] - offsetLine_[size_t(i0)]);
             }
             offsetPos_ = (offsetPos_ + 1) % kOffsetSize;
-            float l = outGain_ * (left[i] + mixGain_ * (wetL[i] - left[i]));
+            // Level makeup: the modules' losses add up (GRAIN, DEREZ, COLOR's cuts… a preset
+            // could lose 10 dB or more). The wet is brought back to the input's loudness,
+            // slowly, makeup only (0 .. +12 dB), and the gain holds while the input is
+            // silent so tails fade naturally.
+            float wl = wetL[i];
+            const float dryPower = 0.5f * (left[i] * left[i] + right[i] * right[i]);
+            const float wetPower = 0.5f * (wl * wl + wr * wr);
+            dryLevel_ += (dryPower - dryLevel_) * levelCoef_;
+            wetLevel_ += (wetPower - wetLevel_) * levelCoef_;
+            dryFast_ += (dryPower - dryFast_) * gateCoef_;
+            if (dryFast_ > 1.0e-6f) {  // -60 dBFS, over 50 ms
+                const float wanted = std::clamp(std::sqrt(dryLevel_ / std::max(wetLevel_, 1.0e-12f)), 1.0f, 4.0f);
+                // Up slowly (1.5 s), down fast (150 ms): a reverb still building never overshoots.
+                makeup_ += (wanted - makeup_) * (wanted > makeup_ ? makeupCoef_ : makeupDownCoef_);
+            }
+            wl *= makeup_;
+            wr *= makeup_;
+            float l = outGain_ * (left[i] + mixGain_ * (wl - left[i]));
             float r = outGain_ * (right[i] + mixGain_ * (wr - right[i]));
             // BYPASS: back to the untouched input (30 ms ramp); the chain keeps running.
             bypassGain_ += (bypassTarget_ - bypassGain_) * rampCoef_;
@@ -592,6 +637,7 @@ private:
     std::array<float, kModules> mix_{}, moduleGain_{};
     float rampCoef_ = 0.001f, mixTarget_ = 0.5f, mixGain_ = -1.0f, outTarget_ = 1.0f, outGain_ = 1.0f;
     float bypassTarget_ = 0.0f, bypassGain_ = 0.0f, offsetTarget_ = 0.0f, offsetSamples_ = 0.0f;
+    float dryLevel_ = 0.0f, wetLevel_ = 0.0f, dryFast_ = 0.0f, makeup_ = 1.0f, levelCoef_ = 0.0f, makeupCoef_ = 0.0f, makeupDownCoef_ = 0.0f, gateCoef_ = 0.0f;
     static constexpr int kOffsetSize = 8192;  // > 25 ms at 192 kHz
     std::array<float, kOffsetSize> offsetLine_{};
     int offsetPos_ = 0;

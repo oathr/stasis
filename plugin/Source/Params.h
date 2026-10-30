@@ -50,6 +50,7 @@ inline float grainDensity(float t) { return 0.5f * std::pow(80.0f, t); }  // 0.5
 inline float grainSizeMs(float t) { return 20.0f * std::pow(100.0f, t); }   // 20 ms .. 2 s
 inline float offsetMs(float t) { return 25.0f * t * t; }  // 0 .. 25 ms, fine near 0
 inline float airSmoothMs(float t) { return 20.0f * std::pow(50.0f, t); }    // 20 ms .. 1 s (BREATH's envelope)
+inline float tremRateHz(float t) { return 0.5f * std::pow(32.0f, t); }       // 0.5 .. 16 Hz (AIR TREMOLO)
 inline float pitchSemitones(float t) { return std::round((2.0f * t - 1.0f) * 24.0f); }
 // ±50 Hz with fine control near 0 (cubic): ±1 Hz beats live in the middle of the travel.
 inline float shiftHz(float t) { const float x = 2.0f * t - 1.0f; return 50.0f * x * x * x; }
@@ -86,6 +87,12 @@ inline const std::array<const char*, 12> kShapeNames = {"SINE", "TRI", "SAW+", "
 inline float laneRateHz(float t) { return 0.001f * std::pow(20000.0f, t); }  // 0.001 .. 20 Hz
 inline float laneRateT(float hz) { return std::log(hz / 0.001f) / std::log(20000.0f); }
 inline float driftScale(float t) { return std::pow(4.0f, 2.0f * t - 1.0f); }  // ×0.25 .. ×4
+// MOTION SYNC: a lane's period in beats, the power of two from 64 bars to 1/32 nearest to
+// its free rate at 120 BPM (so turning RATE up still goes faster).
+inline float laneSyncBeats(float t) {
+    const float beats = 2.0f / laneRateHz(t);
+    return std::pow(2.0f, std::clamp(std::round(std::log2(beats)), -3.0f, 8.0f));
+}
 inline std::string laneId(int lane, const char* what) { return (lane < 9 ? "m0" : "m") + std::to_string(lane + 1) + "_" + what; }
 // What MOTION may move: every continuous knob, except MOTION's own.
 inline bool isMotionId(const std::string& id) { return id.rfind("motion_", 0) == 0 || (id.size() > 4 && id[0] == 'm' && id[3] == '_'); }
@@ -117,6 +124,8 @@ inline const std::vector<Spec>& all() {
         {"air_width", "Air Width", Kind::Float, 0.67f, {}, [](float t) { return pct(1.5f * t); }},
         {"air_lofi", "Air Lo-fi", Kind::Float, 0.1f, {}, pct},
         {"air_smooth", "Air Smooth", Kind::Float, 0.5f, {}, [](float t) { return fmt("%.0f ms", double(airSmoothMs(t))); }},
+        {"air_trem", "Air Tremolo", Kind::Float, 0.0f, {}, pct},
+        {"air_trem_rate", "Air Tremolo Rate", Kind::Float, 0.5f, {}, [](float t) { return fmt("%.1f Hz", double(tremRateHz(t))); }},
         // GRAIN
         {"grain_on", "Grain On", Kind::Bool, 0.0f},
         {"grain_algo", "Grain Algorithm", Kind::Choice, 1.0f, {"Pulse", "Scatter", "Drift"}},
@@ -135,7 +144,7 @@ inline const std::vector<Spec>& all() {
         {"grain_p7", "Grain +7", Kind::Bool, 1.0f},   {"grain_p12", "Grain +12", Kind::Bool, 1.0f},
         // DEREZ (before SPACE)
         {"derez_on", "Derez On", Kind::Bool, 0.0f},
-        {"derez_interval", "Derez Interval", Kind::Float, 0.25f, {}, [](float t) { return fmt("%+.0f st", double(derezSemitones(t))); }},
+        {"derez_interval", "Derez Interval", Kind::Float, 0.5f, {}, [](float t) { return fmt("%+.0f st", double(derezSemitones(t))); }},
         {"derez_crush", "Derez Rate", Kind::Float, 0.4f, {}, [](float t) { return "n=" + std::to_string(derezMultiple(t)); }},
         {"derez_bits", "Derez Bits", Kind::Float, 0.45f, {}, [](float t) { return fmt("%.1f", derezBits(t)); }},
         {"derez_smooth", "Derez Smooth", Kind::Float, 0.7f, {}, pct},
@@ -173,11 +182,11 @@ inline const std::vector<Spec>& all() {
         {"focus_mix", "Focus Mix", Kind::Float, 1.0f, {}, pct},
         // COLOR + TONAL
         {"color_on", "Color On", Kind::Bool, 1.0f},
-        {"color_bass", "Color Bass", Kind::Float, 0.5f, {}, [](float t) { return bip(t, 1.0f, "", "%+.2f"); }},
-        {"color_body", "Color Body", Kind::Float, 0.5f, {}, [](float t) { return bip(t, 1.0f, "", "%+.2f"); }},
-        {"color_mud", "Color Mud", Kind::Float, 0.25f, {}, [](float t) { return fmt("%.2f", t); }},
-        {"color_harsh", "Color Harsh", Kind::Float, 0.15f, {}, [](float t) { return fmt("%.2f", t); }},
-        {"color_air", "Color Air", Kind::Float, 0.5f, {}, [](float t) { return bip(t, 1.0f, "", "%+.2f"); }},
+        {"color_bass", "Color Bass", Kind::Float, 0.5f, {}, [](float t) { return bip(t, 24.0f, " dB"); }},
+        {"color_body", "Color Body", Kind::Float, 0.5f, {}, [](float t) { return bip(t, 18.0f, " dB"); }},
+        {"color_mud", "Color Mud", Kind::Float, 0.5f, {}, [](float t) { return bip(t, 18.0f, " dB"); }},
+        {"color_harsh", "Color Harsh", Kind::Float, 0.5f, {}, [](float t) { return bip(t, 18.0f, " dB"); }},
+        {"color_air", "Color Air", Kind::Float, 0.5f, {}, [](float t) { return bip(t, 24.0f, " dB"); }},
         {"color_hpf", "Color Low Cut", Kind::Float, 0.0f, {}, [](float t) { return t <= 0.0f ? std::string("off") : fmt("%.0f Hz", highpassHz(t)); }},
         {"color_lpf", "Color High Cut", Kind::Float, 1.0f, {}, [](float t) { return t >= 1.0f ? std::string("off") : lowpassHz(t) >= 1000.0f ? fmt("%.1f kHz", lowpassHz(t) / 1000.0) : fmt("%.0f Hz", lowpassHz(t)); }},
         {"tonal", "Tonal / Noise", Kind::Float, 0.5f, {}, [](float t) { return bip(t, 1.0f, "", "%+.2f"); }},
@@ -199,6 +208,7 @@ inline const std::vector<Spec>& all() {
             all.push_back({laneId(i, "shape"), name + " Shape", Kind::Choice, float(lane.shape), shapes});
             all.push_back({laneId(i, "depth"), name + " Depth", Kind::Float, 0.0f, {}, pct});
         }
+        all.push_back({"motion_sync", "Motion Sync", Kind::Choice, 0.0f, {"Free", "Sync"}});
         return all;
     }();
     return withLanes;

@@ -176,6 +176,7 @@ header { display: grid; grid-template-columns: auto 1fr auto; align-items: cente
 /* printed dials: ink disc, value sector in the second colour, printed graduations */
 .knobs { display: flex; flex-wrap: wrap; gap: 8px 2px; justify-content: space-between; }
 .knobs.two { display: grid; grid-template-columns: 1fr 1fr; justify-items: center; }  /* four knobs: a 2 x 2 square */
+.knobs.three { display: grid; grid-template-columns: repeat(3, 1fr); justify-items: center; row-gap: 6px; }  /* six knobs: 3 x 2 */
 .knob { --hub: var(--bg-hi); width: 44px; display: flex; flex-direction: column; align-items: center; gap: 3px; cursor: ns-resize; user-select: none; touch-action: none; }
 .card.dark .knob, .preset .knob { --hub: var(--dark); }
 .knob svg { width: 42px; height: 42px; overflow: visible; color: inherit; }
@@ -189,7 +190,7 @@ header { display: grid; grid-template-columns: auto 1fr auto; align-items: cente
 /* header: the global DRY / WET and OUTPUT, big and labelled */
 .knob.wide { display: grid; grid-template-columns: 38px auto; column-gap: 8px; width: auto; align-items: center; }
 .knob.wide svg { grid-row: 1 / 3; width: 38px; height: 38px; }
-.knob.wide .v { font-size: 15px; font-weight: 600; align-self: end; }
+.knob.wide .v { font-size: 15px; font-weight: 600; align-self: end; font-variant-numeric: tabular-nums; min-width: var(--vw, 0); }  /* fixed width: a value going to two digits must not push the header */
 .knob.wide .l { align-self: start; font-size: 8.5px; color: var(--muted); }
 #globalKnobs { gap: 14px !important; padding: 0 4px; }
 .knob.stack .l { display: block; }
@@ -284,7 +285,9 @@ body.learning [data-mapid^="m0"], body.learning [data-mapid^="m1"], body.learnin
 .lane-head { font-size: 8.5px; font-weight: 400; letter-spacing: .14em; color: var(--muted); padding-bottom: 5px; border-bottom: 1px solid currentColor; }
 .macros { border-left: 1px solid var(--line); padding-left: 18px; display: flex; flex-direction: column; justify-content: space-between; }
 .macros .knob { width: 100%; }
-.macros .knob svg { width: 46px; height: 46px; }
+.macros .knob svg { width: 40px; height: 40px; }
+.macros .seg { flex-wrap: nowrap; gap: 2px; }
+.macros .seg button { flex: 1; padding: 3px 4px; font-size: 8.5px; }
 .status { font-size: 9px; font-weight: 400; color: var(--muted); letter-spacing: .1em; line-height: 1.7; }
 .status b { color: var(--on-dark); }
 
@@ -481,6 +484,7 @@ function knob(k, opts = {}) {
   // MOTION: an arc from where the knob is set to where the LFO has moved it, and a dot.
   const ring = r + 4.5, arc = el.querySelector('.modarc'), dot = el.querySelector('.moddot');
   el.value = () => t;
+  el.redraw = draw;
   el.showMod = m => {
     if (m === null) { arc.setAttribute('display', 'none'); dot.setAttribute('display', 'none'); return; }
     const a = A0 + ARC * Math.min(t, m), b = A0 + ARC * Math.max(t, m);
@@ -590,7 +594,7 @@ const MODS = {
   derez:  { n: '02', name: 'DEREZ',   code: 'Tuned · A2', build: b => {
             // Interval: a cursor in semitones, -24 .. +24, snapped to the semitone.
             const st = v => { const n = Math.round(v * 24); return (n > 0 ? '+' : '') + n + ' st'; };
-            const interval = cursor('−24', '+24', -.5, 'derez_interval', { format: st, steps: 24 });
+            const interval = cursor('−24', '+24', 0, 'derez_interval', { format: st, steps: 24 });
             interval.classList.add('pitch-cursor');
             // Knob up = clean, down = destroyed (like Airwindows DeRez's Rate and Rez).
             const knobs = knobRow([{ id: 'derez_crush', l: 'Rate', t: .4, f: t => 'n=' + Math.round(32 * Math.pow(2 / 32, 1 - t)) },
@@ -654,11 +658,12 @@ const MODS = {
                      knobRow([{ id: 'focus_amount', l: 'Focus', t: .6, f: pct }, { id: 'focus_depth', l: 'Depth', t: .9, f: pct }, { id: 'focus_mix', l: 'Mix', t: 1, f: pct }])); } },
   air:    { n: '08', name: 'AIR',     code: 'Matter · width', build: b => { const k = knobRow([
             { id: 'air_breath', l: 'Breath', t: .3, f: pct }, { id: 'air_smooth', l: 'Smooth', t: .5, f: expo(20, 1000, ' ms', 0) },
-            { id: 'air_width', l: 'Width', t: .67, f: t => Math.round(150 * t) + '%' }, { id: 'air_lofi', l: 'Lo-fi', t: .1, f: pct }]); k.classList.add('two'); b.append(k); } },
+            { id: 'air_width', l: 'Width', t: .67, f: t => Math.round(150 * t) + '%' }, { id: 'air_lofi', l: 'Lo-fi', t: .1, f: pct },
+            { id: 'air_trem', l: 'Tremolo', t: 0, f: pct }, { id: 'air_trem_rate', l: 'Rate', t: .5, f: expo(.5, 16, ' Hz', 1) }]); k.classList.add('three'); b.append(k); } },
   color:  { n: '09', name: 'COLOR',   units: 2, code: 'Tone · low → high', build: b => {
-            b.append(knobRow([{ id: 'color_bass', l: 'Bass', t: .5, f: bip('', 1, 2) }, { id: 'color_body', l: 'Body', t: .5, f: bip('', 1, 2) },
-                              { id: 'color_mud', l: 'Mud', t: .25, f: t => t.toFixed(2) }, { id: 'color_harsh', l: 'Harsh', t: .15, f: t => t.toFixed(2) },
-                              { id: 'color_air', l: 'Air', t: .5, f: bip('', 1, 2) }]));
+            b.append(knobRow([{ id: 'color_bass', l: 'Bass', t: .5, f: bip(' dB', 24, 1) }, { id: 'color_body', l: 'Body', t: .5, f: bip(' dB', 18, 1) },
+                              { id: 'color_mud', l: 'Mud', t: .5, f: bip(' dB', 18, 1) }, { id: 'color_harsh', l: 'Harsh', t: .5, f: bip(' dB', 18, 1) },
+                              { id: 'color_air', l: 'Air', t: .5, f: bip(' dB', 24, 1) }]));
             const filters = document.createElement('div'); filters.className = 'filters';
             const hz = v => v >= 1000 ? (v / 1000).toFixed(1) + ' kHz' : Math.round(v) + ' Hz';
             const lowCut = knob({ id: 'color_hpf', l: 'Low cut', t: 0, f: t => t <= 0 ? 'off' : hz(20 * Math.pow(50, t)) }, { small: true });
@@ -836,7 +841,7 @@ const MAPPABLE = {
   space: [['space_size', 'Size'], ['space_decay', 'Decay'], ['space_tone', 'Tone'], ['space_mod', 'Mod'], ['space_pre', 'Pre-delay'], ['space_mix', 'Mix'],
           ['shimmer_depth', 'Shimmer depth'], ['shimmer_pitch', 'Shimmer pitch'], ['space_width', 'Width']],
   focus: [['focus_amount', 'Focus'], ['focus_depth', 'Depth'], ['focus_mix', 'Mix']],
-  air: [['air_breath', 'Breath'], ['air_smooth', 'Smooth'], ['air_width', 'Width'], ['air_lofi', 'Lo-fi']],
+  air: [['air_breath', 'Breath'], ['air_smooth', 'Smooth'], ['air_width', 'Width'], ['air_lofi', 'Lo-fi'], ['air_trem', 'Tremolo'], ['air_trem_rate', 'Trem rate']],
   color: [['color_bass', 'Bass'], ['color_body', 'Body'], ['color_mud', 'Mud'], ['color_harsh', 'Harsh'], ['color_air', 'Air'],
           ['color_hpf', 'Low cut'], ['color_lpf', 'High cut'], ['tonal', 'Noise / Tonal']],
 };
@@ -920,7 +925,12 @@ function openShapeMenu(current, pick, anchor) {
 function closeMenus() { document.querySelectorAll('.target-menu').forEach(m => m.remove()); }
 document.addEventListener('click', closeMenus);
 const lanes = [];
-const rateLabel = t => { const hz = .001 * Math.pow(20000, t); return (hz < 1 ? hz.toFixed(hz < .1 ? 3 : 2) : hz.toFixed(1)) + ' Hz'; };
+// SYNC: the nearest power-of-two division to the free rate at 120 BPM (as Params.h laneSyncBeats).
+const syncBeats = t => Math.pow(2, Math.min(8, Math.max(-3, Math.round(Math.log2(2 / (.001 * Math.pow(20000, t)))))));
+const rateLabel = t => {
+  if (state.sync) { const b = syncBeats(t); return b >= 4 ? (b / 4) + (b > 4 ? ' bars' : ' bar') : '1/' + (4 / b); }
+  const hz = .001 * Math.pow(20000, t); return (hz < 1 ? hz.toFixed(hz < .1 ? 3 : 2) : hz.toFixed(1)) + ' Hz';
+};
 function buildMotion(b) {
   const body = document.createElement('div'); body.className = 'motion-body';
   for (let col = 0; col < 2; col++) {
@@ -960,6 +970,9 @@ function buildMotion(b) {
   const st = document.createElement('div'); st.className = 'status';
   st.id = 'status';
   st.innerHTML = 'CPU <b>2.1%</b><br>LATENCY <b>0 SMP</b><br>MIDI <b>A C E G B</b>';
+  // FREE: RATE in Hz (DRIFT scales it). SYNC: RATE picks a division, locked to the song.
+  const rateKnobs = () => document.querySelectorAll('.lane .knob').forEach(k => k.redraw && k.redraw());
+  macros.prepend(seg(['Free', 'Sync'], 0, i => { state.sync = i === 1; rateKnobs(); }, 'motion_sync'));
   macros.append(st); body.append(macros); b.append(body);
 }
 
@@ -970,8 +983,9 @@ layoutChain();
 const gk = document.getElementById('globalKnobs');
 // OFFSET: the wet's right channel a few ms late (Haas width; the dry is untouched).
 const offsetText = t => t <= 0 ? 'off' : (25 * t * t).toFixed(1) + ' ms';
-gk.append(knob({ id: 'mix', l: 'Dry / Wet', t: 1, f: pct }, { wide: true }), knob({ id: 'offset', l: 'Offset', t: 0, f: offsetText }, { wide: true }),
-          knob({ id: 'out', l: 'Output', t: .5, f: bip(' dB', 12, 1) }, { wide: true }));
+const fixed = (el, w) => { el.style.setProperty('--vw', w); return el; };
+gk.append(fixed(knob({ id: 'mix', l: 'Dry / Wet', t: 1, f: pct }, { wide: true }), '42px'), fixed(knob({ id: 'offset', l: 'Offset', t: 0, f: offsetText }, { wide: true }), '62px'),
+          fixed(knob({ id: 'out', l: 'Output', t: .5, f: bip(' dB', 12, 1) }, { wide: true }), '70px'));
 
 const THEMES = { signal: ['#121210', '#3D6DFF'], sky: ['#B4C8E1', '#13244B'], print: ['#2D5BCB', '#0A0E18'], ochre: ['#D7D6C9', '#E1A92D'], peach: ['#EEE2D2', '#A56BF0'] };
 const themes = document.getElementById('themes');
@@ -1200,7 +1214,7 @@ function drawLanes() {
     const k = knobsById[id]; if (!k || !id) return;
     if (!on || lanes[i].depth <= 0) return;
     const set = k.value();
-    const m = live.targets ? live.targets[i] : set + state.motion * lanes[i].depth * ((lanes[i].f(lanes[i].shape, 0) + 1) / 2 - set);
+    const m = live.targets ? live.targets[i] : Math.min(1, Math.max(0, set + state.motion * lanes[i].depth * lanes[i].f(lanes[i].shape, 0)));
     k.modded = true;
     k.showMod(Math.abs(m - set) < .004 ? null : m);
   });
