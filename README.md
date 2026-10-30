@@ -51,7 +51,7 @@ MIDI IN ─────────┴──────────────
 - The window reopens at the size it was left (saved with the project, and remembered for new instances). The square next to it cycles through the themes.
 - **Level makeup**: the modules' losses used to add up (GRAIN, DEREZ, STRETCH… a preset could come out 10 to 18 dB quieter than its input). The wet is now brought back up to the input's loudness: slowly (1.5 s up, 150 ms down, so a reverb still building never overshoots), makeup only (0 to +12 dB: a module that boosts keeps its boost), and frozen while the input is silent so tails fade naturally. Measured: the 60 presets now sit between −3.6 and +2 dB of the input.
 - **An invisible safety limiter** at the very end: nothing goes above −0.3 dBFS, and if a bug ever produced invalid values (NaN), the output mutes for 0.25 s and the engine resets. Your ears are safe.
-- `FREEZE` holds the reverb: the tail lasts forever, without drifting.
+- `FREEZE` (in MOTION's header) holds the reverb: the tail lasts forever, without drifting, and keeps its slow movement. MOTION can drive it like a knob: the tail freezes past the middle of the LFO's swing.
 - `PANIC` (red, top right): instant silence, clears every tail and buffer (reverb, echo, stretch, capture, held notes) and releases FREEZE. Settings, order and MOTION stay as they are.
 - **INIT** (top of the preset list): every knob back to its starting point, MOTION cleared (lane 1 on DRY / WET), default order, tails cleared. The starting points are subtle (a module switched on colours a little, it does not take over) and neutral where there is a neutral: COLOR flat, TILT and HARM at 0, LO-FI off, OFFSET off. INIT has no ECHO: only SPACE and COLOR are switched on.
 
@@ -199,6 +199,10 @@ Every word is bipolar: centre = flat, up = boost, down = cut, shown in dB. Moves
 | `PRE` / `POST` | TONAL before the reverb (it rebuilds its tail from what is left) or after it (the tail itself is filtered) |
 
 Measured separation: a notes-to-noise ratio of +7.6 dB at the input → **+17.1 dB** at full TONAL, **−1.8 dB** at full NOISE.
+
+### GAIN — a level anywhere in the chain
+
+A narrow card with one vertical slider, −24 to +24 dB (double-click: back to 0 dB). Move it like any module: before SPACE to drive the reverb harder, after GRAIN to bring the grains back up, before SHAPE to push it. It glides (~10 ms) and computes nothing at 0 dB or switched off. A new instance (and any older session) has it last in the chain, at 0 dB. MOTION can move it.
 
 ### MOTION — 12 freely assignable LFOs
 Each lane moves **the knob of your choice**. By default only lane 1 is assigned, to the global DRY / WET; the others are empty. The ▾ in MOTION's header folds the 12 lanes away (the window gets shorter) and brings them back. A lane leaves alone the knobs of a module that is switched off, and a lane with nothing left to move does not run.

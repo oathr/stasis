@@ -737,6 +737,15 @@ int main(int argc, char** argv) {
         }
         if (loudest > 1.0) fail("SHAPE makes the sound louder");
 
+        // GAIN: the level asked for comes out, GAIN STAGING and the makeup do not undo it.
+        {
+            const double flat = moduleLevel("Color", noExtra);
+            const double up = moduleLevel("Color", [](const auto& set) { set("Gain", 0.625f); }) - flat;
+            const double down = moduleLevel("Color", [](const auto& set) { set("Gain", 0.25f); }) - flat;
+            std::printf("\nGAIN +6 dB: %+5.1f dB   GAIN -12 dB: %+5.1f dB   (GAIN STAGING on)\n", up, down);
+            if (std::abs(up - 6.0) > 1.0 || std::abs(down + 12.0) > 1.0) fail("GAIN does not give the level asked for");
+        }
+
         // SHAPE aliasing: a 5 kHz sine at -6 dBFS, DRIVE 100 %. Harmonics above 24 kHz fold
         // back to frequencies that are not multiples of 5 kHz: their energy against the tone.
         std::printf("\nSHAPE aliasing (5 kHz at -6 dBFS, DRIVE 100 %%):");
@@ -1014,7 +1023,10 @@ int main(int argc, char** argv) {
                 if (line.startsWith("#")) {
                     const auto name = line.substring(1).upToFirstOccurrenceOf("=", false, false);
                     if (name == "targets") lanes = juce::StringArray::fromTokens(line.fromFirstOccurrenceOf("=", false, false), ",", "");
-                    if (stateAttribute(now, name) != line.fromFirstOccurrenceOf("=", false, false)) fail(where + ": " + name + " changed");
+                    auto shownNow = stateAttribute(now, name);
+                    // GAIN (v0.1.6) joins an older order at its end, where it changes nothing.
+                    if (name == "order" && !line.contains("trim")) shownNow = shownNow.replace(",trim", "");
+                    if (shownNow != line.fromFirstOccurrenceOf("=", false, false)) fail(where + ": " + name + " changed (" + shownNow + ")");
                     continue;
                 }
                 const auto fields = juce::StringArray::fromTokens(line, "\t", "");

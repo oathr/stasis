@@ -12,7 +12,7 @@ juce::String groupOf(const std::string& id) {
     static const std::vector<std::pair<std::string, const char*>> prefixes = {
         {"shape_", "SHAPE"}, {"pitch_", "PITCH"}, {"air_", "AIR"}, {"grain_", "GRAIN"}, {"derez_", "DEREZ"}, {"stretch_", "STRETCH"},
         {"echo_", "ECHO"}, {"space_", "SPACE"}, {"shimmer_", "SPACE"}, {"focus_", "FOCUS"}, {"color_", "COLOR"}, {"tonal", "COLOR"},
-        {"motion_", "MOTION"}};
+        {"trim_", "GAIN"}, {"motion_", "MOTION"}};
     for (const auto& [prefix, name] : prefixes)
         if (id.rfind(prefix, 0) == 0) return name;
     if (stasis::params::laneOf(id) >= 0) return "MOTION LFO " + juce::String(stasis::params::laneOf(id) + 1);
@@ -342,9 +342,10 @@ juce::StringArray StasisProcessor::getModuleOrder() const {
 void StasisProcessor::setModuleOrder(const juce::StringArray& input) {
     const auto& modules = stasis::params::kModules;
     // An order saved before a module existed: the new module takes its default place
-    // (GRAIN goes right after STRETCH).
+    // (GRAIN goes right after STRETCH, GAIN at the end, where it changes nothing at 0 dB).
     juce::StringArray names = input;
-    if (!names.contains("grain") && names.size() == int(modules.size()) - 1) names.insert(names.indexOf("stretch") + 1, "grain");
+    if (!names.isEmpty() && !names.contains("grain") && names.contains("stretch")) names.insert(names.indexOf("stretch") + 1, "grain");
+    if (!names.isEmpty() && !names.contains("trim")) names.add("trim");
     if (names.size() != int(modules.size())) return;
     uint64_t order = 0, seen = 0;
     for (int slot = 0; slot < names.size(); ++slot) {

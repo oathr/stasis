@@ -170,7 +170,7 @@ public:
     uint16_t resonatorClasses() const { return resonatorClasses_.load(std::memory_order_relaxed); }
 
 private:
-    enum Module { kDerez, kStretch, kEcho, kSpace, kFocus, kColor, kShape, kPitch, kAir, kGrain, kModules };
+    enum Module { kDerez, kStretch, kEcho, kSpace, kFocus, kColor, kShape, kPitch, kAir, kGrain, kTrim, kModules };
 
     float v(const float* values, int index) const { return values[index]; }
 
@@ -335,6 +335,9 @@ private:
                          iInterval0 = indexOf("grain_m12"), iGrainSync = indexOf("grain_sync"), iGrainDiv = indexOf("grain_div"),
                          iGrainFdbk = indexOf("grain_fdbk"), iGrainReverse = indexOf("grain_reverse");
         on_[kGrain] = v(values, iGrainOn) > 0.5f;
+        static const int iTrimOn = indexOf("trim_on"), iTrimDb = indexOf("trim_db");
+        on_[kTrim] = v(values, iTrimOn) > 0.5f;
+        trimTarget_ = dbToGain(24.0f * (2.0f * v(values, iTrimDb) - 1.0f));
         mix_[kGrain] = v(values, iGrainMix);
         grainFeedback_ = 0.95f * v(values, iGrainFdbk);  // 100 % on the knob: just short of runaway
         if (changed({iAlgo, iEnv, iDensity, iChance, iGrainSize, iGrainSync, iGrainDiv, iInterval0, iInterval0 + 1, iInterval0 + 2, iInterval0 + 3,
@@ -548,6 +551,19 @@ private:
         }
     }
 
+    // GAIN: a level where it sits in the chain, gliding (~10 ms). At 0 dB, or off, nothing
+    // is computed.
+    void runTrim(float* wetL, float* wetR, int n) {
+        const float target = on_[kTrim] ? trimTarget_ : 1.0f;
+        if (target == 1.0f && trimGain_ == 1.0f) return;
+        for (int i = 0; i < n; ++i) {
+            trimGain_ += (target - trimGain_) * rampCoef_;
+            wetL[i] *= trimGain_;
+            wetR[i] *= trimGain_;
+        }
+        if (std::abs(trimGain_ - target) < 1.0e-5f) trimGain_ = target;
+    }
+
     // TONAL ◂▸ NOISE costs nothing and adds no delay at the centre; away from it, it
     // fades in over ~30 ms.
     void runTonal(float* wetL, float* wetR, int n) {
@@ -627,6 +643,7 @@ private:
                     break;
                 case 6: runModule(kFocus, wetL, wetR, n, [&](auto... a) { focus_.process(a...); }); break;
                 case 8: runModule(kColor, wetL, wetR, n, [&](auto... a) { color_.process(a...); }); break;
+                case 10: runTrim(wetL, wetR, n); break;
                 case 9: runModule(kGrain, wetL, wetR, n, [&](const float* inL, const float* inR, float* outL, float* outR, int count) {
                         if (grainFeedback_ <= 0.0f) return grain_.process(inL, inR, outL, outR, count);
                         // FEEDBACK: the grains go back in (512 samples later, soft-clipped), so
@@ -655,6 +672,7 @@ private:
             outGain_ = outTarget_;
         }
         int w = visualWrite_.load(std::memory_order_relaxed);
+        const float trimUndo = 1.0f / std::max(trimGain_ * trimGain_, 1.0e-6f);  // GAIN taken back out of the measured wet
         for (int i = 0; i < n; ++i) {
             mixGain_ += (mixTarget_ - mixGain_) * rampCoef_;
             outGain_ += (outTarget_ - outGain_) * rampCoef_;
@@ -672,10 +690,11 @@ private:
             // Level makeup: the modules' losses add up (GRAIN, DEREZ, COLOR's cuts… a preset
             // could lose 10 dB or more). The wet is brought back to the input's loudness,
             // slowly, makeup only (0 .. +12 dB), and the gain holds while the input is
-            // silent so tails fade naturally.
+            // silent so tails fade naturally. GAIN is a level asked for: the wet is measured
+            // as if it were at 0 dB, so neither the makeup nor GAIN STAGING undoes it.
             float wl = wetL[i];
             const float dryPower = 0.5f * (left[i] * left[i] + right[i] * right[i]);
-            const float wetPower = 0.5f * (wl * wl + wr * wr);
+            const float wetPower = 0.5f * (wl * wl + wr * wr) * trimUndo;
             dryLevel_ += (dryPower - dryLevel_) * levelCoef_;
             wetLevel_ += (wetPower - wetLevel_) * levelCoef_;
             dryFast_ += (dryPower - dryFast_) * gateCoef_;
@@ -775,6 +794,7 @@ private:
     std::array<std::vector<float>, 4> buffers_;
     std::vector<float> last_;
     std::array<bool, kModules> on_{};
+    float trimTarget_ = 1.0f, trimGain_ = 1.0f;
     std::array<float, kModules> mix_{}, moduleGain_{};
     float rampCoef_ = 0.001f, mixTarget_ = 0.5f, mixGain_ = -1.0f, outTarget_ = 1.0f, outGain_ = 1.0f;
     float bypassTarget_ = 0.0f, bypassGain_ = 0.0f, offsetTarget_ = 0.0f, offsetSamples_ = 0.0f;
