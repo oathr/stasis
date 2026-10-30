@@ -85,7 +85,7 @@ void migrateGrainNotes(juce::ValueTree& state) {
     add("grain_p12", float(find("grain_octaves").getProperty("value", 1.0f)) >= 0.5f);
 }
 
-constexpr int kStateVersion = 3;
+constexpr int kStateVersion = 4;
 
 // State version 2 (v0.1.3): DEREZ RATE and BITS knobs are reversed (up = clean) and the
 // COLOR bands reach twice as far. Older sessions are moved so they sound the same.
@@ -110,6 +110,35 @@ void migrateToVersion3(juce::ValueTree& state) {
     remap("color_body", 0.5f, [](float v) { return 0.5f + (v - 0.5f) * 12.0f / 18.0f; });
     remap("color_air", 0.5f, [](float v) { return 0.5f + (v - 0.5f) * 16.0f / 24.0f; });
     for (const char* id : {"color_mud", "color_harsh"}) remap(id, 0.0f, [](float v) { return 0.5f - 0.25f * v; });
+}
+
+// State version 4 (v0.1.6): COLOR's LOW CUT reaches 5 kHz (was 1 kHz) and HIGH CUT goes
+// down to 50 Hz (was 1 kHz). Same frequencies, new positions; a MOTION lane that moves
+// only one of them swings by the same number of octaves.
+void migrateToVersion4(juce::ValueTree& state) {
+    const float lowCut = std::log(50.0f) / std::log(250.0f);  // 20·50^t = 20·250^(t·k)
+    const auto remap = [&](const juce::String& id, float fallback, auto&& f) {
+        auto param = state.getChildWithProperty("id", id);
+        if (param.isValid()) param.setProperty("value", f(float(param.getProperty("value", fallback))), nullptr);
+    };
+    // GAIN STAGING is now on in a new instance; a session saved before it existed had none.
+    if (!state.getChildWithProperty("id", "gain_staging").isValid()) {
+        juce::ValueTree param("PARAM");
+        param.setProperty("id", "gain_staging", nullptr).setProperty("value", 0.0f, nullptr);
+        state.appendChild(param, nullptr);
+    }
+    // SHAPE now starts last in the chain: a session saved without an order kept the old one.
+    if (!state.hasProperty("order")) state.setProperty("order", "shape,derez,pitch,stretch,grain,echo,space,focus,air,color", nullptr);
+    remap("color_hpf", 0.0f, [&](float v) { return v * lowCut; });
+    remap("color_lpf", 1.0f, [](float v) { return 0.5f + 0.5f * v; });  // 1000·20^t = 50·400^((1+t)/2)
+    const auto lanes = juce::StringArray::fromTokens(state.getProperty("targets").toString(), ",", "");
+    for (int lane = 0; lane < lanes.size() && lane < 12; ++lane) {
+        const auto targets = juce::StringArray::fromTokens(lanes[lane], "|", "");
+        const auto only = [&](const char* id) { return !targets.isEmpty() && std::all_of(targets.begin(), targets.end(), [&](const juce::String& t) { return t == id; }); };
+        const juce::String depth(stasis::params::laneId(lane, "depth"));
+        if (only("color_hpf")) remap(depth, 0.0f, [&](float v) { return v * lowCut; });
+        if (only("color_lpf")) remap(depth, 0.0f, [](float v) { return 0.5f * v; });
+    }
 }
 
 }  // namespace
@@ -347,6 +376,7 @@ void StasisProcessor::applyStateTree(juce::ValueTree state, bool fromPreset) {
     const int version = int(state.getProperty("version", 1));
     if (version < 2) migrateToVersion2(state);
     if (version < 3) migrateToVersion3(state);
+    if (version < 4) migrateToVersion4(state);
     apvts.replaceState(state);
     setModuleOrder(juce::StringArray::fromTokens(state.getProperty("order").toString(), ",", ""));
     if (!fromPreset) {

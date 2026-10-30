@@ -79,6 +79,10 @@ public:
         sampleRate_ = sampleRate;
         for (auto& d : dcBlock_) d.setCutoff(8.0f, sampleRate);
         envCoef_ = smoothingCoef(0.05f, sampleRate);
+        matchCoef_ = smoothingCoef(0.15f, sampleRate);
+        gainCoef_ = smoothingCoef(0.02f, sampleRate);
+        matchIn_ = matchOut_ = 0.0f;
+        matchGain_ = gainNow_ = 1.0f;
         for (auto& c : channels_) c = {};
         setParams(params_);
     }
@@ -115,7 +119,38 @@ public:
         norm_ = variance > 1.0e-12 ? float(kReference / std::sqrt(2.0 * variance)) : 1.0f;
     }
 
+    // SHAPE never makes the sound louder than it came in: the curves above are matched at
+    // one level only (-12 dBFS), so quieter sounds came out boosted (up to x40 at full
+    // DRIVE) and the tilt lifted bright ones. After the curve, the output follows the
+    // input's loudness: both powers over 150 ms, stereo-linked, from -30 to +6 dB.
     void process(const float* inL, const float* inR, float* outL, float* outR, int numSamples) {
+        for (int start = 0; start < numSamples; start += kChunk) {
+            const int n = std::min(kChunk, numSamples - start);
+            std::array<float, kChunk> inPower;
+            for (int i = 0; i < n; ++i) inPower[size_t(i)] = 0.5f * (inL[start + i] * inL[start + i] + inR[start + i] * inR[start + i]);
+            processChunk(inL + start, inR + start, outL + start, outR + start, n);
+            if (!saturate_ && std::abs(params_.tilt) < 1.0e-3f) {  // nothing to match: no cost
+                matchIn_ = matchOut_ = 0.0f;
+                continue;
+            }
+            for (int i = 0; i < n; ++i) {
+                float& l = outL[start + i];
+                float& r = outR[start + i];
+                matchIn_ += matchCoef_ * (inPower[size_t(i)] - matchIn_);
+                matchOut_ += matchCoef_ * (0.5f * (l * l + r * r) - matchOut_);
+                // Below -90 dBFS the gain holds (silence has no loudness to follow).
+                if (matchIn_ > 1.0e-9f) matchGain_ = std::clamp(std::sqrt(matchIn_ / (matchOut_ + 1.0e-12f)), 0.0316f, 2.0f);
+                gainNow_ += gainCoef_ * (matchGain_ - gainNow_);
+                l *= gainNow_;
+                r *= gainNow_;
+            }
+        }
+    }
+
+private:
+    static constexpr int kChunk = 64;
+
+    void processChunk(const float* inL, const float* inR, float* outL, float* outR, int numSamples) {
         const float* in[2] = {inL, inR};
         float* out[2] = {outL, outR};
         const float biasOut = curve(bias_);
@@ -147,7 +182,6 @@ public:
         }
     }
 
-private:
     struct Channel {
         TanhAdaa adaa;
         Oversampler2x oversampler;
@@ -187,6 +221,7 @@ private:
     OnePole dcBlock_[2];
     std::array<Channel, 2> channels_{};
     float gain_ = 1.0f, bias_ = 0.0f, norm_ = 1.0f, slewStep_ = 1.0f, envCoef_ = 0.01f;
+    float matchCoef_ = 0.001f, gainCoef_ = 0.01f, matchIn_ = 0.0f, matchOut_ = 0.0f, matchGain_ = 1.0f, gainNow_ = 1.0f;
     bool saturate_ = false;
 };
 

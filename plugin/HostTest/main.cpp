@@ -4,7 +4,11 @@
 // a block that takes longer than real time.
 //
 //   stasis_hosttest path/to/STASIS.vst3 [--no-timing] [--checks]
+//   stasis_hosttest path/to/STASIS.vst3 --dump-state <folder>
 //
+// --dump-state saves a few sessions of this build (state + every knob as the host shows
+// it) into <folder>. Kept in HostTest/compat/<version>, they are reloaded by every later
+// build, which must show the same values: an update must not change a saved session.
 // --no-timing reports CPU without failing on it (shared CI machines are noisy).
 // --checks runs only the targeted measurements (FOCUS, GRAIN, PITCH, DEREZ…), not the
 // stress test and the presets.
@@ -21,6 +25,63 @@ void fail(const juce::String& what) {
     ++failures;
 }
 
+// A hosted parameter's stable key (the VST3 id, not its index or name).
+juce::String keyOf(juce::AudioProcessorParameter* p) {
+    if (auto* hosted = dynamic_cast<juce::HostedAudioProcessorParameter*>(p)) return hosted->getParameterID();
+    return juce::String(p->getParameterIndex());
+}
+
+// The plugin's own state inside the host's chunk: the VST3 host wraps it as base64 in
+// <IComponent>. Returns an attribute of the STASIS tree ("order", "targets").
+juce::String stateAttribute(const juce::MemoryBlock& chunk, const juce::String& name) {
+    auto outer = juce::AudioProcessor::getXmlFromBinary(chunk.getData(), int(chunk.getSize()));
+    if (outer == nullptr) return {};
+    juce::MemoryBlock inner;
+    if (auto* component = outer->getChildByName("IComponent")) inner.fromBase64Encoding(component->getAllSubText());
+    const std::string raw(static_cast<const char*>(inner.getData()), inner.getSize());
+    const auto at = raw.find(" " + name.toStdString() + "=\"");
+    if (at == std::string::npos) return {};
+    const auto start = at + size_t(name.length()) + 3;
+    return juce::String(raw.substr(start, raw.find('"', start) - start));
+}
+
+// The same chunk with one attribute of the STASIS tree changed (inside the base64
+// <IComponent>, behind JUCE's "VC2!" + length header).
+juce::MemoryBlock withStateAttribute(const juce::MemoryBlock& chunk, const juce::String& name, const juce::String& value) {
+    auto outer = juce::AudioProcessor::getXmlFromBinary(chunk.getData(), int(chunk.getSize()));
+    auto* component = outer != nullptr ? outer->getChildByName("IComponent") : nullptr;
+    if (component == nullptr) return chunk;
+    juce::MemoryBlock inner;
+    inner.fromBase64Encoding(component->getAllSubText());
+    std::string raw(static_cast<const char*>(inner.getData()), inner.getSize());
+    const auto at = raw.find(" " + name.toStdString() + "=\"");
+    if (at == std::string::npos || raw.compare(0, 4, "VC2!") != 0) return chunk;
+    const auto start = at + size_t(name.length()) + 3, end = raw.find('"', start);
+    raw.replace(start, end - start, value.toStdString());
+    uint32_t length;
+    std::memcpy(&length, raw.data() + 4, 4);
+    length = uint32_t(int64_t(length) + int64_t(value.length()) - int64_t(end - start));
+    std::memcpy(raw.data() + 4, &length, 4);
+    component->deleteAllTextElements();
+    component->addTextElement(juce::MemoryBlock(raw.data(), raw.size()).toBase64Encoding());
+    juce::MemoryBlock result;
+    juce::AudioProcessor::copyXmlToBinary(*outer, result);
+    return result;
+}
+
+// Two displays of the same value: equal, or the same number within its last digit
+// (the text is rounded) and 1 %.
+bool sameShown(const juce::String& a, const juce::String& b) {
+    if (a == b) return true;
+    const auto number = [](const juce::String& s) { return s.retainCharacters("+-0123456789.").getDoubleValue(); };
+    const auto unit = [](const juce::String& s) { return s.removeCharacters("+-0123456789. "); };
+    if (unit(a) != unit(b) || a.retainCharacters("0123456789").isEmpty()) return false;
+    const auto digits = a.retainCharacters("+-0123456789.");
+    const int decimals = digits.containsChar('.') ? digits.length() - digits.lastIndexOfChar('.') - 1 : 0;
+    const double step = std::pow(10.0, -decimals) * 1.01, x = number(a), y = number(b);
+    return std::abs(x - y) <= std::max(step, 0.01 * std::abs(x));
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -31,9 +92,11 @@ int main(int argc, char** argv) {
     }
 
     bool timing = true, checksOnly = false;
+    juce::File dumpFolder;
     for (int a = 2; a < argc; ++a) {
         timing = timing && juce::String(argv[a]) != "--no-timing";
         checksOnly = checksOnly || juce::String(argv[a]) == "--checks";
+        if (juce::String(argv[a]) == "--dump-state" && a + 1 < argc) dumpFolder = juce::File::getCurrentWorkingDirectory().getChildFile(argv[++a]);
     }
     juce::AudioPluginFormatManager formats;
     formats.addFormat(new juce::VST3PluginFormat());
@@ -46,6 +109,53 @@ int main(int argc, char** argv) {
     }
     std::printf("%s by %s, VST3 %s\n", found[0]->name.toRawUTF8(), found[0]->manufacturerName.toRawUTF8(),
                 found[0]->isInstrument ? "instrument" : "effect");
+
+    if (dumpFolder != juce::File()) {
+        // A few sessions: factory presets as they are, and presets with every knob moved
+        // at random (each range, each choice, the MOTION lanes).
+        dumpFolder.createDirectory();
+        juce::Random dice(99);
+        for (const int program : {0, 13, 21, 30, 47, 59, -5, -26, -44}) {
+            juce::String error;
+            auto plugin = formats.createPluginInstance(*found[0], 48000.0, 512, error);
+            if (!plugin) return 1;
+            plugin->setPlayConfigDetails(2, 2, 48000.0, 512);
+            plugin->prepareToPlay(48000.0, 512);
+            juce::AudioBuffer<float> buffer(2, 512);
+            juce::MidiBuffer midi;
+            // A VST3 host hands knob changes to the plugin with the next audio block.
+            const auto settle = [&] {
+                for (int b = 0; b < 4; ++b) {
+                    buffer.clear();
+                    plugin->processBlock(buffer, midi);
+                }
+            };
+            plugin->setCurrentProgram(std::abs(program));
+            settle();
+            if (program < 0)
+                for (auto* p : plugin->getParameters())
+                    if (!p->getName(64).startsWith("MIDI CC")) p->setValueNotifyingHost(dice.nextFloat());
+            settle();
+            juce::MemoryBlock chunk;
+            plugin->getStateInformation(chunk);
+            const auto name = program < 0 ? "random-" + juce::String(-program) : "preset-" + juce::String(program);
+            dumpFolder.getChildFile(name + ".state").replaceWithData(chunk.getData(), chunk.getSize());
+            // What the file holds, as this build reads it back: a fresh instance loads it.
+            plugin = formats.createPluginInstance(*found[0], 48000.0, 512, error);
+            plugin->setPlayConfigDetails(2, 2, 48000.0, 512);
+            plugin->prepareToPlay(48000.0, 512);
+            plugin->setStateInformation(chunk.getData(), int(chunk.getSize()));
+            settle();
+            juce::StringArray shown;
+            shown.add("#order=" + stateAttribute(chunk, "order"));
+            shown.add("#targets=" + stateAttribute(chunk, "targets"));
+            for (auto* p : plugin->getParameters())  // the host's MIDI CC stand-ins are not ours
+                if (!p->getName(64).startsWith("MIDI CC")) shown.add(keyOf(p) + "\t" + p->getName(64) + "\t" + p->getCurrentValueAsText());
+            dumpFolder.getChildFile(name + ".txt").replaceWithText(shown.joinIntoString("\n") + "\n");
+        }
+        std::printf("states saved in %s\n", dumpFolder.getFullPathName().toRawUTF8());
+        return 0;
+    }
 
     juce::Random rng(1234);
     juce::MemoryBlock savedState;
@@ -321,7 +431,7 @@ int main(int argc, char** argv) {
             hp1.setCoefficients(juce::IIRCoefficients::makeHighPass(48000.0, 4000.0)), hp2.setCoefficients(juce::IIRCoefficients::makeHighPass(48000.0, 4000.0));
             double high = 0.0, all = 0.0;
             for (int b = 0, s = 0; b < int(3.0 * 48000 / 512); ++b) {
-                setC("Color Mud", (b / 2) % 2 ? 0.8f : 0.2f);
+                setC("Color Mids", (b / 2) % 2 ? 0.8f : 0.2f);
                 for (int i = 0; i < 512; ++i, ++s) {
                     const float v = 0.2f * float(std::sin(2.0 * juce::MathConstants<double>::pi * 440.0 * s / 48000.0));
                     buffer.setSample(0, i, v), buffer.setSample(1, i, v);
@@ -340,24 +450,21 @@ int main(int argc, char** argv) {
         };
         // HARD on an LFO: lane 1 (square, 4 Hz, 30 %) on SPACE MIX, set through the state as a
         // project would; every step it takes must crack at the output.
-        const auto lfoRun = [&](float hard) {
+        const auto lfoRun = [&](float hard, bool spaceOn = true) {
             auto inst = formats.createPluginInstance(*found[0], 48000.0, 512, error);
             inst->setPlayConfigDetails(2, 2, 48000.0, 512);
             inst->prepareToPlay(48000.0, 512);
             for (auto* p : inst->getParameters()) p->setValueNotifyingHost(p->getDefaultValue());
             juce::MemoryBlock state;
             inst->getStateInformation(state);
-            if (auto xml = juce::AudioProcessor::getXmlFromBinary(state.getData(), int(state.getSize()))) {
-                xml->setAttribute("targets", "space_mix,,,,,,,,,,,");
-                juce::AudioProcessor::copyXmlToBinary(*xml, state);
-                inst->setStateInformation(state.getData(), int(state.getSize()));
-            }
+            state = withStateAttribute(state, "targets", "space_mix,,,,,,,,,,,");
+            inst->setStateInformation(state.getData(), int(state.getSize()));
             const auto setL = [&](const juce::String& name, float value) {
                 for (auto* p : inst->getParameters())
                     if (p->getName(64) == name) return p->setValueNotifyingHost(value);
                 fail("no parameter " + name);
             };
-            setL("Echo On", 0.0f), setL("Color On", 0.0f), setL("Space On", 1.0f), setL("Space Mix", 0.5f);
+            setL("Echo On", 0.0f), setL("Color On", 0.0f), setL("Space On", spaceOn ? 1.0f : 0.0f), setL("Space Mix", 0.5f);
             setL("Motion 1 Shape", 4.0f / 11.0f), setL("Motion 1 Rate", float(std::log(4.0 / 0.001) / std::log(20000.0))), setL("Motion 1 Depth", 0.3f);
             setL("Motion Hard", hard);
             juce::AudioBuffer<float> buffer(2, 512);
@@ -383,6 +490,10 @@ int main(int argc, char** argv) {
         const double lfoSoft = lfoRun(0.0f), lfoHard = lfoRun(1.0f);
         std::printf("  LFO on SPACE MIX (square 4 Hz):  HARD off %+6.1f dB   HARD 100 %% %+6.1f dB\n", lfoSoft, lfoHard);
         if (lfoHard < lfoSoft + 10.0) fail("HARD does not crack on LFO steps");
+        // The same lane with SPACE switched off: the LFO leaves the knob alone, no crack.
+        const double lfoIdle = lfoRun(1.0f, false);
+        std::printf("  same, SPACE off:                  HARD 100 %% %+6.1f dB\n", lfoIdle);
+        if (lfoIdle > lfoSoft + 3.0) fail("an LFO moves a knob of a module that is off");
 
         const double glide = colorRun(false), hardClicks = colorRun(true);
         if (glide > -60.0) fail("COLOR crackles when its knobs move");
@@ -558,6 +669,20 @@ int main(int argc, char** argv) {
         const auto noExtra = [](const auto&) {};
         for (const char* m : {"Shape", "Pitch", "Air", "Grain", "Derez", "Stretch", "Echo", "Focus", "Color"})
             std::printf("  %-10s %+5.1f dB\n", m, moduleLevel(m, noExtra));
+        // SHAPE must never come out louder than it went in, whatever the type, DRIVE or TILT.
+        std::printf("\nSHAPE level (chord at -20.2 dBFS RMS), DRIVE 50 / 100 %%, TILT +6 dB:\n");
+        const char* shapes[] = {"Tape", "Tube", "Fold", "Rectify", "Slew", "Bloom"};
+        double loudest = -99.0;
+        for (int t = 0; t < 6; ++t) {
+            double row[3];
+            int k = 0;
+            for (const auto [drive, tilt] : {std::pair{0.5f, 0.5f}, std::pair{1.0f, 0.5f}, std::pair{1.0f, 1.0f}}) {
+                row[k] = moduleLevel("Shape", [&](const auto& set) { set("Shape Type", float(t) / 5.0f), set("Shape Drive", drive), set("Shape Tilt", tilt), set("Shape Harmonics", 0.5f); });
+                loudest = std::max(loudest, row[k++]);
+            }
+            std::printf("  %-8s %+5.1f   %+5.1f   tilt %+5.1f dB\n", shapes[t], row[0], row[1], row[2]);
+        }
+        if (loudest > 1.0) fail("SHAPE makes the sound louder");
         const char* types[] = {"Room", "Plate", "Hall", "Cathedral", "Bloom", "Resonator"};
         for (int t = 0; t < 6; ++t) {
             const double atMix = moduleLevel("Space", [&](const auto& set) { set("Space Type", float(t) / 5.0f); });
@@ -640,6 +765,71 @@ int main(int argc, char** argv) {
         const double raw = derezRun(0.0f), soft = derezRun(0.7f), softest = derezRun(1.0f);
         if (soft > raw - 6.0 || softest > soft) fail("DEREZ SMOOTH does not remove the grit");
     }
+#ifdef STASIS_COMPAT_DIR
+    // Sessions saved by earlier releases: every knob they had must show the same value
+    // in this build, with the same order and MOTION targets.
+    {
+        std::printf("\nSessions from earlier releases:\n");
+        for (const auto& state : juce::File(STASIS_COMPAT_DIR).findChildFiles(juce::File::findFiles, true, "*.state")) {
+            juce::MemoryBlock chunk;
+            state.loadFileAsData(chunk);
+            juce::String error;
+            auto plugin = formats.createPluginInstance(*found[0], 48000.0, 512, error);
+            plugin->setPlayConfigDetails(2, 2, 48000.0, 512);
+            plugin->prepareToPlay(48000.0, 512);
+            plugin->setStateInformation(chunk.getData(), int(chunk.getSize()));
+            juce::AudioBuffer<float> buffer(2, 512);
+            juce::MidiBuffer midi;
+            for (int b = 0; b < 4; ++b) {
+                buffer.clear();
+                plugin->processBlock(buffer, midi);
+            }
+            juce::MemoryBlock now;
+            plugin->getStateInformation(now);
+            juce::HashMap<juce::String, juce::AudioProcessorParameter*> byKey;
+            for (auto* p : plugin->getParameters()) byKey.set(keyOf(p), p);
+            int checked = 0, wrong = 0;
+            juce::StringArray lanes;
+            const auto where = state.getParentDirectory().getFileName() + "/" + state.getFileNameWithoutExtension();
+            for (const auto& line : juce::StringArray::fromLines(state.withFileExtension("txt").loadFileAsString())) {
+                if (line.startsWith("#")) {
+                    const auto name = line.substring(1).upToFirstOccurrenceOf("=", false, false);
+                    if (name == "targets") lanes = juce::StringArray::fromTokens(line.fromFirstOccurrenceOf("=", false, false), ",", "");
+                    if (stateAttribute(now, name) != line.fromFirstOccurrenceOf("=", false, false)) fail(where + ": " + name + " changed");
+                    continue;
+                }
+                const auto fields = juce::StringArray::fromTokens(line, "\t", "");
+                if (fields.size() < 3) continue;
+                auto* p = byKey.contains(fields[0]) ? byKey[fields[0]] : nullptr;
+                ++checked;
+                // Since state 4 the cut filters have a wider travel: a lane that moves only
+                // one of them gets a smaller DEPTH for the same swing in octaves.
+                double factor = 1.0;
+                if (fields[1].startsWith("Motion ") && fields[1].endsWith(" Depth")) {
+                    const int lane = fields[1].fromFirstOccurrenceOf("Motion ", false, false).getIntValue() - 1;
+                    const auto targets = juce::StringArray::fromTokens(lane >= 0 && lane < lanes.size() ? lanes[lane] : juce::String(), "|", "");
+                    const auto only = [&](const char* id) { return !targets.isEmpty() && std::all_of(targets.begin(), targets.end(), [&](const juce::String& t) { return t == id; }); };
+                    if (only("color_hpf")) factor = std::log(50.0) / std::log(250.0);
+                    if (only("color_lpf")) factor = 0.5;
+                }
+                if (p != nullptr && factor != 1.0) {
+                    const double expected = fields[2].getDoubleValue() * factor, now = p->getCurrentValueAsText().getDoubleValue();
+                    if (std::abs(now - expected) > 1.01) {
+                        fail(where + ": " + fields[1] + " was " + fields[2] + ", now " + p->getCurrentValueAsText() + " (expected " + juce::String(expected, 1) + ")");
+                        ++wrong;
+                    }
+                } else if (p == nullptr) {
+                    fail(where + ": " + fields[1] + " is gone");
+                    ++wrong;
+                } else if (!sameShown(fields[2], p->getCurrentValueAsText())) {
+                    fail(where + ": " + fields[1] + " was " + fields[2] + ", now " + p->getCurrentValueAsText());
+                    ++wrong;
+                }
+            }
+            std::printf("  %-28s %d knobs, %d changed\n", where.toRawUTF8(), checked, wrong);
+        }
+    }
+#endif
     std::printf(failures == 0 ? "ALL TESTS PASSED\n" : "%d FAILURE(S)\n", failures);
     return failures == 0 ? 0 : 1;
 }

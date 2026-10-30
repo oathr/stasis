@@ -43,8 +43,8 @@ inline int echoDivision(float t) { return int(std::lround(t * 13.0f)); }
 inline float decaySeconds(float t) { return t > 0.98f ? INFINITY : 0.5f * std::pow(120.0f, t); }
 inline float predelayMs(float t) { return std::pow(500.0f, t); }
 inline float derezBits(float t) { return 2.0f + 14.0f * t; }  // knob up = clean (16 bits), down = 2 bits
-inline float highpassHz(float t) { return t <= 0.0f ? 0.0f : 20.0f * std::pow(50.0f, t); }      // off, 20 Hz .. 1 kHz
-inline float lowpassHz(float t) { return t >= 1.0f ? 0.0f : 1000.0f * std::pow(20.0f, t); }     // 1 kHz .. 20 kHz, off
+inline float highpassHz(float t) { return t <= 0.0f ? 0.0f : 20.0f * std::pow(250.0f, t); }     // off, 20 Hz .. 5 kHz
+inline float lowpassHz(float t) { return t >= 1.0f ? 0.0f : 50.0f * std::pow(400.0f, t); }      // 50 Hz .. 20 kHz, off
 inline float derezSemitones(float t) { return std::round((2.0f * t - 1.0f) * 24.0f); }
 inline float grainDensity(float t) { return 0.5f * std::pow(80.0f, t); }  // 0.5 .. 40 grains per second
 inline float grainSizeMs(float t) { return 20.0f * std::pow(100.0f, t); }   // 20 ms .. 2 s
@@ -67,8 +67,8 @@ inline const std::array<float, 14> kDivisionBeats = {0.125f, 1.0f / 6.0f, 0.25f,
 // Indices are stable (new modules are added at the end); kDefaultOrder is the order
 // a new instance starts with.
 inline const std::array<const char*, 10> kModules = {"shape", "derez", "pitch", "stretch", "echo", "space", "focus", "air", "color", "grain"};
-inline const std::array<int, 10> kDefaultOrder = {0, 1, 2, 3, 9, 4, 5, 6, 7, 8};  // SHAPE DEREZ PITCH STRETCH GRAIN ECHO SPACE FOCUS AIR COLOR
-inline const char* const kDefaultOrderNames = "shape,derez,pitch,stretch,grain,echo,space,focus,air,color";
+inline const std::array<int, 10> kDefaultOrder = {1, 2, 3, 9, 4, 5, 6, 7, 8, 0};  // DEREZ PITCH STRETCH GRAIN ECHO SPACE FOCUS AIR COLOR SHAPE
+inline const char* const kDefaultOrderNames = "derez,pitch,stretch,grain,echo,space,focus,air,color,shape";
 
 // MOTION: 12 LFO lanes. The user maps each one to any knob (the mapping is part of the
 // state, not a parameter); by default only lane 1 is mapped, to the global DRY / WET.
@@ -112,7 +112,7 @@ inline const std::vector<Spec>& all() {
         // OFFSET: the wet's right channel a few ms behind the left (Haas): width without touching the dry.
         {"offset", "Stereo Offset", Kind::Float, 0.0f, {}, [](float t) { return t <= 0.0f ? std::string("off") : fmt("%.1f ms", double(offsetMs(t))); }},
         {"glue", "Glue", Kind::Float, 0.3f, {}, [](float t) { return t <= 0.0f ? std::string("off") : pct(t); }},
-        {"gain_staging", "Gain Staging", Kind::Bool, 0.0f},
+        {"gain_staging", "Gain Staging", Kind::Bool, 1.0f},
         // SHAPE
         {"shape_on", "Shape On", Kind::Bool, 0.0f},
         {"shape_type", "Shape Type", Kind::Choice, 0.0f, {"Tape", "Tube", "Fold", "Rectify", "Slew", "Bloom"}},
@@ -162,7 +162,7 @@ inline const std::vector<Spec>& all() {
         {"stretch_factor", "Stretch Memory", Kind::Float, 0.3f, {}, [](float t) { return fmt(blurMemory(t) < 10.0f ? "%.1f s" : "%.0f s", double(blurMemory(t))); }},
         {"stretch_mix", "Stretch Mix", Kind::Float, 0.35f, {}, pct},
         // ECHO
-        {"echo_on", "Echo On", Kind::Bool, 1.0f},
+        {"echo_on", "Echo On", Kind::Bool, 0.0f},
         {"echo_mode", "Echo Mode", Kind::Choice, 1.0f, {"Mono", "Ping-pong"}},
         {"echo_sync", "Echo Sync", Kind::Choice, 1.0f, {"Free", "Sync"}},
         {"echo_time", "Echo Time", Kind::Float, 0.55f, {}, [](float t) { return fmt("%.0f ms", echoTimeMs(t)); }},
@@ -191,8 +191,8 @@ inline const std::vector<Spec>& all() {
         {"color_on", "Color On", Kind::Bool, 1.0f},
         {"color_bass", "Color Bass", Kind::Float, 0.5f, {}, [](float t) { return bip(t, 24.0f, " dB"); }},
         {"color_body", "Color Body", Kind::Float, 0.5f, {}, [](float t) { return bip(t, 18.0f, " dB"); }},
-        {"color_mud", "Color Mud", Kind::Float, 0.5f, {}, [](float t) { return bip(t, 18.0f, " dB"); }},
-        {"color_harsh", "Color Harsh", Kind::Float, 0.5f, {}, [](float t) { return bip(t, 18.0f, " dB"); }},
+        {"color_mud", "Color Mids", Kind::Float, 0.5f, {}, [](float t) { return bip(t, 18.0f, " dB"); }},
+        {"color_harsh", "Color Presence", Kind::Float, 0.5f, {}, [](float t) { return bip(t, 18.0f, " dB"); }},
         {"color_air", "Color Air", Kind::Float, 0.5f, {}, [](float t) { return bip(t, 24.0f, " dB"); }},
         {"color_hpf", "Color Low Cut", Kind::Float, 0.0f, {}, [](float t) { return t <= 0.0f ? std::string("off") : fmt("%.0f Hz", highpassHz(t)); }},
         {"color_lpf", "Color High Cut", Kind::Float, 1.0f, {}, [](float t) { return t >= 1.0f ? std::string("off") : lowpassHz(t) >= 1000.0f ? fmt("%.1f kHz", lowpassHz(t) / 1000.0) : fmt("%.0f Hz", lowpassHz(t)); }},

@@ -44,7 +44,7 @@ MIDI IN ─────────┴──────────────
 - Each module has a switch (the square at the bottom of its spine) with a 30 ms fade, so it never clicks.
 - `DRY / WET` (top, 100 % by default) balances wet against dry; `OUTPUT` sets the output level (±12 dB).
 - `GLUE` (top): the last stage, a soft and slow compressor on the whole output (12 dB soft knee, ratio 1.5:1 to 3:1, 60 ms attack, 600 ms release, stereo-linked RMS). One knob: the threshold goes from −8 to −30 dBFS as it rises; makeup is automatic so a signal at −14 dBFS RMS comes out unchanged. 30 % by default (gentle: +0.9 dB at −20 dBFS), 0 = off and nothing computed.
-- `LVL` (gain staging, off by default): the wet follows the input's loudness **both ways** (−12 to +12 dB), on top of the makeup below that only lifts.
+- `GAIN STAGING` (on by default): the wet follows the input's loudness **both ways** (−12 to +12 dB), on top of the makeup below that only lifts.
 - `OFFSET` widens the wet signal: its right channel arrives 0 to 25 ms after the left (Haas effect, like Arturia's offset mode). The dry signal is untouched; at 0, nothing is computed.
 - `⏻` (BYPASS): the output goes back to the untouched input, with a 30 ms fade, and the rack dims. The effects keep running underneath, so the tails do not freeze.
 - The button left of the themes puts the visualizer **on top** or **at the side** (for short screens: the window loses 13 % of its height; in the side column, time runs downwards). The choice is saved with the project.
@@ -53,11 +53,11 @@ MIDI IN ─────────┴──────────────
 - **An invisible safety limiter** at the very end: nothing goes above −0.3 dBFS, and if a bug ever produced invalid values (NaN), the output mutes for 0.25 s and the engine resets. Your ears are safe.
 - `FREEZE` holds the reverb: the tail lasts forever, without drifting.
 - `PANIC` (red, top right): instant silence, clears every tail and buffer (reverb, echo, stretch, capture, held notes) and releases FREEZE. Settings, order and MOTION stay as they are.
-- **INIT** (top of the preset list): every knob back to its starting point, MOTION cleared (lane 1 on DRY / WET), default order, tails cleared. The starting points are subtle (a module switched on colours a little, it does not take over) and neutral where there is a neutral: COLOR flat, TILT and HARM at 0, LO-FI off, OFFSET off.
+- **INIT** (top of the preset list): every knob back to its starting point, MOTION cleared (lane 1 on DRY / WET), default order, tails cleared. The starting points are subtle (a module switched on colours a little, it does not take over) and neutral where there is a neutral: COLOR flat, TILT and HARM at 0, LO-FI off, OFFSET off. INIT has no ECHO: only SPACE and COLOR are switched on.
 
 ## The modules
 
-### SHAPE — the first touch
+### SHAPE — the last touch (by default)
 | Control | What it does |
 |---|---|
 | `TYPE` | How DRIVE bends the wave (see below) |
@@ -75,6 +75,10 @@ MIDI IN ─────────┴──────────────
 | `BLOOM` | Drive follows the level inversely: attacks stay clean, decays and reverb tails get gritty as they fade |
 
 Every type except TAPE runs 2× oversampled; aliasing measured at 3.1 kHz, −3 dBFS: from −21 dB (RECT) to −50 dB (BLOOM).
+
+**SHAPE never makes the sound louder.** After the curve, the output follows the loudness of what came in (both over 150 ms, stereo-linked). Measured with a chord at −20 dBFS, DRIVE 100 %, TILT +6 dB: v0.1.5 came out up to +8.7 dB louder (RECT, BLOOM), now within ±0.3 dB of the input for every type.
+
+A new instance places SHAPE last in the chain, after COLOR: it colours the finished sound.
 
 ### PITCH — transpose and shift
 | Control | What it does |
@@ -178,21 +182,21 @@ The notes being followed light up on the module's keyboard.
 |---|---|
 | `BASS` | ±24 dB shelf at 110 Hz (below 0, a high-pass is added) |
 | `BODY` | ±18 dB bell at 220 Hz: the warmth of the pad |
-| `MUD` | ±18 dB bell at 450 Hz: the boxy build-up of long tails (down to clear it) |
-| `HARSH` | ±18 dB bell at 3.5 kHz: the glassy edge of shimmers and bright pads |
+| `MIDS` | ±18 dB bell at 450 Hz: the boxy build-up of long tails (down to clear it, up for wood and weight) |
+| `PRESENCE` | ±18 dB bell at 3.5 kHz: up brings the sound forward, down softens the glassy edge of shimmers and bright pads |
 | `AIR` | ±24 dB shelf at 7 kHz |
 
 | `TREMOLO` / `RATE` | Amplitude wobble (smooth sine, sample-accurate): at 100 % the dips reach silence. FREE: 0.5 to 16 Hz; SYNC: a division of the tempo (1/32 to 1/1, dotted, triplets), on the song's grid |
 
 Every word is bipolar: centre = flat, up = boost, down = cut, shown in dB. Moves glide over ~20 ms and the moving bands are recomputed every sample: a knob jumping by 22 dB 47 times a second leaves no grit (−76 dB above 4 kHz, the same as the clean tone; it was −50 dB updating every 16 samples).
-| `LOW CUT` / `HIGH CUT` | High-pass 20 Hz – 1 kHz, low-pass 1 – 20 kHz (12 dB/oct, *off* at the ends) |
+| `LOW CUT` / `HIGH CUT` | High-pass 20 Hz – 5 kHz, low-pass 50 Hz – 20 kHz (12 dB/oct, *off* at the ends): from a gentle trim to a telephone or an underwater sound |
 | `NOISE ◂▸ TONAL` | Right: keeps only the notes. Left: keeps only the breath and texture. Double-click to centre |
 | `PRE` / `POST` | TONAL before the reverb (it rebuilds its tail from what is left) or after it (the tail itself is filtered) |
 
 Measured separation: a notes-to-noise ratio of +7.6 dB at the input → **+17.1 dB** at full TONAL, **−1.8 dB** at full NOISE.
 
 ### MOTION — 12 freely assignable LFOs
-Each lane moves **the knob of your choice**. By default only lane 1 is assigned, to the global DRY / WET; the others are empty. The ▾ in MOTION's header folds the 12 lanes away (the window gets shorter) and brings them back.
+Each lane moves **the knob of your choice**. By default only lane 1 is assigned, to the global DRY / WET; the others are empty. The ▾ in MOTION's header folds the 12 lanes away (the window gets shorter) and brings them back. A lane leaves alone the knobs of a module that is switched off, and a lane with nothing left to move does not run.
 
 | Control | What it does |
 |---|---|
@@ -236,7 +240,7 @@ A modulated knob shows an orange arc over the whole swing, always visible, and a
 | Fifth Echoes | Ghost Choir | Breathing Pad |
 | Frequency Drift | Dirty Tails | Cloud Chamber |
 | Granular Delay Cloud | Halo Infinity | Fourths Drift |
-| Answering Machine | Metal Room | Lunar Tape |
+| Answering Machine | Serpent | Lunar Tape |
 | Long Goodbye | Sub Cavern | Distant Signals |
 
 ## Installation
@@ -306,7 +310,9 @@ The interface and the host talk through JUCE 8's web relays: each HTML control c
 ./build/plugin/stasis_hosttest_artefacts/Release/stasis_hosttest build/plugin/Stasis_artefacts/Release/VST3/STASIS.vst3
 ```
 
-The host test plays 12 s of sound per configuration (44.1 / 48 / 96 kHz, buffers from 64 to 2048), with random automation, MIDI and a state save/reload, then runs the 60 presets (the tail must ring, stay finite and stay below 0 dBFS). Results on Apple Silicon:
+The host test plays 12 s of sound per configuration (44.1 / 48 / 96 kHz, buffers from 64 to 2048), with random automation, MIDI and a state save/reload, then runs the 60 presets (the tail must ring, stay finite and stay below 0 dBFS).
+
+**Updates do not break your work.** `plugin/HostTest/compat/` keeps sessions saved by each release (factory presets, and presets with knobs moved at random). Every build reloads them and must show each knob at the same value, with the same order and MOTION targets, or the test fails. When a knob's range changes (v0.1.6: LOW CUT / HIGH CUT), saved positions are converted on load so they keep the same frequency; user preset files go through the same conversion, and a knob added later starts where it changes nothing for an older session (GAIN STAGING stays off in a session saved before it existed). With each release, save new reference sessions: `stasis_hosttest STASIS.vst3 --dump-state plugin/HostTest/compat/v0.1.6`. Results on Apple Silicon:
 
 | Measurement | Result |
 |---|---|

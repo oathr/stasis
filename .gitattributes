@@ -1,0 +1,2 @@
+# Reference sessions for the compatibility test: byte for byte.
+plugin/HostTest/compat/** -text
