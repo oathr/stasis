@@ -62,7 +62,7 @@ juce::WebBrowserComponent::Options StasisEditor::createOptions(Relays& relays) {
                            }
                            auto* result = new juce::DynamicObject();
                            result->setProperty("list", list);
-                           result->setProperty("current", processor_.getCurrentProgram());
+                           result->setProperty("current", processor_.currentPresetOrInit());
                            complete(juce::var(result));
                        })
                        .withNativeFunction("loadPreset", [this](const juce::Array<juce::var>& args, auto complete) {
@@ -87,6 +87,10 @@ juce::WebBrowserComponent::Options StasisEditor::createOptions(Relays& relays) {
                        .withNativeFunction("setLayout", [this](const juce::Array<juce::var>& args, auto complete) {
                            processor_.layout = !args.isEmpty() && args[0].toString() == "side" ? "side" : "top";
                            applyLayout(true);
+                           complete(juce::var());
+                       })
+                       .withNativeFunction("resetAll", [this](const juce::Array<juce::var>&, auto complete) {
+                           processor_.resetAll();
                            complete(juce::var());
                        })
                        .withNativeFunction("panic", [this](const juce::Array<juce::var>&, auto complete) {
@@ -140,7 +144,7 @@ StasisEditor::StasisEditor(StasisProcessor& p)
         for (const auto& id : processor_.getLaneTargets()) ids.add(id);
         webView_.emitEventIfBrowserIsVisible("stasis_targets", ids);
     };
-    processor_.onPresetChanged = [this] { webView_.emitEventIfBrowserIsVisible("stasis_preset", processor_.getCurrentProgram()); };
+    processor_.onPresetChanged = [this] { webView_.emitEventIfBrowserIsVisible("stasis_preset", processor_.currentPresetOrInit()); };
 
     addAndMakeVisible(webView_);
     webView_.goToURL(juce::WebBrowserComponent::getResourceProviderRoot());
@@ -181,7 +185,9 @@ void StasisEditor::timerCallback() {
     juce::Array<juce::var> lanes, targets;
     for (int i = 0; i < 12; ++i) {
         lanes.add(processor_.engine.laneValue(i));
-        targets.add(processor_.engine.laneTarget(i));
+        juce::Array<juce::var> slots;  // where each of the lane's knobs is now
+        for (int s = 0; s < int(stasis::Engine::kLaneTargets); ++s) slots.add(processor_.engine.laneTarget(i, s));
+        targets.add(slots);
     }
     auto* motion = new juce::DynamicObject();
     motion->setProperty("lanes", lanes);

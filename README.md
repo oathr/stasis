@@ -50,6 +50,7 @@ MIDI IN ─────────┴──────────────
 - **An invisible safety limiter** at the very end: nothing goes above −0.3 dBFS, and if a bug ever produced invalid values (NaN), the output mutes for 0.25 s and the engine resets. Your ears are safe.
 - `FREEZE` holds the reverb: the tail lasts forever, without drifting.
 - `PANIC` (red, top right): instant silence, clears every tail and buffer (reverb, echo, stretch, capture, held notes) and releases FREEZE. Settings, order and MOTION stay as they are.
+- **INIT** (top of the preset list): every knob back to its starting point, MOTION cleared (lane 1 on DRY / WET), default order, tails cleared. The starting points are subtle (a module switched on colours a little, it does not take over) and neutral where there is a neutral: COLOR flat, TILT and HARM at 0, LO-FI off, OFFSET off.
 
 ## The modules
 
@@ -191,16 +192,16 @@ Each lane moves **the knob of your choice**. By default only lane 1 is assigned,
 
 | Control | What it does |
 |---|---|
-| Target | Click the name: a list of knobs, grouped by module in chain order (GLOBAL, SHAPE, DEREZ… COLOR), or *Empty* |
-| `◎` TOUCH | Arms the lane: every assignable knob gets outlined, and clicking one assigns it (Esc to cancel) |
-| `RATE` | FREE: 0.001 to 20 Hz. SYNC: a division of the tempo, 64 bars to 1/32, locked to the song position while playing |
+| Target | Click the name: a list of knobs, grouped by module in chain order (GLOBAL, SHAPE, DEREZ… COLOR, then MOTION), or *Empty*. Shift-click adds or removes a knob without closing the list: a lane moves **up to 4 knobs**, with the same LFO and DEPTH; the lane shows the first one and "+2" |
+| `◎` TOUCH | Arms the lane: every assignable knob gets outlined, including the other lanes' RATE and DEPTH. A click assigns one and disarms; shift-click adds one and stays armed, so 2, 3 or 4 knobs go on in a row (a plain click then adds the last one). Esc cancels |
+| `RATE` / `S` | Each lane has its own switch: free (0.001 to 20 Hz) or `S` lit, a division of the tempo (64 bars to 1/32), locked to the song position while playing |
 | Shape | A click opens the shape menu, with their drawings: sine, triangle, saws, square, S&H, slew, random sine, drunk, Perlin, chaos (Lorenz), breath |
 | An LFO on an LFO | A lane can target another lane's `RATE` or `DEPTH` (MOTION column of the list) |
 | One LFO per knob | Assigning a knob already moved by another lane takes it from that lane |
 | `DEPTH` | How far the lane swings the knob **around where you set it**, as a share of the whole travel: a knob at 20 % with DEPTH 100 % swings from −80 % to 120 %, held inside 0–100 %. At 0 % (the default), the lane does nothing and computes nothing. MOTION never turns DECAY or FEEDBACK endless on its own |
-| `FREE` / `SYNC` | Free rates in Hz, or every lane on the host tempo |
-| `HARD` | Modulations in steps: the moved knobs jump by 1/32 of their travel and COLOR stops gliding, so each step lands at once and clicks, short and on the LFO's rhythm (measured: +47 dB of clicks above 4 kHz compared with the glide) |
-| `MOTION` / `DRIFT` | Global depth, global speed (×0.25 to ×4, FREE only) |
+
+| `HARD` | An amount (0 = off). The moved knobs step (32 steps over the travel at the bottom, 6 at 100 %) and every step **cracks**: a click of a few samples sized by the step and the sound's level, a little apart in stereo; COLOR also stops gliding and kicks its filters. Measured above 4 kHz with a square LFO on SPACE MIX: −77 dB off, −23 dB at 100 % |
+| `MOTION` / `DRIFT` | Global depth, global speed (×0.25 to ×4, free lanes only) |
 
 A modulated knob shows an orange arc over the whole swing, always visible, and a dot that runs along it; hovering a lane outlines its target. Assignments are saved with the project.
 

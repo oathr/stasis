@@ -42,7 +42,8 @@ public:
 
     Engine() {
         for (size_t i = 0; i < laneTarget_.size(); ++i)
-            laneTarget_[i].store(params::kDefaultTargets[i][0] ? params::indexOf(params::kDefaultTargets[i]) : -1);
+            for (size_t s = 0; s < kLaneTargets; ++s)
+                laneTarget_[i][s].store(s == 0 && params::kDefaultTargets[i][0] ? params::indexOf(params::kDefaultTargets[i]) : -1);
     }
 
     void prepare(float sampleRate) {
@@ -76,6 +77,8 @@ public:
         for (auto& b : buffers_) b.assign(kMaxBlock, 0.0f);
         for (auto& b : preSpace_) b.assign(kMaxBlock, 0.0f);
         modulated_.assign(params::all().size(), 0.0f);
+        hardPrevious_.assign(params::all().size(), -1.0f);
+        hardClick_ = 0.0f;
         for (auto& line : grainFbLine_) line.fill(0.0f);
         grainFbPos_ = 0;
         rateOffset_.fill(0.0f);
@@ -84,6 +87,7 @@ public:
             lanes_[i].prepare(sampleRate, uint32_t(i + 1) * 7919u);
             laneRate_[i] = params::indexOf(params::laneId(int(i), "rate"));
             laneShape_[i] = params::indexOf(params::laneId(int(i), "shape"));
+            laneSync_[i] = params::indexOf(params::laneId(int(i), "sync"));
             laneDepth_[i] = params::indexOf(params::laneId(int(i), "depth"));
         }
         rampCoef_ = smoothingCoef(0.03f, sampleRate);
@@ -145,10 +149,12 @@ public:
     // The 12 MOTION lanes, -1..1 (for the UI traces).
     float laneValue(int lane) const { return laneValues_[size_t(lane)].load(std::memory_order_relaxed); }
     // Where each lane has moved its target knob right now (0..1), for the UI.
-    float laneTarget(int lane) const { return laneTargets_[size_t(lane)].load(std::memory_order_relaxed); }
+    float laneTarget(int lane, int slot) const { return laneTargets_[size_t(lane)][size_t(slot)].load(std::memory_order_relaxed); }
     // Which parameter (index in params::all(), -1 = none) a lane moves. Any thread.
-    void setLaneTarget(int lane, int paramIndex) { laneTarget_[size_t(lane)].store(paramIndex, std::memory_order_relaxed); }
-    int laneTargetIndex(int lane) const { return laneTarget_[size_t(lane)].load(std::memory_order_relaxed); }
+    // A lane moves up to kLaneTargets knobs (slots; -1 = empty), all by the same LFO and DEPTH.
+    static constexpr size_t kLaneTargets = 4;
+    void setLaneTarget(int lane, int slot, int paramIndex) { laneTarget_[size_t(lane)][size_t(slot)].store(paramIndex, std::memory_order_relaxed); }
+    int laneTargetIndex(int lane, int slot) const { return laneTarget_[size_t(lane)][size_t(slot)].load(std::memory_order_relaxed); }
 
     // GRAIN events for the UI's grain view.
     int grainEvents(GrainCloud::Event* out, int max, uint32_t& cursor) const { return grain_.readEvents(out, max, cursor); }
@@ -168,12 +174,12 @@ private:
     // MOTION: each lane swings its target around the user's setting (set ± depth).
     // A lane may move another lane's RATE or DEPTH: those read the previous block's
     // modulation (one block late, ~10 ms), so the lanes' order does not matter.
-    // HARD: the moved knobs move in steps of 1/32 and COLOR stops gliding, so each step
-    // lands at once and clicks, short and on the LFO's rhythm.
+    // HARD (amount): the moved knobs move in steps (32 per travel, down to 6 at 100 %) and
+    // COLOR stops gliding and kicks its filters, so each step lands at once and cracks.
     // ppqEnd: song position at the end of this block (tempo sync).
     const float* modulate(const float* values, int n, float bpm, double ppqEnd, bool playing) {
         static const int iOn = params::indexOf("motion_on"), iAmount = params::indexOf("motion_amount"), iDrift = params::indexOf("motion_drift"),
-                         iSync = params::indexOf("motion_sync"), iHard = params::indexOf("motion_hard");
+                         iHard = params::indexOf("motion_hard");
         const bool on = values[iOn] > 0.5f;
         if (!on) {  // MOTION off: nothing runs, the parameters pass as they are
             if (motionWasOn_) for (auto& v : laneValues_) v.store(0.0f, std::memory_order_relaxed);
@@ -185,12 +191,14 @@ private:
         motionWasOn_ = true;
         std::copy(values, values + modulated_.size(), modulated_.begin());
         const float amount = values[iAmount], drift = params::driftScale(values[iDrift]);
-        const bool sync = values[iSync] > 0.5f, hard = values[iHard] > 0.5f;
+        // HARD: 0 = off; the steps get coarser as it rises (32 per travel at the bottom, 6 at the top).
+        const float hard = values[iHard], hardSteps = hard > 0.0f ? std::round(32.0f - 26.0f * hard) : 0.0f;
         const float beatsPerSecond = std::clamp(bpm, 20.0f, 999.0f) / 60.0f;
         for (size_t i = 0; i < lanes_.size(); ++i) {
             const float depth = std::clamp(values[laneDepth_[i]] + depthOffset_[i], 0.0f, 1.0f);
-            const int targetIndex = laneTarget_[i].load(std::memory_order_relaxed);
-            if (depth <= 0.0f || targetIndex < 0) {  // an empty lane, or one at 0 %, does not run
+            bool any = false;
+            for (const auto& slot : laneTarget_[i]) any = any || slot.load(std::memory_order_relaxed) >= 0;
+            if (depth <= 0.0f || !any) {  // an empty lane, or one at 0 %, does not run
                 laneValues_[i].store(0.0f, std::memory_order_relaxed);
                 continue;
             }
@@ -198,7 +206,7 @@ private:
             const float rate = std::clamp(values[laneRate_[i]] + rateOffset_[i], 0.0f, 1.0f);
             lfo.setShape(values[laneShape_[i]]);
             float x;
-            if (sync) {
+            if (values[laneSync_[i]] > 0.5f) {
                 // Locked to the song position while playing, at the tempo otherwise. DRIFT
                 // does not apply: the grid decides.
                 const float beats = params::laneSyncBeats(rate);
@@ -211,9 +219,20 @@ private:
             laneValues_[i].store(x, std::memory_order_relaxed);
             // Around the knob's own position: DEPTH 100 % swings it by the whole travel
             // each way (a knob at 20 % goes from -80 % to 120 %, held inside 0 .. 100 %).
-            float& target = modulated_[size_t(targetIndex)];
-            target = std::clamp(target + amount * depth * x, 0.0f, 1.0f);
-            if (hard) target = std::round(target * 32.0f) / 32.0f;
+            for (const auto& slot : laneTarget_[i]) {
+                const int targetIndex = slot.load(std::memory_order_relaxed);
+                if (targetIndex < 0) continue;
+                float& target = modulated_[size_t(targetIndex)];
+                target = std::clamp(target + amount * depth * x, 0.0f, 1.0f);
+                if (hardSteps > 0.0f) {
+                    target = std::round(target * hardSteps) / hardSteps;
+                    // Each step taken is a crack at the output, sized by the step and by HARD.
+                    float& previous = hardPrevious_[size_t(targetIndex)];
+                    if (previous >= 0.0f && target != previous)
+                        hardClick_ += hard * std::min(1.0f, std::abs(target - previous) * 8.0f) * (target > previous ? 1.0f : -1.0f);
+                    previous = target;
+                }
+            }
         }
         for (size_t i = 0; i < lanes_.size(); ++i) {
             rateOffset_[i] = modulated_[size_t(laneRate_[i])] - values[laneRate_[i]];
@@ -225,8 +244,10 @@ private:
         modulated_[size_t(iDecay)] = std::min(modulated_[size_t(iDecay)], std::max(values[iDecay], 0.97f));
         modulated_[size_t(iFdbk)] = std::min(modulated_[size_t(iFdbk)], std::max(values[iFdbk], 0.95f));
         for (size_t i = 0; i < lanes_.size(); ++i) {
-            const int t = laneTarget_[i].load(std::memory_order_relaxed);
-            laneTargets_[i].store(t >= 0 ? modulated_[size_t(t)] : 0.0f, std::memory_order_relaxed);
+            for (size_t s = 0; s < kLaneTargets; ++s) {
+                const int t = laneTarget_[i][s].load(std::memory_order_relaxed);
+                laneTargets_[i][s].store(t >= 0 ? modulated_[size_t(t)] : 0.0f, std::memory_order_relaxed);
+            }
         }
         return modulated_.data();
     }
@@ -424,7 +445,7 @@ private:
 
         tremSync_ = v(values, iTremSync) > 0.5f;
         tremBeats_ = kDivisionBeats[size_t(std::clamp(echoDivision(v(values, iTremRate)), 0, 13))];
-        const bool hard = v(values, iMotionOn) > 0.5f && v(values, iHard) > 0.5f;
+        const float hard = v(values, iMotionOn) > 0.5f ? v(values, iHard) : 0.0f;
         if (changed({iBass, iBody, iMud, iHarsh, iAir, iHpf, iLpf, iTrem, iTremRate, iTremSync, iHard, iMotionOn}) || (tremSync_ && std::abs(bpm - tremBpm_) > 1.0e-3f)) {
             tremBpm_ = bpm;
             Color::Params p;
@@ -613,6 +634,14 @@ private:
             }
             wl *= makeup_;
             wr *= makeup_;
+            // HARD's cracks: up to 4x the wet's level, gone in ~16 samples, a little apart in stereo.
+            if (hardClick_ != 0.0f) {
+                const float c = 4.0f * std::sqrt(wetLevel_) * makeup_ * hardClick_;
+                wl += c;
+                wr -= 0.7f * c;
+                hardClick_ *= -0.62f;
+                if (std::abs(hardClick_) < 1.0e-3f) hardClick_ = 0.0f;
+            }
             float l = outGain_ * (left[i] + mixGain_ * (wl - left[i]));
             float r = outGain_ * (right[i] + mixGain_ * (wr - right[i]));
             // BYPASS: back to the untouched input (30 ms ramp); the chain keeps running.
@@ -698,15 +727,18 @@ private:
     std::atomic<uint64_t> order_{defaultOrder()};
     std::array<Lfo, 12> lanes_;
     std::array<float, 12> rateOffset_{}, depthOffset_{};
+    std::vector<float> hardPrevious_;  // each knob's last HARD step (-1 = none yet)
+    float hardClick_ = 0.0f;
     static constexpr int kGrainFbDelay = kMaxBlock, kGrainFbMask = 2 * kMaxBlock - 1;
     std::array<std::array<float, 2 * kMaxBlock>, 2> grainFbLine_{};
     int grainFbPos_ = 0;
     float grainFeedback_ = 0.0f;
     bool tremSync_ = false;
     float tremBeats_ = 1.0f, tremBpm_ = 0.0f;  // what other lanes did to each lane's RATE / DEPTH
-    std::array<int, 12> laneRate_{}, laneShape_{}, laneDepth_{};
-    std::array<std::atomic<int>, 12> laneTarget_{};
-    std::array<std::atomic<float>, 12> laneValues_{}, laneTargets_{};
+    std::array<int, 12> laneRate_{}, laneShape_{}, laneDepth_{}, laneSync_{};
+    std::array<std::array<std::atomic<int>, kLaneTargets>, 12> laneTarget_{};
+    std::array<std::atomic<float>, 12> laneValues_{};
+    std::array<std::array<std::atomic<float>, kLaneTargets>, 12> laneTargets_{};
     std::vector<float> modulated_;
     bool motionWasOn_ = false;
 };

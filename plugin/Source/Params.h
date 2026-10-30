@@ -115,18 +115,18 @@ inline const std::vector<Spec>& all() {
         {"shape_on", "Shape On", Kind::Bool, 0.0f},
         {"shape_type", "Shape Type", Kind::Choice, 0.0f, {"Tape", "Tube", "Fold", "Rectify", "Slew", "Bloom"}},
         {"shape_tilt", "Shape Tilt", Kind::Float, 0.5f, {}, [](float t) { return bip(t, 6.0f, " dB"); }},
-        {"shape_drive", "Shape Drive", Kind::Float, 0.2f, {}, pct},
-        {"shape_harm", "Shape Harmonics", Kind::Float, 0.3f, {}, pct},
+        {"shape_drive", "Shape Drive", Kind::Float, 0.15f, {}, pct},
+        {"shape_harm", "Shape Harmonics", Kind::Float, 0.0f, {}, pct},
         // PITCH
         {"pitch_on", "Pitch On", Kind::Bool, 0.0f},
         {"pitch_semi", "Pitch Semitones", Kind::Float, 0.75f, {}, [](float t) { return fmt("%+.0f st", double(pitchSemitones(t))); }},
         {"pitch_shift", "Pitch Shift", Kind::Float, 0.5f, {}, [](float t) { return fmt("%+.1f Hz", double(shiftHz(t))); }},
-        {"pitch_mix", "Pitch Mix", Kind::Float, 0.4f, {}, pct},
+        {"pitch_mix", "Pitch Mix", Kind::Float, 0.25f, {}, pct},
         // AIR
         {"air_on", "Air On", Kind::Bool, 0.0f},
-        {"air_breath", "Air Breath", Kind::Float, 0.3f, {}, pct},
+        {"air_breath", "Air Breath", Kind::Float, 0.15f, {}, pct},
         {"air_width", "Air Width", Kind::Float, 0.67f, {}, [](float t) { return pct(1.5f * t); }},
-        {"air_lofi", "Air Lo-fi", Kind::Float, 0.1f, {}, pct},
+        {"air_lofi", "Air Lo-fi", Kind::Float, 0.0f, {}, pct},
         {"air_smooth", "Air Smooth", Kind::Float, 0.5f, {}, [](float t) { return fmt("%.0f ms", double(airSmoothMs(t))); }},
         {"air_thresh", "Air Threshold", Kind::Float, 0.0f, {}, [](float t) { return fmt("%.0f dB", double(airThresholdDb(t))); }},
         // GRAIN
@@ -138,7 +138,7 @@ inline const std::vector<Spec>& all() {
         {"grain_div", "Grain Division", Kind::Float, 5.0f / 13.0f, {}, [](float t) { return std::string(kDivisionNames[size_t(echoDivision(t))]); }},
         {"grain_chance", "Grain Chance", Kind::Float, 0.7f, {}, pct},
         {"grain_size", "Grain Size", Kind::Float, 0.45f, {}, [](float t) { return fmt("%.0f ms", double(grainSizeMs(t))); }},
-        {"grain_mix", "Grain Mix", Kind::Float, 0.7f, {}, pct},
+        {"grain_mix", "Grain Mix", Kind::Float, 0.35f, {}, pct},
         {"grain_fdbk", "Grain Feedback", Kind::Float, 0.0f, {}, pct},
         // Allowed transpositions, in semitones from the sound (GrainCloud::kIntervals, in order).
         {"grain_m12", "Grain -12", Kind::Bool, 0.0f}, {"grain_m7", "Grain -7", Kind::Bool, 0.0f},
@@ -149,40 +149,40 @@ inline const std::vector<Spec>& all() {
         // DEREZ (before SPACE)
         {"derez_on", "Derez On", Kind::Bool, 0.0f},
         {"derez_interval", "Derez Interval", Kind::Float, 0.5f, {}, [](float t) { return fmt("%+.0f st", double(derezSemitones(t))); }},
-        {"derez_crush", "Derez Rate", Kind::Float, 0.4f, {}, [](float t) { return "n=" + std::to_string(derezMultiple(t)); }},
-        {"derez_bits", "Derez Bits", Kind::Float, 0.45f, {}, [](float t) { return fmt("%.1f", derezBits(t)); }},
+        {"derez_crush", "Derez Rate", Kind::Float, 0.6f, {}, [](float t) { return "n=" + std::to_string(derezMultiple(t)); }},
+        {"derez_bits", "Derez Bits", Kind::Float, 0.7f, {}, [](float t) { return fmt("%.1f", derezBits(t)); }},
         {"derez_smooth", "Derez Smooth", Kind::Float, 0.7f, {}, pct},
-        {"derez_mix", "Derez Mix", Kind::Float, 0.7f, {}, pct},
+        {"derez_mix", "Derez Mix", Kind::Float, 0.35f, {}, pct},
         // STRETCH
         {"stretch_on", "Stretch On", Kind::Bool, 0.0f},
         // STRETCH is BLUR only: MEMORY = how long the pad remembers what was played.
         {"stretch_factor", "Stretch Memory", Kind::Float, 0.3f, {}, [](float t) { return fmt(blurMemory(t) < 10.0f ? "%.1f s" : "%.0f s", double(blurMemory(t))); }},
-        {"stretch_mix", "Stretch Mix", Kind::Float, 0.5f, {}, pct},
+        {"stretch_mix", "Stretch Mix", Kind::Float, 0.35f, {}, pct},
         // ECHO
         {"echo_on", "Echo On", Kind::Bool, 1.0f},
         {"echo_mode", "Echo Mode", Kind::Choice, 1.0f, {"Mono", "Ping-pong"}},
         {"echo_sync", "Echo Sync", Kind::Choice, 1.0f, {"Free", "Sync"}},
         {"echo_time", "Echo Time", Kind::Float, 0.55f, {}, [](float t) { return fmt("%.0f ms", echoTimeMs(t)); }},
         {"echo_div", "Echo Division", Kind::Float, 9.0f / 13.0f, {}, [](float t) { return std::string(kDivisionNames[size_t(echoDivision(t))]); }},
-        {"echo_fdbk", "Echo Feedback", Kind::Float, 0.6f, {}, pct},
-        {"echo_mix", "Echo Mix", Kind::Float, 0.35f, {}, pct},
+        {"echo_fdbk", "Echo Feedback", Kind::Float, 0.4f, {}, pct},
+        {"echo_mix", "Echo Mix", Kind::Float, 0.25f, {}, pct},
         // SPACE
         {"space_on", "Space On", Kind::Bool, 1.0f},
-        {"space_type", "Space Type", Kind::Choice, 3.0f, {"Room", "Plate", "Hall", "Cathedral", "Bloom", "Resonator"}},
-        {"space_size", "Space Size", Kind::Float, 0.9f, {}, [](float t) { return fmt("%.2f", t); }},
-        {"space_decay", "Space Decay", Kind::Float, 0.75f, {}, [](float t) { return t > 0.98f ? std::string("inf") : fmt("%.1f s", decaySeconds(t)); }},
+        {"space_type", "Space Type", Kind::Choice, 2.0f, {"Room", "Plate", "Hall", "Cathedral", "Bloom", "Resonator"}},
+        {"space_size", "Space Size", Kind::Float, 0.6f, {}, [](float t) { return fmt("%.2f", t); }},
+        {"space_decay", "Space Decay", Kind::Float, 0.5f, {}, [](float t) { return t > 0.98f ? std::string("inf") : fmt("%.1f s", decaySeconds(t)); }},
         {"space_tone", "Space Tone", Kind::Float, 0.45f, {}, pct},
         {"space_mod", "Space Mod", Kind::Float, 0.5f, {}, pct},
         {"space_pre", "Space Predelay", Kind::Float, 0.3f, {}, [](float t) { return fmt("%.0f ms", predelayMs(t)); }},
-        {"space_mix", "Space Mix", Kind::Float, 0.6f, {}, pct},
+        {"space_mix", "Space Mix", Kind::Float, 0.3f, {}, pct},
         {"shimmer_depth", "Shimmer Depth", Kind::Float, 0.0f, {}, pct},
         {"shimmer_pitch", "Shimmer Pitch", Kind::Float, 0.75f, {}, [](float t) { return bip(t, 24.0f, " st", "%+.0f"); }},
         {"space_width", "Space Width", Kind::Float, 0.67f, {}, [](float t) { return pct(1.5f * t); }},
         // FOCUS (zero latency, MIDI or AUTO)
         {"focus_on", "Focus On", Kind::Bool, 0.0f},
         {"focus_mode", "Focus Mode", Kind::Choice, 0.0f, {"Key", "Harm", "Auto"}},
-        {"focus_amount", "Focus Amount", Kind::Float, 0.6f, {}, pct},
-        {"focus_depth", "Focus Depth", Kind::Float, 0.9f, {}, pct},
+        {"focus_amount", "Focus Amount", Kind::Float, 0.35f, {}, pct},
+        {"focus_depth", "Focus Depth", Kind::Float, 0.6f, {}, pct},
         {"focus_mix", "Focus Mix", Kind::Float, 1.0f, {}, pct},
         // COLOR + TONAL
         {"color_on", "Color On", Kind::Bool, 1.0f},
@@ -214,9 +214,9 @@ inline const std::vector<Spec>& all() {
                                return fmt(hz < 0.1f ? "%.3f Hz" : hz < 1.0f ? "%.2f Hz" : "%.1f Hz", hz); }});
             all.push_back({laneId(i, "shape"), name + " Shape", Kind::Choice, float(lane.shape), shapes});
             all.push_back({laneId(i, "depth"), name + " Depth", Kind::Float, 0.0f, {}, pct});
+            all.push_back({laneId(i, "sync"), name + " Sync", Kind::Choice, 0.0f, {"Free", "Sync"}});
         }
-        all.push_back({"motion_sync", "Motion Sync", Kind::Choice, 0.0f, {"Free", "Sync"}});
-        all.push_back({"motion_hard", "Motion Hard", Kind::Bool, 0.0f});
+        all.push_back({"motion_hard", "Motion Hard", Kind::Float, 0.0f, {}, pct});
         return all;
     }();
     return withLanes;
