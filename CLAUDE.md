@@ -31,6 +31,10 @@ signature viendront plus tard.
 - Test d'hôte : `stasis_hosttest <STASIS.vst3>` charge le VST3 comme un DAW (44,1 / 48 /
   96 kHz, buffers de 64 à 2048, automation aléatoire, MIDI, état, les 60 presets).
   `--no-timing` pour une machine chargée.
+- Après chaque push, vérifier que **les deux** jobs de la CI passent (`gh run list`) :
+  MSVC tolère des choses que clang refuse. Exemple réel : un `\r` isolé dans un
+  commentaire (écrit par erreur via une chaîne Python `"\ramp"`) passait sous Windows
+  et cassait la compilation macOS.
 - Un commit par changement cohérent, message en anglais, terminé par la ligne
   `Co-Authored-By` habituelle. Dépôt : https://github.com/oathr/stasis (privé),
   branche `main`.
