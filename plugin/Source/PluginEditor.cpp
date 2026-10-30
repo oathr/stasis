@@ -8,6 +8,7 @@ namespace {
 
 constexpr int kWidth = 1251, kHeight = 934;  // the page (1500 x 1120) scaled: same proportions, no side bands
 constexpr int kSideWidth = 1455, kSideHeight = 814;  // the same, visualizer on the right (page 1744 x 976)
+constexpr int kMotionFold = 228;  // page px MOTION gives back when its lanes are closed (272 -> 44)
 constexpr int kBands = 96;                     // spectrum rows sent to the visual (MIDI 30 .. 118)
 
 std::optional<juce::WebBrowserComponent::Resource> getResource(const juce::String& url) {
@@ -63,6 +64,10 @@ juce::WebBrowserComponent::Options StasisEditor::createOptions(Relays& relays) {
                            auto* result = new juce::DynamicObject();
                            result->setProperty("list", list);
                            result->setProperty("current", processor_.currentPresetOrInit());
+                           juce::Array<juce::var> user;
+                           for (const auto& n : StasisProcessor::userPresets()) user.add(n);
+                           result->setProperty("user", user);
+                           result->setProperty("userName", processor_.userPresetName);
                            complete(juce::var(result));
                        })
                        .withNativeFunction("loadPreset", [this](const juce::Array<juce::var>& args, auto complete) {
@@ -89,8 +94,44 @@ juce::WebBrowserComponent::Options StasisEditor::createOptions(Relays& relays) {
                            applyLayout(true);
                            complete(juce::var());
                        })
+                       // User presets: files in Documents/STASIS/Presets.
+                       .withNativeFunction("saveUserPreset", [this](const juce::Array<juce::var>& args, auto complete) {
+                           complete(!args.isEmpty() && processor_.saveUserPreset(args[0].toString()));
+                           sendUserPresets();
+                       })
+                       .withNativeFunction("loadUserPreset", [this](const juce::Array<juce::var>& args, auto complete) {
+                           const bool ok = !args.isEmpty() && processor_.loadPresetFile(StasisProcessor::userPresetFolder().getChildFile(juce::File::createLegalFileName(args[0].toString()) + ".stasis"));
+                           complete(ok);
+                           sendUserPresets();
+                       })
+                       .withNativeFunction("deleteUserPreset", [this](const juce::Array<juce::var>& args, auto complete) {
+                           complete(!args.isEmpty() && processor_.deleteUserPreset(args[0].toString()));
+                           sendUserPresets();
+                       })
+                       .withNativeFunction("exportPreset", [this](const juce::Array<juce::var>&, auto complete) {
+                           const auto name = processor_.userPresetName.isNotEmpty() ? processor_.userPresetName : juce::String("STASIS preset");
+                           chooser_ = std::make_unique<juce::FileChooser>("Export the preset", juce::File::getSpecialLocation(juce::File::userDesktopDirectory).getChildFile(name + ".stasis"), "*.stasis");
+                           chooser_->launchAsync(juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::warnAboutOverwriting, [this](const juce::FileChooser& fc) {
+                               if (fc.getResult() != juce::File()) processor_.exportPreset(fc.getResult().withFileExtension("stasis"));
+                           });
+                           complete(juce::var());
+                       })
+                       .withNativeFunction("importPreset", [this](const juce::Array<juce::var>&, auto complete) {
+                           chooser_ = std::make_unique<juce::FileChooser>("Import a preset", juce::File::getSpecialLocation(juce::File::userDesktopDirectory), "*.stasis");
+                           chooser_->launchAsync(juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles, [this](const juce::FileChooser& fc) {
+                               if (fc.getResult().existsAsFile()) processor_.importPreset(fc.getResult());
+                               sendUserPresets();
+                           });
+                           complete(juce::var());
+                       })
                        .withNativeFunction("resetAll", [this](const juce::Array<juce::var>&, auto complete) {
                            processor_.resetAll();
+                           complete(juce::var());
+                       })
+                       .withNativeFunction("getMotionOpen", [this](const juce::Array<juce::var>&, auto complete) { complete(processor_.motionOpen); })
+                       .withNativeFunction("setMotionOpen", [this](const juce::Array<juce::var>& args, auto complete) {
+                           processor_.motionOpen = args.isEmpty() || bool(args[0]);
+                           applyLayout(true);
                            complete(juce::var());
                        })
                        .withNativeFunction("panic", [this](const juce::Array<juce::var>&, auto complete) {
@@ -144,7 +185,10 @@ StasisEditor::StasisEditor(StasisProcessor& p)
         for (const auto& id : processor_.getLaneTargets()) ids.add(id);
         webView_.emitEventIfBrowserIsVisible("stasis_targets", ids);
     };
-    processor_.onPresetChanged = [this] { webView_.emitEventIfBrowserIsVisible("stasis_preset", processor_.currentPresetOrInit()); };
+    processor_.onPresetChanged = [this] {
+        sendUserPresets();
+        webView_.emitEventIfBrowserIsVisible("stasis_preset", processor_.currentPresetOrInit());
+    };
 
     addAndMakeVisible(webView_);
     webView_.goToURL(juce::WebBrowserComponent::getResourceProviderRoot());
@@ -156,6 +200,11 @@ StasisEditor::StasisEditor(StasisProcessor& p)
 
 StasisEditor::~StasisEditor() {
     stopTimer();
+    if (processor_.editorScale > 0.0) {
+        juce::PropertiesFile settings(settingsOptions());
+        settings.setValue("editorScale", processor_.editorScale);
+        settings.saveIfNeeded();
+    }
     processor_.onOrderChanged = nullptr;
     processor_.onPresetChanged = nullptr;
 }
@@ -163,12 +212,27 @@ StasisEditor::~StasisEditor() {
 // Window limits and proportions for the current layout. keepScale: same zoom as now.
 void StasisEditor::applyLayout(bool keepScale) {
     const bool side = processor_.layout == "side";
-    const int w = side ? kSideWidth : kWidth, h = side ? kSideHeight : kHeight;
-    const double scale = keepScale && layoutWidth_ > 0 ? double(getWidth()) / layoutWidth_ : 0.8;
+    const int w = side ? kSideWidth : kWidth;
+    const int h = (side ? kSideHeight : kHeight) - (processor_.motionOpen ? 0 : kMotionFold * kHeight / 1120);
+    // Same zoom as now when switching layout; on opening, the zoom it was left at (this
+    // project's, else the last one used anywhere), else 80 %.
+    double scale = keepScale && layoutWidth_ > 0 ? double(getWidth()) / layoutWidth_ : processor_.editorScale;
+    if (scale <= 0.0) scale = juce::PropertiesFile(settingsOptions()).getDoubleValue("editorScale", 0.8);
+    scale = juce::jlimit(0.5, 1.5, scale);
     layoutWidth_ = w;
     setResizeLimits(w / 2, h / 2, w * 3 / 2, h * 3 / 2);
     getConstrainer()->setFixedAspectRatio(double(w) / h);
     setSize(int(w * scale), int(h * scale));
+}
+
+// The user presets and the one loaded (if any), for the preset menu.
+void StasisEditor::sendUserPresets() {
+    auto* user = new juce::DynamicObject();
+    juce::Array<juce::var> list;
+    for (const auto& n : StasisProcessor::userPresets()) list.add(n);
+    user->setProperty("list", list);
+    user->setProperty("name", processor_.userPresetName);
+    webView_.emitEventIfBrowserIsVisible("stasis_user_presets", juce::var(user));
 }
 
 void StasisEditor::sendOrder() {
@@ -177,7 +241,23 @@ void StasisEditor::sendOrder() {
     webView_.emitEventIfBrowserIsVisible("stasis_order", names);
 }
 
-void StasisEditor::resized() { webView_.setBounds(getLocalBounds()); }
+void StasisEditor::resized() {
+    webView_.setBounds(getLocalBounds());
+    // Remember the zoom in the project (and, on closing, for the next new window).
+    if (layoutWidth_ > 0) processor_.editorScale = double(getWidth()) / layoutWidth_;
+}
+
+// STASIS's own settings file (%APPDATA%\STASIS\settings.xml on Windows), written by hand only
+// (no save timer: the plugin may be unloaded at any time).
+juce::PropertiesFile::Options StasisEditor::settingsOptions() {
+    juce::PropertiesFile::Options o;
+    o.applicationName = "settings";
+    o.folderName = "STASIS";
+    o.filenameSuffix = ".xml";
+    o.osxLibrarySubFolder = "Application Support";
+    o.millisecondsBeforeSaving = -1;
+    return o;
+}
 
 void StasisEditor::timerCallback() {
     sendSpectrum();

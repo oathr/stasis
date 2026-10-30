@@ -9,9 +9,9 @@ FetchContent_MakeAvailable(JUCE)
 
 juce_add_plugin(Stasis
   PRODUCT_NAME "STASIS"
-  COMPANY_NAME "Pando Studio"
-  BUNDLE_ID "com.pandostudio.stasis"
-  PLUGIN_MANUFACTURER_CODE Pndo
+  COMPANY_NAME "Oathr"
+  BUNDLE_ID "com.oathr.stasis"
+  PLUGIN_MANUFACTURER_CODE Oatr
   PLUGIN_CODE Stsi
   FORMATS VST3 Standalone
   IS_SYNTH FALSE

@@ -111,6 +111,8 @@ inline const std::vector<Spec>& all() {
         {"bypass", "Bypass", Kind::Bool, 0.0f},
         // OFFSET: the wet's right channel a few ms behind the left (Haas): width without touching the dry.
         {"offset", "Stereo Offset", Kind::Float, 0.0f, {}, [](float t) { return t <= 0.0f ? std::string("off") : fmt("%.1f ms", double(offsetMs(t))); }},
+        {"glue", "Glue", Kind::Float, 0.3f, {}, [](float t) { return t <= 0.0f ? std::string("off") : pct(t); }},
+        {"gain_staging", "Gain Staging", Kind::Bool, 0.0f},
         // SHAPE
         {"shape_on", "Shape On", Kind::Bool, 0.0f},
         {"shape_type", "Shape Type", Kind::Choice, 0.0f, {"Tape", "Tube", "Fold", "Rectify", "Slew", "Bloom"}},
@@ -140,6 +142,7 @@ inline const std::vector<Spec>& all() {
         {"grain_size", "Grain Size", Kind::Float, 0.45f, {}, [](float t) { return fmt("%.0f ms", double(grainSizeMs(t))); }},
         {"grain_mix", "Grain Mix", Kind::Float, 0.35f, {}, pct},
         {"grain_fdbk", "Grain Feedback", Kind::Float, 0.0f, {}, pct},
+        {"grain_reverse", "Grain Reverse", Kind::Float, 0.0f, {}, [](float t) { return t <= 0.0f ? std::string("forward") : t >= 1.0f ? std::string("reverse") : fmt("%.0f %% rev", 100.0 * t); }},
         // Allowed transpositions, in semitones from the sound (GrainCloud::kIntervals, in order).
         {"grain_m12", "Grain -12", Kind::Bool, 0.0f}, {"grain_m7", "Grain -7", Kind::Bool, 0.0f},
         {"grain_m5", "Grain -5", Kind::Bool, 0.0f},   {"grain_m3", "Grain -3", Kind::Bool, 0.0f},
