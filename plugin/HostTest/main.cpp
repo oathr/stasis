@@ -450,14 +450,14 @@ int main(int argc, char** argv) {
         };
         // HARD on an LFO: lane 1 (square, 4 Hz, 30 %) on SPACE MIX, set through the state as a
         // project would; every step it takes must crack at the output.
-        const auto lfoRun = [&](float hard, bool spaceOn = true) {
+        const auto lfoRun = [&](float hard, bool spaceOn = true, const char* target = "space_mix", float depth = 0.3f) {
             auto inst = formats.createPluginInstance(*found[0], 48000.0, 512, error);
             inst->setPlayConfigDetails(2, 2, 48000.0, 512);
             inst->prepareToPlay(48000.0, 512);
             for (auto* p : inst->getParameters()) p->setValueNotifyingHost(p->getDefaultValue());
             juce::MemoryBlock state;
             inst->getStateInformation(state);
-            state = withStateAttribute(state, "targets", "space_mix,,,,,,,,,,,");
+            state = withStateAttribute(state, "targets", juce::String(target) + ",,,,,,,,,,,");
             inst->setStateInformation(state.getData(), int(state.getSize()));
             const auto setL = [&](const juce::String& name, float value) {
                 for (auto* p : inst->getParameters())
@@ -465,7 +465,7 @@ int main(int argc, char** argv) {
                 fail("no parameter " + name);
             };
             setL("Echo On", 0.0f), setL("Color On", 0.0f), setL("Space On", spaceOn ? 1.0f : 0.0f), setL("Space Mix", 0.5f);
-            setL("Motion 1 Shape", 4.0f / 11.0f), setL("Motion 1 Rate", float(std::log(4.0 / 0.001) / std::log(20000.0))), setL("Motion 1 Depth", 0.3f);
+            setL("Motion 1 Shape", 4.0f / 11.0f), setL("Motion 1 Rate", float(std::log(4.0 / 0.001) / std::log(20000.0))), setL("Motion 1 Depth", depth);
             setL("Motion Hard", hard);
             juce::AudioBuffer<float> buffer(2, 512);
             juce::MidiBuffer midi;
@@ -494,6 +494,13 @@ int main(int argc, char** argv) {
         const double lfoIdle = lfoRun(1.0f, false);
         std::printf("  same, SPACE off:                  HARD 100 %% %+6.1f dB\n", lfoIdle);
         if (lfoIdle > lfoSoft + 3.0) fail("an LFO moves a knob of a module that is off");
+        // SIZE jumping (square LFO, 4 Hz, ±30 %) under a tone: the lengths glide, no crackle.
+        const double sizeStill = lfoRun(0.0f, true, "space_size", 0.0f), sizeMoved = lfoRun(0.0f, true, "space_size", 0.3f);
+        const double preStill = lfoRun(0.0f, true, "space_pre", 0.0f), preMoved = lfoRun(0.0f, true, "space_pre", 0.3f);
+        std::printf("  SPACE SIZE jumping:   above 4 kHz %+6.1f dB (still %+6.1f)\n", sizeMoved, sizeStill);
+        std::printf("  SPACE PRE jumping:    above 4 kHz %+6.1f dB (still %+6.1f)\n", preMoved, preStill);
+        // PRE bends the pitch while it glides (Doppler, physical): a looser bound. v0.1.5: -24 / -45 dB.
+        if (sizeMoved > sizeStill + 10.0 || preMoved > preStill + 15.0) fail("moving SIZE or PRE crackles");
 
         const double glide = colorRun(false), hardClicks = colorRun(true);
         if (glide > -60.0) fail("COLOR crackles when its knobs move");
@@ -729,6 +736,56 @@ int main(int argc, char** argv) {
             std::printf("  %-8s %+5.1f   %+5.1f   tilt %+5.1f dB\n", shapes[t], row[0], row[1], row[2]);
         }
         if (loudest > 1.0) fail("SHAPE makes the sound louder");
+
+        // SHAPE aliasing: a 5 kHz sine at -6 dBFS, DRIVE 100 %. Harmonics above 24 kHz fold
+        // back to frequencies that are not multiples of 5 kHz: their energy against the tone.
+        std::printf("\nSHAPE aliasing (5 kHz at -6 dBFS, DRIVE 100 %%):");
+        for (int t = 0; t < 6; ++t) {
+            auto inst = formats.createPluginInstance(*found[0], 48000.0, 512, error);
+            inst->setPlayConfigDetails(2, 2, 48000.0, 512);
+            inst->prepareToPlay(48000.0, 512);
+            for (auto* p : inst->getParameters()) p->setValueNotifyingHost(p->getDefaultValue());
+            const auto setA = [&](const juce::String& name, float value) {
+                for (auto* p : inst->getParameters())
+                    if (p->getName(64) == name) return p->setValueNotifyingHost(value);
+                fail("no parameter " + name);
+            };
+            for (const char* m : {"Echo", "Space", "Color"}) setA(juce::String(m) + " On", 0.0f);
+            setA("Shape On", 1.0f), setA("Shape Type", float(t) / 5.0f), setA("Shape Drive", 1.0f), setA("Glue", 0.0f), setA("Motion On", 0.0f);
+            juce::AudioBuffer<float> buffer(2, 512);
+            juce::MidiBuffer midi;
+            std::vector<float> out;
+            for (int b = 0, s = 0; b < int(2.0 * 48000 / 512); ++b) {
+                for (int i = 0; i < 512; ++i, ++s) {
+                    const float v = 0.5f * float(std::sin(2.0 * juce::MathConstants<double>::pi * 5000.0 * s / 48000.0));
+                    buffer.setSample(0, i, v), buffer.setSample(1, i, v);
+                }
+                inst->processBlock(buffer, midi);
+                out.insert(out.end(), buffer.getReadPointer(0), buffer.getReadPointer(0) + 512);
+            }
+            inst->releaseResources();
+            out.erase(out.begin(), out.end() - 24000);
+            const auto power = [&](double f) {
+                const double w = 2.0 * juce::MathConstants<double>::pi * f / 48000.0, k = 2.0 * std::cos(w);
+                double s1 = 0.0, s2 = 0.0;
+                for (const float x : out) {
+                    const double s = x + k * s1 - s2;
+                    s2 = s1, s1 = s;
+                }
+                return s1 * s1 + s2 * s2 - k * s1 * s2;
+            };
+            double aliases = 0.0;
+            for (int h = 5; h <= 19; ++h) {
+                double f = std::fmod(h * 5000.0, 48000.0);
+                if (f > 24000.0) f = 48000.0 - f;
+                if (std::fmod(f, 5000.0) != 0.0) aliases += power(f);
+            }
+            double total = 0.0;
+            for (const float x : out) total += double(x) * x;
+            total *= double(out.size()) / 2.0;  // Goertzel power scale for a whole-cycle tone
+            std::printf("  %s %+5.1f dB", shapes[t], 10.0 * std::log10((aliases + 1e-30) / (total + 1e-30)));
+        }
+        std::printf("\n");
         const char* types[] = {"Room", "Plate", "Hall", "Cathedral", "Bloom", "Resonator"};
         for (int t = 0; t < 6; ++t) {
             const double atMix = moduleLevel("Space", [&](const auto& set) { set("Space Type", float(t) / 5.0f); });
@@ -800,6 +857,85 @@ int main(int argc, char** argv) {
             tailSpread = std::max(tailSpread, ratio[2] / ratio[0]);
         }
         (void)attackSpread, (void)tailSpread;
+
+        // SHIMMER +12: 1 s of a 440 Hz tone, then the tail (1.5-3.5 s). Energy on the
+        // octaves it builds (880, 1760 Hz) against between them (1100, 1320, 1540, 2200 Hz):
+        // a clean shimmer keeps its notes, a smeared one fills the gaps.
+        {
+            auto shim = formats.createPluginInstance(*found[0], 48000.0, 512, error);
+            shim->setPlayConfigDetails(2, 2, 48000.0, 512);
+            shim->prepareToPlay(48000.0, 512);
+            for (auto* p : shim->getParameters()) p->setValueNotifyingHost(p->getDefaultValue());
+            const auto setH = [&](const juce::String& name, float value) {
+                for (auto* p : shim->getParameters())
+                    if (p->getName(64) == name) return p->setValueNotifyingHost(value);
+                fail("no parameter " + name);
+            };
+            setH("Echo On", 0.0f), setH("Color On", 0.0f), setH("Space Mix", 1.0f), setH("Glue", 0.0f), setH("Gain Staging", 0.0f), setH("Motion On", 0.0f);
+            setH("Space Type", 0.4f), setH("Space Decay", 0.58f), setH("Shimmer Depth", 0.8f), setH("Shimmer Pitch", 0.75f), setH("Space Tone", 0.5f);
+            juce::AudioBuffer<float> buffer(2, 512);
+            juce::MidiBuffer midi;
+            std::vector<float> tail;
+            for (int b = 0, s = 0; b < int(3.5 * 48000 / 512); ++b) {
+                for (int i = 0; i < 512; ++i, ++s) {
+                    const float v = s < 48000 ? 0.2f * float(std::sin(2.0 * juce::MathConstants<double>::pi * 440.0 * s / 48000.0)) : 0.0f;
+                    buffer.setSample(0, i, v), buffer.setSample(1, i, v);
+                }
+                shim->processBlock(buffer, midi);
+                if (b * 512 >= 72000) tail.insert(tail.end(), buffer.getReadPointer(0), buffer.getReadPointer(0) + 512);
+            }
+            shim->releaseResources();
+            const auto at = [&](double hz) {
+                const double w = 2.0 * juce::MathConstants<double>::pi * hz / 48000.0, k = 2.0 * std::cos(w);
+                double s1 = 0.0, s2 = 0.0;
+                for (const float x : tail) {
+                    const double s = x + k * s1 - s2;
+                    s2 = s1, s1 = s;
+                }
+                return s1 * s1 + s2 * s2 - k * s1 * s2;
+            };
+            const double notes = (at(880.0) + at(1760.0)) / 2.0, gaps = (at(1100.0) + at(1320.0) + at(1540.0) + at(2200.0)) / 4.0;
+            const double clean = 10.0 * std::log10((notes + 1e-20) / (gaps + 1e-20));
+            std::printf("\nSPACE SHIMMER +12 (440 Hz in, HALL): octaves %+5.1f dB above the gaps between them\n", clean);
+            if (clean < 45.0) fail("SHIMMER smears its notes");  // v0.1.5: +52 dB
+        }
+
+        // FREEZE: 1 s of noise, then frozen for 11 s. The held tail must neither fade nor
+        // grow (level 2-3 s against 11-12 s), now that its modulation keeps running.
+        {
+            auto frozen = formats.createPluginInstance(*found[0], 48000.0, 512, error);
+            frozen->setPlayConfigDetails(2, 2, 48000.0, 512);
+            frozen->prepareToPlay(48000.0, 512);
+            for (auto* p : frozen->getParameters()) p->setValueNotifyingHost(p->getDefaultValue());
+            const auto setF = [&](const juce::String& name, float value) {
+                for (auto* p : frozen->getParameters())
+                    if (p->getName(64) == name) return p->setValueNotifyingHost(value);
+                fail("no parameter " + name);
+            };
+            setF("Echo On", 0.0f), setF("Color On", 0.0f), setF("Space Mix", 1.0f), setF("Glue", 0.0f), setF("Gain Staging", 0.0f), setF("Motion On", 0.0f);
+            juce::AudioBuffer<float> buffer(2, 512);
+            juce::MidiBuffer midi;
+            juce::Random noise(5);
+            double early = 0.0, late = 0.0;
+            for (int b = 0; b < int(12.0 * 48000 / 512); ++b) {
+                const double t = b * 512 / 48000.0;
+                if (b == int(48000 / 512)) setF("Freeze", 1.0f);
+                for (int i = 0; i < 512; ++i) {
+                    const float v = t < 1.0 ? 0.1f * (noise.nextFloat() * 2.0f - 1.0f) : 0.0f;
+                    buffer.setSample(0, i, v), buffer.setSample(1, i, v);
+                }
+                frozen->processBlock(buffer, midi);
+                for (int i = 0; i < 512; ++i) {
+                    const double y = buffer.getSample(0, i);
+                    if (t >= 2.0 && t < 3.0) early += y * y;
+                    if (t >= 11.0 && t < 12.0) late += y * y;
+                }
+            }
+            frozen->releaseResources();
+            const double drift = 10.0 * std::log10((late + 1e-20) / (early + 1e-20));
+            std::printf("\nSPACE FREEZE (HALL): level after 11 s against after 2 s %+5.2f dB\n", drift);
+            if (std::abs(drift) > 1.5) fail("FREEZE does not hold its level");
+        }
 
         // BLOOM: a click in; the energy envelope (50 ms windows) must rise to its peak
         // instead of starting there, as HALL does.

@@ -428,16 +428,28 @@ private:
                 plate_.setParams(p);
             } else {
                 // Room, Hall, Cathedral: the type sets the character, SIZE stays free.
+                // ROOM: strong, less diffused early reflections (walls you can place), lean
+                // lows, quicker modulation. HALL: the reference. CATHEDRAL: very diffused,
+                // darker, warmer lows, slow modulation (stone does not wobble).
                 SpaceReverb::Params p;
                 float hfRatio = 0.5f;
                 if (type == 0) {
                     p.earlyLevel = 0.45f;
                     hfRatio = 0.6f;
+                    p.diffusion = 0.62f;
+                    p.bassMultiplier = 0.75f;
+                    p.modRate = 1.1f;
                 } else if (type == 4) {
                     p.earlyLevel = 0.0f;  // BLOOM: nothing at the attack, the feeder brings it in
                 } else if (type == 3) {
                     hfRatio = 0.35f;
                     p.hfCrossoverHz = 3000.0f;
+                    p.diffusion = 0.92f;
+                    p.bassMultiplier = 1.1f;
+                    p.modRate = 0.45f;
+                    p.earlyLevel = 0.15f;
+                } else if (type == 2) {
+                    p.bassMultiplier = 0.95f;
                 }
                 p.size = v(values, iSize);
                 p.decaySeconds = decaySeconds(v(values, iDecay));
