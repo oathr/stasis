@@ -77,7 +77,10 @@ juce::WebBrowserComponent::Options StasisEditor::createOptions(Relays& relays) {
                        })
                        .withNativeFunction("setLaneTarget", [this](const juce::Array<juce::var>& args, auto complete) {
                            if (args.size() >= 2) processor_.setLaneTarget(int(args[0]), args[1].toString());
-                           complete(juce::var());
+                           // Another lane may have let go of that knob: show every lane's target.
+                           juce::Array<juce::var> ids;
+                           for (const auto& id : processor_.getLaneTargets()) ids.add(id);
+                           complete(ids);
                        })
                        // Visualizer on top or on the side: the window takes the page's proportions.
                        .withNativeFunction("getLayout", [this](const juce::Array<juce::var>&, auto complete) { complete(processor_.layout); })

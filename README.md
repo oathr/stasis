@@ -86,7 +86,7 @@ Every type except TAPE runs 2× oversampled; aliasing measured at 3.1 kHz, −3 
 | `SMOOTH` | How smoothly the breath follows the sound: 20 ms (nervous) to 1 s (a slow wave). 140 ms by default |
 | `WIDTH` | Stereo width, from mono to 150 % |
 | `LO-FI` | Worn medium: the top closes (16 → 3.5 kHz), the resolution drops, peaks are rounded |
-| `TREMOLO` / `RATE` | Amplitude wobble (smooth sine, sample-accurate): at 100 % the dips reach silence; 0.5 to 16 Hz |
+| `THRESH` | BREATH only starts above this level (−60 to −6 dBFS, soft knee over ~12 dB): quiet tails stay clean |
 
 ### DEREZ — *tuned* resolution reduction
 Inspired by Airwindows' DeRez, but instead of shifting the pitch chaotically, the reduced sample rate is locked to the note being played: the aliasing lands on a musical interval.
@@ -120,6 +120,7 @@ Replays small slices of what was just played, under an envelope, at random momen
 | `SINE` / `TRI` / `SQUARE` / `PERC` | Envelope of each grain (SQUARE has 2 % ramps, no clicks; PERC attacks fast and decays) |
 | `−12` `−7` `−5` `−3` `0` `+3` `+5` `+7` `+12` | Allowed transpositions, in semitones, relative to the sound itself (no pitch detection needed): `0` = unison, `+7` = a fifth up, `−12` = an octave down. Default: 0, +7, +12 |
 | `FREE` / `SYNC` | FREE: `DENSITY` in grains per second (0.5 to 40). SYNC: `RATE` as a division of the host tempo (1/32 to 1/1, dotted, triplets); in PULSE the grains land on the song's grid, in SCATTER / DRIFT the randomness stays around that rate |
+| `FDBK` | Feedback, 0 to 100 %: the grains go back into the cloud (512 samples later, soft-clipped), so grains are cut from grains: cascades, then a cloud that feeds itself. At 100 % it stays bounded and fades (−56 dB after 9 s of silence) |
 | `CHANCE` | Probability that a scheduled grain actually plays |
 | `SIZE` | 20 ms to 2 s |
 | `MIX` | Blend (at 100 %: the notes only) |
@@ -176,7 +177,9 @@ The notes being followed light up on the module's keyboard.
 | `HARSH` | ±18 dB bell at 3.5 kHz: the glassy edge of shimmers and bright pads |
 | `AIR` | ±24 dB shelf at 7 kHz |
 
-Every word is bipolar: centre = flat, up = boost, down = cut, shown in dB.
+| `TREMOLO` / `RATE` | Amplitude wobble (smooth sine, sample-accurate): at 100 % the dips reach silence. FREE: 0.5 to 16 Hz; SYNC: a division of the tempo (1/32 to 1/1, dotted, triplets), on the song's grid |
+
+Every word is bipolar: centre = flat, up = boost, down = cut, shown in dB. Moves glide over ~20 ms and the moving bands are recomputed every sample: a knob jumping by 22 dB 47 times a second leaves no grit (−76 dB above 4 kHz, the same as the clean tone; it was −50 dB updating every 16 samples).
 | `LOW CUT` / `HIGH CUT` | High-pass 20 Hz – 1 kHz, low-pass 1 – 20 kHz (12 dB/oct, *off* at the ends) |
 | `NOISE ◂▸ TONAL` | Right: keeps only the notes. Left: keeps only the breath and texture. Double-click to centre |
 | `PRE` / `POST` | TONAL before the reverb (it rebuilds its tail from what is left) or after it (the tail itself is filtered) |
@@ -192,11 +195,14 @@ Each lane moves **the knob of your choice**. By default only lane 1 is assigned,
 | `◎` TOUCH | Arms the lane: every assignable knob gets outlined, and clicking one assigns it (Esc to cancel) |
 | `RATE` | FREE: 0.001 to 20 Hz. SYNC: a division of the tempo, 64 bars to 1/32, locked to the song position while playing |
 | Shape | A click opens the shape menu, with their drawings: sine, triangle, saws, square, S&H, slew, random sine, drunk, Perlin, chaos (Lorenz), breath |
+| An LFO on an LFO | A lane can target another lane's `RATE` or `DEPTH` (MOTION column of the list) |
+| One LFO per knob | Assigning a knob already moved by another lane takes it from that lane |
 | `DEPTH` | How far the lane swings the knob **around where you set it**, as a share of the whole travel: a knob at 20 % with DEPTH 100 % swings from −80 % to 120 %, held inside 0–100 %. At 0 % (the default), the lane does nothing and computes nothing. MOTION never turns DECAY or FEEDBACK endless on its own |
 | `FREE` / `SYNC` | Free rates in Hz, or every lane on the host tempo |
+| `HARD` | Modulations in steps: the moved knobs jump by 1/32 of their travel and COLOR stops gliding, so each step lands at once and clicks, short and on the LFO's rhythm (measured: +47 dB of clicks above 4 kHz compared with the glide) |
 | `MOTION` / `DRIFT` | Global depth, global speed (×0.25 to ×4, FREE only) |
 
-A modulated knob shows an orange arc and dot that follow the LFO; hovering a lane outlines its target. Assignments are saved with the project.
+A modulated knob shows an orange arc over the whole swing, always visible, and a dot that runs along it; hovering a lane outlines its target. Assignments are saved with the project.
 
 ## Presets
 60 factory presets, in three families of 20. Each comes with its own MOTION modulations (2 to 4 lanes, matched to the sound), almost all use OFFSET (several move it with an LFO: the pitch wavers like tape), and many use GRAIN. None is endless: FEEDBACK and DECAY stay finite. A new instance starts on **Glacier**. Click the preset name to open the list, ‹ › to step through. They also show up as VST3 *programs* in the host. Loading a preset first clears every tail (like PANIC), so you hear the new preset on its own.

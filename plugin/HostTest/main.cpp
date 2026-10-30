@@ -299,6 +299,86 @@ int main(int argc, char** argv) {
             return db;
         };
         derezRun(0.0f, 0.0f);
+
+        // COLOR moves: a 440 Hz tone, MUD jumping between -11 and +11 dB every 1024 samples
+        // (a square LFO). Gliding, the jumps must leave no crackle above 4 kHz; in HARD
+        // (MOTION) they must click, on purpose.
+        std::printf("\nCOLOR knob jumps (440 Hz in, MUD +-11 dB every 21 ms, energy above 4 kHz):\n");
+        const auto colorRun = [&](bool hard) {
+            auto color = formats.createPluginInstance(*found[0], 48000.0, 512, error);
+            color->setPlayConfigDetails(2, 2, 48000.0, 512);
+            color->prepareToPlay(48000.0, 512);
+            for (auto* p : color->getParameters()) p->setValueNotifyingHost(p->getDefaultValue());
+            const auto setC = [&](const juce::String& name, float value) {
+                for (auto* p : color->getParameters())
+                    if (p->getName(64) == name) return p->setValueNotifyingHost(value);
+                fail("no parameter " + name);
+            };
+            setC("Echo On", 0.0f), setC("Space On", 0.0f), setC("Color On", 1.0f), setC("Motion Hard", hard ? 1.0f : 0.0f);
+            juce::AudioBuffer<float> buffer(2, 512);
+            juce::MidiBuffer midi;
+            juce::IIRFilter hp1, hp2;
+            hp1.setCoefficients(juce::IIRCoefficients::makeHighPass(48000.0, 4000.0)), hp2.setCoefficients(juce::IIRCoefficients::makeHighPass(48000.0, 4000.0));
+            double high = 0.0, all = 0.0;
+            for (int b = 0, s = 0; b < int(3.0 * 48000 / 512); ++b) {
+                setC("Color Mud", (b / 2) % 2 ? 0.8f : 0.2f);
+                for (int i = 0; i < 512; ++i, ++s) {
+                    const float v = 0.2f * float(std::sin(2.0 * juce::MathConstants<double>::pi * 440.0 * s / 48000.0));
+                    buffer.setSample(0, i, v), buffer.setSample(1, i, v);
+                }
+                color->processBlock(buffer, midi);
+                for (int i = 0; i < 512; ++i) {
+                    const float y = buffer.getSample(0, i);
+                    const float h = hp2.processSingleSampleRaw(hp1.processSingleSampleRaw(y));
+                    if (b > 10) high += double(h) * h, all += double(y) * y;
+                }
+            }
+            const double db = 10.0 * std::log10((high + 1e-20) / (all + 1e-20));
+            std::printf("  %-6s %+6.1f dB\n", hard ? "HARD" : "glide", db);
+            color->releaseResources();
+            return db;
+        };
+        const double glide = colorRun(false), hardClicks = colorRun(true);
+        if (glide > -60.0) fail("COLOR crackles when its knobs move");
+        if (hardClicks < glide + 15.0) fail("HARD does not click");
+
+        // GRAIN FEEDBACK at 100 %: the cloud feeds itself and must stay bounded and finite.
+        {
+            auto grain = formats.createPluginInstance(*found[0], 48000.0, 512, error);
+            grain->setPlayConfigDetails(2, 2, 48000.0, 512);
+            grain->prepareToPlay(48000.0, 512);
+            for (auto* p : grain->getParameters()) p->setValueNotifyingHost(p->getDefaultValue());
+            const auto setG = [&](const juce::String& name, float value) {
+                for (auto* p : grain->getParameters())
+                    if (p->getName(64) == name) return p->setValueNotifyingHost(value);
+                fail("no parameter " + name);
+            };
+            setG("Echo On", 0.0f), setG("Space On", 0.0f), setG("Color On", 0.0f), setG("Grain On", 1.0f), setG("Grain Mix", 1.0f);
+            setG("Grain Feedback", 1.0f), setG("Grain Density", 0.75f);
+            juce::AudioBuffer<float> buffer(2, 512);
+            juce::MidiBuffer midi;
+            float peak = 0.0f;
+            bool finite = true;
+            double late = 0.0;
+            const int blocks = int(10.0 * 48000 / 512);
+            for (int b = 0, s = 0; b < blocks; ++b) {
+                for (int i = 0; i < 512; ++i, ++s) {
+                    const float v = s < 48000 ? 0.3f * float(std::sin(2.0 * juce::MathConstants<double>::pi * 330.0 * s / 48000.0)) : 0.0f;
+                    buffer.setSample(0, i, v), buffer.setSample(1, i, v);
+                }
+                grain->processBlock(buffer, midi);
+                for (int i = 0; i < 512; ++i) {
+                    const float y = buffer.getSample(0, i);
+                    finite = finite && std::isfinite(y);
+                    peak = std::max(peak, std::abs(y));
+                    if (b > blocks - 94) late += double(y) * y;
+                }
+            }
+            std::printf("\nGRAIN FEEDBACK 100 %% (1 s of tone, then 9 s of silence): peak %+5.1f dBFS, last second %6.1f dB\n",
+                        20.0 * std::log10(std::max(peak, 1.0e-9f)), 10.0 * std::log10(late / (94 * 512) + 1e-20));
+            if (!finite || peak > 1.0f) fail("GRAIN FEEDBACK runs away");
+            grain->releaseResources();
+        }
         // OFFSET and BYPASS: every module off so the wet is the input. OFFSET at the top
         // must delay the right channel by 25 ms; BYPASS must give the input back untouched.
         {
