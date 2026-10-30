@@ -2,6 +2,7 @@
 
 #include <array>
 
+#include "color.h"
 #include "common.h"
 
 namespace stasis {
@@ -9,11 +10,18 @@ namespace stasis {
 // Plate after Dattorro, "Effect Design Part 1" (JAES 1997): input diffusers feed a
 // figure-of-eight tank, stereo output from 7 taps per side. Delay lengths are given
 // at the paper's 29761 Hz and scaled to the host rate (and by SIZE).
+//  - DECAY is a real RT60: the tank's gain (applied 4 times per trip round the figure of
+//    eight) is set from the trip's length, so the seconds shown are the seconds heard.
+//  - The tank's delays are read at whole samples (rounded once): an interpolated read
+//    loses treble on every pass, and over a long tail that dulled the plate whatever
+//    TONE said. Only the two modulated allpasses interpolate.
+//  - TONE: damping in Hz (the same at any sample rate) and a tilt on the input.
 class PlateReverb {
 public:
     struct Params {
-        float decay = 0.7f;        // tank feedback 0..0.99 (freeze forces 1)
-        float damping = 0.3f;      // 0 = bright .. 1 = dark
+        float decaySeconds = 5.0f; // RT60, INFINITY = endless (freeze too)
+        float dampingHz = 6000.0f; // tank lowpass, 0 = none
+        float tilt = 0.0f;         // -1 dark .. 1 bright, on the input (TONE)
         float bandwidth = 0.9995f; // input lowpass
         float size = 1.0f;         // 0.5 .. 2 length scale
         float modDepth = 0.5f;     // 0..1 (1 = 16 samples at 29761 Hz, as in the paper)
@@ -43,16 +51,23 @@ public:
         params_ = p;
         scale_ = std::clamp(p.size, 0.5f, 2.0f) * sampleRate_ / 29761.0f;
         for (size_t i = 0; i < 4; ++i) {
-            inputDiffusers_[i].delay = kInputDiffuserLen[i] * scale_;
+            inputDiffusers_[i].delay = std::round(kInputDiffuserLen[i] * scale_);
             inputDiffusers_[i].gain = i < 2 ? 0.75f : 0.625f;
         }
-        const float decay = p.freeze ? 1.0f : std::clamp(p.decay, 0.0f, 0.99f);
+        // One trip round the tank, in seconds; the gain is applied 4 times on the way.
+        const float trip = kTripLength * scale_ / sampleRate_;
+        const float decay = p.freeze || !std::isfinite(p.decaySeconds) ? 1.0f
+                                                                        : std::pow(10.0f, -0.75f * trip / std::max(p.decaySeconds, 0.05f));
         modAllpassL_.gain = modAllpassR_.gain = -0.7f;  // decay diffusion 1 (inverted sign)
-        allpassL_.delay = 1800 * scale_;
-        allpassR_.delay = 2656 * scale_;
+        allpassL_.delay = std::round(1800 * scale_);
+        allpassR_.delay = std::round(2656 * scale_);
+        for (int i = 0; i < 4; ++i) lengths_[size_t(i)] = int(std::lround(kTankLength[size_t(i)] * scale_));
+        const float tilt = std::clamp(p.tilt, -1.0f, 1.0f);
+        lowShelf_.set(SvfEq::Type::LowShelf, 250.0f, 0.5f, -3.0f * tilt, sampleRate_);
+        highShelf_.set(SvfEq::Type::HighShelf, 3000.0f, 0.5f, tilt < 0.0f ? 9.0f * tilt : 5.0f * tilt, sampleRate_);
         allpassL_.gain = allpassR_.gain = std::clamp(decay + 0.15f, 0.25f, 0.5f);  // decay diffusion 2
         decay_ = decay;
-        damping_ = p.freeze ? 0.0f : 0.0005f + 0.7f * std::clamp(p.damping, 0.0f, 1.0f);
+        damping_ = p.freeze || p.dampingHz <= 0.0f ? 1.0f : 1.0f - std::exp(-kTwoPi * std::min(p.dampingHz, 0.45f * sampleRate_) / sampleRate_);
         excursion_ = p.modDepth * 16.0f * sampleRate_ / 29761.0f;
         modInc_ = kTwoPi * p.modRate / sampleRate_;
     }
@@ -70,7 +85,7 @@ public:
                 x = delayed;
             }
             bandwidthState_ += params_.bandwidth * (x - bandwidthState_);
-            x = bandwidthState_;
+            x = highShelf_.process(lowShelf_.process(bandwidthState_));
             for (auto& ap : inputDiffusers_) x = ap.process(x);
 
             modPhase_ += modInc_;
@@ -80,20 +95,20 @@ public:
 
             // Left half of the tank, fed by the end of the right half.
             float a = modAllpassL_.processAt(x + decay_ * tankR_, (672.0f + 16.0f) * scale_ + modL);
-            const float l1 = delayL1_.read(4453.0f * scale_);
+            const float l1 = delayL1_.readInt(lengths_[0]);
             delayL1_.write(a);
-            dampL_ += (1.0f - damping_) * (l1 - dampL_);
+            dampL_ += damping_ * (l1 - dampL_);
             a = allpassL_.process(dampL_ * decay_);
-            tankL_ = delayL2_.read(3720.0f * scale_);
+            tankL_ = delayL2_.readInt(lengths_[1]);
             delayL2_.write(a);
 
             // Right half, fed by the end of the left half.
             float b = modAllpassR_.processAt(x + decay_ * tankLPrev_, (908.0f + 16.0f) * scale_ + modR);
-            const float r1 = delayR1_.read(4217.0f * scale_);
+            const float r1 = delayR1_.readInt(lengths_[2]);
             delayR1_.write(b);
-            dampR_ += (1.0f - damping_) * (r1 - dampR_);
+            dampR_ += damping_ * (r1 - dampR_);
             b = allpassR_.process(dampR_ * decay_);
-            tankR_ = delayR2_.read(3163.0f * scale_);
+            tankR_ = delayR2_.readInt(lengths_[3]);
             delayR2_.write(b);
             tankLPrev_ = tankL_;
 
@@ -108,10 +123,15 @@ public:
 
 private:
     static constexpr std::array<float, 4> kInputDiffuserLen{142.0f, 107.0f, 379.0f, 277.0f};
+    static constexpr std::array<float, 4> kTankLength{4453.0f, 3720.0f, 4217.0f, 3163.0f};  // L1 L2 R1 R2
+    // Both halves: modulated allpass + delay + allpass + delay (paper samples).
+    static constexpr float kTripLength = 672.0f + 4453.0f + 1800.0f + 3720.0f + 908.0f + 4217.0f + 2656.0f + 3163.0f;
 
     float sampleRate_ = 48000.0f;
     Params params_;
-    float scale_ = 1.0f, decay_ = 0.7f, damping_ = 0.3f, excursion_ = 0.0f;
+    float scale_ = 1.0f, decay_ = 0.7f, damping_ = 1.0f, excursion_ = 0.0f;
+    std::array<int, 4> lengths_{};
+    SvfEq lowShelf_, highShelf_;
     float modPhase_ = 0.0f, modInc_ = 0.0f;
     float bandwidthState_ = 0.0f, dampL_ = 0.0f, dampR_ = 0.0f;
     float tankL_ = 0.0f, tankR_ = 0.0f, tankLPrev_ = 0.0f;

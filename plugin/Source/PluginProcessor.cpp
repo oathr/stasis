@@ -127,6 +127,17 @@ void migrateToVersion4(juce::ValueTree& state) {
         param.setProperty("id", "gain_staging", nullptr).setProperty("value", 0.0f, nullptr);
         state.appendChild(param, nullptr);
     }
+    // PLATE: DECAY is now a real RT60 (it was a raw tank gain, 0.3 + 0.69 t, applied 4 times
+    // per trip of 0.725 s x SIZE scale). Same tail length, new position.
+    const auto valueOf = [&](const char* id, float fallback) {
+        return float(state.getChildWithProperty("id", id).getProperty("value", fallback));
+    };
+    if (int(std::lround(valueOf("space_type", 2.0f))) == 1 && valueOf("space_decay", 0.5f) <= 0.98f) {
+        const float trip = 0.7254f * (0.5f + 1.5f * valueOf("space_size", 0.6f));
+        const float gain = 0.3f + 0.69f * valueOf("space_decay", 0.5f);
+        const float rt60 = -0.75f * trip / std::log10(gain);
+        remap("space_decay", 0.5f, [&](float) { return std::clamp(std::log(rt60 / 0.5f) / std::log(120.0f), 0.0f, 0.98f); });
+    }
     // SHAPE now starts last in the chain: a session saved without an order kept the old one.
     if (!state.hasProperty("order")) state.setProperty("order", "shape,derez,pitch,stretch,grain,echo,space,focus,air,color", nullptr);
     remap("color_hpf", 0.0f, [&](float v) { return v * lowCut; });

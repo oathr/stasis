@@ -54,6 +54,7 @@ public:
         pitch_.prepare(sampleRate);
         air_.prepare(sampleRate);
         limiterGain_ = 1.0f;
+        limiterHold_ = 0;
         limiterRelease_ = smoothingCoef(0.15f, sampleRate);
         offsetLine_.fill(0.0f);
         offsetPos_ = 0;
@@ -412,10 +413,14 @@ private:
         if (changed({iType, iSize, iDecay, iTone, iMod, iPre, iShimmer, iShimmerPitch, iWidth, iFreeze})) {
             const int type = int(v(values, iType));
             const float tone = v(values, iTone);
+            // TONE, centred: -1 dark and warm .. 0 as before .. 1 bright and lean. It tilts
+            // the sound going in (heard at once) and shapes how the tail decays.
+            const float tilt = 2.0f * tone - 1.0f;
             if (plateSelected_) {
                 PlateReverb::Params p;
-                p.decay = 0.3f + 0.69f * v(values, iDecay);
-                p.damping = 1.0f - tone;
+                p.decaySeconds = decaySeconds(v(values, iDecay));
+                p.dampingHz = tone >= 0.99f ? 0.0f : 2500.0f * std::pow(6.4f, tone);  // 2.5 kHz .. 16 kHz, then none
+                p.tilt = tilt;
                 p.size = 0.5f + 1.5f * v(values, iSize);
                 p.modDepth = v(values, iMod);
                 p.predelayMs = predelayMs(v(values, iPre));
@@ -436,8 +441,12 @@ private:
                 }
                 p.size = v(values, iSize);
                 p.decaySeconds = decaySeconds(v(values, iDecay));
-                p.hfRatio = std::clamp(hfRatio * (0.4f + 1.2f * tone), 0.05f, 1.0f);
-                p.hfCrossoverHz *= 0.6f + 0.8f * tone;
+                // In the loop: the treble's decay x/÷4 and its crossover x/÷3 around the type's
+                // own, the bass a little longer when dark, shorter when bright.
+                p.hfRatio = std::clamp(hfRatio * std::pow(4.0f, tilt), 0.05f, 1.0f);
+                p.hfCrossoverHz *= std::pow(3.0f, tilt);
+                p.bassMultiplier *= 1.0f - 0.35f * tilt;
+                p.tilt = tilt;
                 p.modDepth = v(values, iMod);
                 p.predelayMs = predelayMs(v(values, iPre));
                 p.shimmer = v(values, iShimmer);
@@ -690,8 +699,9 @@ private:
         visualWrite_.store(w, std::memory_order_release);
     }
 
-    // Safety, invisible: a peak limiter at -0.3 dBFS (instant attack, 150 ms release)
-    // and a guard against NaN/Inf. A non-finite sample mutes the output for 0.25 s and
+    // Safety, invisible: a peak limiter at -0.3 dBFS (instant attack, held 30 ms, 150 ms
+    // release; the hold keeps the gain from riding the wave inside a cycle, which made it a
+    // clipper on bass) and a guard against NaN/Inf. A non-finite sample mutes the output for 0.25 s and
     // asks the plugin to reset the engine, so a bug can never reach the ears.
     void safety(float& l, float& r) {
         if (!std::isfinite(l) || !std::isfinite(r)) {
@@ -706,7 +716,14 @@ private:
         constexpr float kCeiling = 0.966f;  // -0.3 dBFS
         const float peak = std::max(std::abs(l), std::abs(r));
         const float needed = peak > kCeiling ? kCeiling / peak : 1.0f;
-        limiterGain_ = needed < limiterGain_ ? needed : limiterGain_ + (1.0f - limiterGain_) * limiterRelease_;
+        if (needed < limiterGain_ * 1.01f) {  // a peak at the ceiling (or past it) renews the hold
+            limiterGain_ = std::min(limiterGain_, needed);
+            limiterHold_ = int(0.03f * sampleRate_);
+        } else if (limiterHold_ > 0) {
+            --limiterHold_;
+        } else {
+            limiterGain_ += (1.0f - limiterGain_) * limiterRelease_;
+        }
         l = std::clamp(l * limiterGain_, -kCeiling, kCeiling);
         r = std::clamp(r * limiterGain_, -kCeiling, kCeiling);
     }
@@ -722,6 +739,7 @@ private:
     Pitch pitch_;
     Air air_;
     float limiterGain_ = 1.0f, limiterRelease_ = 0.001f;
+    int limiterHold_ = 0;
     int mute_ = 0;
     std::atomic<bool> needsReset_{false};
     PitchedDerez derez_;
