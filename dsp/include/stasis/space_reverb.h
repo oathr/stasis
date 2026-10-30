@@ -29,8 +29,8 @@ namespace stasis {
 //  - No treble lost on the way round: a cubic interpolated read loses a little treble on
 //    every pass (two per pass cost ~2 dB at 12 kHz), which capped the tail's brightness
 //    whatever TONE said. The modulated read is now a first-order allpass interpolation
-//    (flat in level) and the in-line allpass reads at whole samples. The modulation
-//    swing is the same as before, all of it on the line.
+//    (flat in level) and the in-line allpass reads at whole samples (not modulated any
+//    more: the line carries the movement).
 //  - TONE (tilt) also shapes the sound going in: a shelf at 3 kHz (-9 .. +5 dB) and one at
 //    250 Hz (+3 .. -3 dB), heard from the first reflection on.
 class SpaceReverb {
@@ -88,7 +88,10 @@ public:
             modRateJitter_[k] = 0.6f + 0.8f * rng.uniform();
         }
         for (int c = 0; c < 2; ++c) predelay_[c].prepare(int(0.5f * sampleRate) + 8);
-        shifter_.prepare(sampleRate, 2048);
+        // The same window in time at any rate (2048 at 44.1 / 48 kHz, 4096 at 96 kHz).
+        int fft = 2048;
+        while (fft * 48000.0f < 0.75f * 2048.0f * sampleRate && fft < 8192) fft <<= 1;
+        shifter_.prepare(sampleRate, fft);
 
         setParams(params_);
         lengths_ = targetLengths_;
@@ -115,8 +118,8 @@ public:
         const float stageScale = 0.5f + p.size;
         for (int s = 0; s < kStages; ++s)
             for (int c = 0; c < kDiffChannels; ++c)
-                diffuserDelay_[size_t(s)][size_t(c)] = std::max(
-                    1, int(diffuserSlot_[size_t(s)][size_t(c)] * kStageMs[size_t(s)] * stageScale * 0.001f * sampleRate_));
+                diffuserTarget_[size_t(s)][size_t(c)] = float(std::max(
+                    2, int(diffuserSlot_[size_t(s)][size_t(c)] * kStageMs[size_t(s)] * stageScale * 0.001f * sampleRate_)));
         for (auto& hp : inputHighpass_) hp.setCutoff(p.inputHighpassHz, sampleRate_);
         const float tilt = std::clamp(p.tilt, -1.0f, 1.0f);
         for (int c = 0; c < 2; ++c) {
@@ -126,12 +129,18 @@ public:
         const float semitones = std::clamp(p.shimmerSemitones, -24.0f, 24.0f);
         shifter_.setSemitones(semitones);
         // Upward cascades lose their mud, downward ones keep their depth.
-        shimmerHp_.setCutoff(semitones >= 0.0f ? 200.0f : 35.0f, sampleRate_);
-        shimmerLp_.setCutoff(semitones >= 0.0f ? 8000.0f : 12000.0f, sampleRate_);
+        // 12 dB/oct on both sides (a one-pole let the cascade turn harsh pass after pass);
+        // the top follows TONE: 6 kHz upwards at the centre, 3 to 12 kHz.
+        const float shimmerTop = (semitones >= 0.0f ? 6000.0f : 12000.0f) * std::pow(2.0f, std::clamp(p.tilt, -1.0f, 1.0f));
+        shimmerHp_.set(SvfEq::Type::Highpass, semitones >= 0.0f ? 250.0f : 40.0f, 0.707f, 0.0f, sampleRate_);
+        shimmerLp_.set(SvfEq::Type::Lowpass, std::min(shimmerTop, 0.45f * sampleRate_), 0.707f, 0.0f, sampleRate_);
         // The first settings after prepare() apply at once: gliding the line lengths
         // there would bend the pitch of the whole start of the tail (Doppler).
         if (snapNextParams_) {
             lengths_ = targetLengths_;
+            allpassNow_ = allpassLengths_;
+            diffuserDelay_ = diffuserTarget_;
+            predelayNow_ = p.predelayMs * 0.001f * sampleRate_;
             updateLoopGains();
             mod_ = modDepth_;  // start the modulators at their centre
             snapNextParams_ = false;
@@ -140,13 +149,27 @@ public:
 
     void process(const float* inL, const float* inR, float* outL, float* outR, int numSamples) {
         const float glide = smoothingCoef(0.3f, sampleRate_, numSamples);
-        for (int i = 0; i < kLines; ++i) lengths_[size_t(i)] += (targetLengths_[size_t(i)] - lengths_[size_t(i)]) * glide;
-        // Freeze fades the modulation out: modulated reads lose a little treble on every
-        // pass (interpolation), which would slowly drain an endless tail (~2 dB / minute).
-        modScale_ += ((params_.freeze ? 0.0f : 1.0f) - modScale_) * smoothingCoef(0.5f, sampleRate_, numSamples);
+        // SIZE moves every length: they all glide, sample by sample (a step per block is a
+        // click, and inside the loop it goes round and round), and settle on whole samples.
+        const float perSample = 1.0f / float(std::max(numSamples, 1));
+        const auto ramp = [&](float now, float target) {
+            float end = now + (target - now) * glide;
+            if (std::abs(target - end) < 1.0e-3f) end = target;
+            return (end - now) * perSample;
+        };
+        for (int i = 0; i < kLines; ++i) {
+            const size_t k = size_t(i);
+            lengthStep_[k] = ramp(lengths_[k], targetLengths_[k]);
+            allpassStep_[k] = ramp(allpassNow_[k], allpassLengths_[k]);
+        }
+        for (int s = 0; s < kStages; ++s)
+            for (int c = 0; c < kDiffChannels; ++c)
+                diffuserStep_[size_t(s)][size_t(c)] = ramp(diffuserDelay_[size_t(s)][size_t(c)], diffuserTarget_[size_t(s)][size_t(c)]);
         updateLoopGains();
 
-        const float predelay = params_.predelayMs * 0.001f * sampleRate_;
+        // PRE glides per sample (50 ms): moving it bends the pitch a little, never clicks.
+        const float predelayTarget = params_.predelayMs * 0.001f * sampleRate_;
+        const float predelayGlide = smoothingCoef(0.05f, sampleRate_);
         const float inputGain = params_.freeze ? 0.0f : 1.0f;
         const float earlyGain = params_.earlyLevel * 0.5f;
         const float shimmer = params_.shimmer;
@@ -165,8 +188,9 @@ public:
 
             float l = inputHigh_[0].process(inputLow_[0].process(inputHighpass_[0].highpass(inL[n] * inputGain)));
             float r = inputHigh_[1].process(inputLow_[1].process(inputHighpass_[1].highpass(inR[n] * inputGain)));
-            if (predelay >= 2.0f) {
-                const float pl = predelay_[0].read(predelay), pr = predelay_[1].read(predelay);
+            predelayNow_ += (predelayTarget - predelayNow_) * predelayGlide;
+            if (predelayNow_ >= 2.0f || predelayTarget >= 2.0f) {
+                const float pl = predelay_[0].read(std::max(predelayNow_, 2.0f)), pr = predelay_[1].read(std::max(predelayNow_, 2.0f));
                 predelay_[0].write(l);
                 predelay_[1].write(r);
                 l = pl;
@@ -179,7 +203,9 @@ public:
                 auto& stage = diffusers_[size_t(s)];
                 for (int c = 0; c < kDiffChannels; ++c) {
                     const size_t k = size_t(c);
-                    const float delayed = stage[k].readInt(diffuserDelay_[size_t(s)][k]);
+                    diffuserDelay_[size_t(s)][k] += diffuserStep_[size_t(s)][k];
+                    const float at = diffuserDelay_[size_t(s)][k];
+                    const float delayed = at == diffuserTarget_[size_t(s)][k] ? stage[k].readInt(int(at)) : stage[k].read(at);
                     stage[k].write(d[k]);
                     tmp[k] = delayed * diffuserFlip_[size_t(s)][k];
                 }
@@ -194,8 +220,18 @@ public:
             for (int i = 0; i < kLines; ++i) {
                 const size_t k = size_t(i);
                 mod_[k] += modStep_[k];
-                float v = lines_[k].readAllpass(lengths_[k] + 3.0f * mod_[k], interpolation_[k]);
-                v = allpasses_[k].process(v);
+                lengths_[k] += lengthStep_[k];
+                allpassNow_[k] += allpassStep_[k];
+                // The allpass interpolation is for small slow moves (the modulation); while SIZE
+                // glides across many samples it would tick at each whole sample: cubic until settled.
+                float v;
+                if (lengths_[k] == targetLengths_[k]) {
+                    v = lines_[k].readAllpass(lengths_[k] + kLineMod * mod_[k], interpolation_[k]);
+                } else {
+                    v = lines_[k].read(lengths_[k] + kLineMod * mod_[k]);
+                    interpolation_[k] = v;
+                }
+                v = allpasses_[k].processAt(v, allpassNow_[k]);  // whole samples once settled
                 const float low = lowSplit_[k].lowpass(v);
                 const float rest = v - low;
                 const float mid = highSplit_[k].lowpass(rest);
@@ -218,7 +254,7 @@ public:
                 // re-pitched copy. Half of the loop's dimensions: DEPTH 1 is a strong cascade,
                 // and since the shifter's gain is <= 1 the loop stays bounded.
                 const float s = (y[0] + y[1] + y[2] + y[3] + y[4] + y[5] + y[6] + y[7]) * 0.35355339f;
-                const float shifted = shimmerLp_.lowpass(shimmerHp_.highpass(shifter_.process(s)));
+                const float shifted = shimmerLp_.process(shimmerHp_.process(shifter_.process(s)));
                 const float delta = shimmer * (shifted - s) * 0.35355339f;
                 for (size_t k = 0; k < 8; ++k) y[k] += delta;
             }
@@ -233,6 +269,11 @@ public:
             outL[n] = mid + side;
             outR[n] = mid - side;
         }
+        // The ramps end on their targets: snap away the rounding of the sums.
+        const auto land = [](float& now, float target) { if (std::abs(target - now) < 2.0e-3f) now = target; };
+        for (int i = 0; i < kLines; ++i) land(lengths_[size_t(i)], targetLengths_[size_t(i)]), land(allpassNow_[size_t(i)], allpassLengths_[size_t(i)]);
+        for (int s = 0; s < kStages; ++s)
+            for (int c = 0; c < kDiffChannels; ++c) land(diffuserDelay_[size_t(s)][size_t(c)], diffuserTarget_[size_t(s)][size_t(c)]);
     }
 
 private:
@@ -242,6 +283,10 @@ private:
     static constexpr float kMaxLineMs = 210.0f;
     static constexpr float kMaxAllpassMs = 20.0f;
     static constexpr float kMaxModMs = 1.0f;
+    // The whole modulation now rides the line, at the depth the line had alone: the old
+    // extra 2x in the allpass only reached part of the sound. More would smear SHIMMER,
+    // which recirculates every swing (+12: octaves 51 dB above the gaps at 1x, 44 at 3x).
+    static constexpr float kLineMod = 1.0f;
     static constexpr float kDriftCents = 6.0f;     // total tail drift at modDepth 1
     static constexpr float kMaxDriftRt60 = 60.0f;  // freeze / very long tails count as 60 s
     // Freeze uses a 20000 s RT60 rather than exactly 1 (-0.2 dB / minute): endless in practice,
@@ -294,13 +339,16 @@ private:
     bool snapNextParams_ = false;
 
     std::array<std::array<DelayLine, kDiffChannels>, kStages> diffusers_;
-    std::array<std::array<int, kDiffChannels>, kStages> diffuserDelay_{}, diffuserShuffle_{};
+    std::array<std::array<int, kDiffChannels>, kStages> diffuserShuffle_{};
+    std::array<std::array<float, kDiffChannels>, kStages> diffuserDelay_{}, diffuserTarget_{}, diffuserStep_{};
     std::array<std::array<float, kDiffChannels>, kStages> diffuserSlot_{}, diffuserFlip_{};
 
     std::array<DelayLine, kLines> lines_;
     std::array<Allpass, kLines> allpasses_;
     std::array<float, kLines> lengths_{}, targetLengths_{}, lengthJitter_{}, allpassLengths_{}, allpassFraction_{};
     std::array<float, kLines> interpolation_{};  // allpass-interpolation state, per line
+    std::array<float, kLines> allpassNow_{}, allpassStep_{}, lengthStep_{};
+    float predelayNow_ = 0.0f;
     std::array<float, kLines> gainLow_{}, gainMid_{}, gainHigh_{};
     std::array<OnePole, kLines> lowSplit_, highSplit_;
     std::array<Lfo, kLines> modulators_;
@@ -312,7 +360,7 @@ private:
     OnePole inputHighpass_[2];
     SvfEq inputLow_[2], inputHigh_[2];
     SpectralPitchShifter shifter_;
-    OnePole shimmerHp_, shimmerLp_;
+    SvfEq shimmerHp_, shimmerLp_;
 };
 
 }  // namespace stasis

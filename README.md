@@ -43,7 +43,7 @@ MIDI IN ─────────┴──────────────
 - The visualizer at the top shows the actual spectrum of the wet signal.
 - Each module has a switch (the square at the bottom of its spine) with a 30 ms fade, so it never clicks.
 - `DRY / WET` (top, 100 % by default) balances wet against dry; `OUTPUT` sets the output level (±12 dB).
-- `GLUE` (top): the last stage, a soft and slow compressor on the whole output (12 dB soft knee, ratio 1.5:1 to 3:1, 60 ms attack, 600 ms release, stereo-linked RMS). One knob: the threshold goes from −8 to −30 dBFS as it rises; makeup is automatic so a signal at −14 dBFS RMS comes out unchanged. 30 % by default (gentle: +0.9 dB at −20 dBFS), 0 = off and nothing computed.
+- `GLUE` (top): the last stage, a soft and slow compressor on the whole output (12 dB soft knee, ratio 1.5:1 to 3:1, 60 ms attack, 600 ms release, stereo-linked RMS). One knob: the threshold goes from −8 to −30 dBFS as it rises; makeup is automatic so a signal at −20 dBFS RMS comes out unchanged, and quiet tails are lifted by that makeup at most (0 dB at 30 %, +6.7 dB at 100 %; set at −14 dBFS before v0.1.6, it lifted them by up to +10.7 dB). 30 % by default (gentle: −0.9 dB at −14 dBFS), 0 = off and nothing computed.
 - `GAIN STAGING` (on by default): the wet follows the input's loudness **both ways** (−12 to +12 dB), on top of the makeup below that only lifts.
 - `OFFSET` widens the wet signal: its right channel arrives 0 to 25 ms after the left (Haas effect, like Arturia's offset mode). The dry signal is untouched; at 0, nothing is computed.
 - `⏻` (BYPASS): the output goes back to the untouched input, with a 30 ms fade, and the rack dims. The effects keep running underneath, so the tails do not freeze.
@@ -219,34 +219,34 @@ Each lane moves **the knob of your choice**. By default only lane 1 is assigned,
 A modulated knob shows an orange arc over the whole swing, always visible, and a dot that runs along it; hovering a lane outlines its target. Assignments are saved with the project.
 
 ## Presets
-60 factory presets, in three families of 20. Each comes with its own MOTION modulations (2 to 4 lanes, matched to the sound), almost all use OFFSET (several move it with an LFO: the pitch wavers like tape), and many use GRAIN. None is endless: FEEDBACK and DECAY stay finite. A new instance starts on **Glacier**. Click the preset name to open the list, ‹ › to step through. They also show up as VST3 *programs* in the host. Loading a preset first clears every tail (like PANIC), so you hear the new preset on its own.
+80 factory presets, in four families of 20 (ECHO, REVERB, AMBIENT, and GRAIN: grains short and long, pitched, stretched, reversed, crushed by DEREZ, fed back). Each comes with its own MOTION modulations (2 to 4 lanes, matched to the sound), almost all use OFFSET (several move it with an LFO: the pitch wavers like tape), and many use GRAIN. None is endless: FEEDBACK and DECAY stay finite. A new instance starts on **Glacier**. Click the preset name to open the list, ‹ › to step through. They also show up as VST3 *programs* in the host. Loading a preset first clears every tail (like PANIC), so you hear the new preset on its own.
 
 **Your own presets**: the USER column of the preset list. Type a name and SAVE: the preset is a `.stasis` file (readable XML) in `Documents\STASIS\Presets`. Click one to load it (the tails are flushed, like a factory preset), × deletes its file. EXPORT… saves the current sound anywhere, IMPORT… loads a `.stasis` file and adds it to your list.
 
 **In the DAW** (Ableton Live, Reaper, Bitwig…): every knob is an automatable parameter with a clear name ("Space Decay", "Echo Feedback"…) and its value in its unit ("5.5 s", "−6.0 dB", "1/8."). They are grouped by module (GLOBAL, SHAPE… MOTION LFO 1 to 12) where the host shows groups, and a value typed in the host ("500 ms") lands on the knob position that shows it.
 
-| ECHO | REVERB | AMBIENT |
-|---|---|---|
-| Tape Memory | Cathedral 25 | Glacier |
-| Dub Wash | Endless Hall | Frozen Orchard |
-| Cassette | Glass Plate | Dust & Breath |
-| Ping-Pong Garden | Small Room Halo | Tuned Ruins |
-| Infinite Tape | Shimmer Cascade | Pure Tones |
-| Octave Repeats | Fifth Heaven | Monastery Tape |
-| Slow Motion | Underworld | Sub Tide |
-| Shimmer Delay | Dark Matter | Northern Lights |
-| Triplet Rain | Focused Choir | Slow Bloom |
-| Echoes of the Room | Bottomless | Infinite Drone |
-| Grain Bells | Grain Cathedral | Music Box Fog |
-| Tape Stutter | Crystal Hall | Pentatonic Rain |
-| Warped Reel | Shimmer Grains | Hexagon Field |
-| Dotted Haze | Breathing Room | Glass Rain |
-| Slapback Tube | Velvet Plate | Minor Constellation |
-| Fifth Echoes | Ghost Choir | Breathing Pad |
-| Frequency Drift | Dirty Tails | Cloud Chamber |
-| Granular Delay Cloud | Halo Infinity | Fourths Drift |
-| Answering Machine | Serpent | Lunar Tape |
-| Long Goodbye | Sub Cavern | Distant Signals |
+| ECHO | REVERB | AMBIENT | GRAIN |
+|---|---|---|---|
+| Tape Memory | Cathedral 25 | Glacier | Dust Motes |
+| Dub Wash | Endless Hall | Frozen Orchard | Backwards Choir |
+| Cassette | Glass Plate | Dust & Breath | Octave Rain |
+| Ping-Pong Garden | Small Room Halo | Tuned Ruins | Frozen Grains |
+| Infinite Tape | Shimmer Cascade | Pure Tones | Bit Grains |
+| Octave Repeats | Fifth Heaven | Monastery Tape | Long Shadows |
+| Slow Motion | Underworld | Sub Tide | Glitter |
+| Shimmer Delay | Dark Matter | Northern Lights | Fifth Swarm |
+| Triplet Rain | Focused Choir | Slow Bloom | Minor Cloud |
+| Echoes of the Room | Bottomless | Infinite Drone | Reverse Tape |
+| Grain Bells | Grain Cathedral | Music Box Fog | Grain Feedback |
+| Tape Stutter | Crystal Hall | Pentatonic Rain | Sub Grains |
+| Warped Reel | Shimmer Grains | Hexagon Field | Pitched Down |
+| Dotted Haze | Breathing Room | Glass Rain | Crushed Reverse |
+| Slapback Tube | Velvet Plate | Minor Constellation | Stretch Dust |
+| Fifth Echoes | Ghost Choir | Breathing Pad | Stutter |
+| Frequency Drift | Dirty Tails | Cloud Chamber | Bloom Grains |
+| Granular Delay Cloud | Halo Infinity | Fourths Drift | Singing Grains |
+| Answering Machine | Serpent | Lunar Tape | Wandering |
+| Long Goodbye | Sub Cavern | Distant Signals | Grain Halo |
 
 ## Installation
 
@@ -297,7 +297,7 @@ Every `push` runs [`.github/workflows/build.yml`](.github/workflows/build.yml): 
 |---|---|
 | [`dsp/include/stasis/`](dsp/include/stasis) | C++20 DSP core, header-only, **no dependencies**: reverbs, echo, stretch, grains, DeRez, FOCUS, COLOR, TONAL, LFOs, FFT |
 | [`plugin/Source/Params.h`](plugin/Source/Params.h) | The parameter table (including MOTION's 12 lanes), shared by the host, the interface and the engine |
-| [`plugin/Source/Presets.h`](plugin/Source/Presets.h) | The 60 factory presets |
+| [`plugin/Source/Presets.h`](plugin/Source/Presets.h) | The 80 factory presets |
 | [`plugin/Source/Engine.h`](plugin/Source/Engine.h) | The whole audio chain, independent of JUCE |
 | [`plugin/Source/Plugin*.cpp`](plugin/Source) | JUCE processor (MIDI, tempo, state) and WebView editor |
 | [`design/mockup.html`](design/mockup.html) | The interface: an HTML page embedded in the plugin. Opened in a browser it works on its own (interactive mockup, 5 themes) |
@@ -315,7 +315,7 @@ The interface and the host talk through JUCE 8's web relays: each HTML control c
 ./build/plugin/stasis_hosttest_artefacts/Release/stasis_hosttest build/plugin/Stasis_artefacts/Release/VST3/STASIS.vst3
 ```
 
-The host test plays 12 s of sound per configuration (44.1 / 48 / 96 kHz, buffers from 64 to 2048), with random automation, MIDI and a state save/reload, then runs the 60 presets (the tail must ring, stay finite and stay below 0 dBFS).
+The host test plays 12 s of sound per configuration (44.1 / 48 / 96 kHz, buffers from 64 to 2048), with random automation, MIDI and a state save/reload, then runs the 80 presets (the tail must ring, stay finite and stay below 0 dBFS).
 
 **Updates do not break your work.** `plugin/HostTest/compat/` keeps sessions saved by each release (factory presets, and presets with knobs moved at random). Every build reloads them and must show each knob at the same value, with the same order and MOTION targets, or the test fails. When a knob's range changes (v0.1.6: LOW CUT / HIGH CUT), saved positions are converted on load so they keep the same frequency; user preset files go through the same conversion, and a knob added later starts where it changes nothing for an older session (GAIN STAGING stays off in a session saved before it existed). With each release, save new reference sessions: `stasis_hosttest STASIS.vst3 --dump-state plugin/HostTest/compat/v0.1.6`. Results on Apple Silicon:
 
@@ -331,7 +331,7 @@ Modules with long FFTs spread their work over several audio blocks: no CPU spike
 ## Roadmap
 - [x] **Phase 0** — prototypes and measurements of every key algorithm
 - [x] **Phase 1** — VST3 plugin (Windows first), embedded interface, tests, CI
-- [x] Free module order, 60 presets, MOTION, 5-band COLOR + filters
+- [x] Free module order, 80 presets, MOTION, 5-band COLOR + filters
 - [x] SHAPE, PITCH, AIR; safety limiter
 - [x] BLOOM and RESONATOR reverbs
 - [ ] Fonts embedded in the plugin (currently loaded from Google Fonts)

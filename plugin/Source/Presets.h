@@ -3,7 +3,7 @@
 #include <utility>
 #include <vector>
 
-// Factory presets: 60, in three families of 20. Each preset lists only what differs from
+// Factory presets: 80, in four families of 20. Each preset lists only what differs from
 // the parameter defaults (Params.h): knobs as 0..1 positions, switches as 0/1, choices as
 // indices. `motion` maps MOTION lanes 1, 2, 3… (the others go back to their defaults);
 // `order` is the module order (empty = default).
@@ -46,7 +46,7 @@ struct Preset {
     const char* order = "";
 };
 
-inline const char* const kCategories[] = {"ECHO", "REVERB", "AMBIENT"};
+inline const char* const kCategories[] = {"ECHO", "REVERB", "AMBIENT", "GRAIN"};
 
 // The presets were written when these knobs started elsewhere (before the defaults became
 // subtle): every preset starts from these values, then its own.
@@ -217,7 +217,7 @@ inline const std::vector<Preset>& all() {
 
         // ------------------------------------------------------------- AMBIENT
         {"AMBIENT", "Glacier", {{"offset", .3f}, {"stretch_on", 1}, {"stretch_factor", .43f}, {"stretch_mix", .7f}, {"echo_on", 0},
-                                {"space_type", 3}, {"space_decay", .82f}, {"space_mix", .6f}, {"tonal", .8f}},
+                                {"space_type", 3}, {"space_decay", .82f}, {"space_mix", .6f}, {"tonal", .5f}},
          {{"stretch_mix", Perlin, .02f, 0.32f}, {"tonal", Sine, .01f, 0.16f}, {"space_mix", Perlin, .02f, .3f}}},
         {"AMBIENT", "Frozen Orchard", {{"offset", .3f}, {"stretch_on", 1}, {"stretch_factor", .57f}, {"stretch_mix", .8f},
                                        {"grain_on", 1}, {"grain_density", .3f}, {"grain_size", .65f}, {"grain_mix", .4f},
@@ -307,6 +307,88 @@ inline const std::vector<Preset>& all() {
                                         {"derez_on", 1}, {"derez_interval", .75f}, {"derez_crush", 0.5f}, {"derez_mix", .3f},
                                         {"echo_on", 0}, {"space_type", 2}, {"space_decay", .78f}, {"space_mix", .6f}},
          {{"derez_mix", SampleHold, .15f, 0.48f}, {"grain_chance", Chaos, .04f, 0.48f}}},
+
+        // --------------------------------------------------------------- GRAIN
+        // Grains first: short and long, pitched, stretched, reversed, crushed.
+        {"GRAIN", "Dust Motes", {{"offset", .2f}, {"echo_on", 0}, {"grain_on", 1}, {"grain_algo", 1}, {"grain_env", 3}, {"grain_size", .2f},
+                                 {"grain_density", .777f}, {"grain_p7", 0}, {"grain_reverse", .2f}, {"grain_mix", .5f},
+                                 {"space_type", 2}, {"space_decay", .45f}, {"space_mix", .3f}},
+         {{"grain_density", Perlin, .05f, .2f}, {"offset", Sine, .2f, .1f}}},
+        {"GRAIN", "Backwards Choir", {{"offset", .3f}, {"echo_on", 0}, {"grain_on", 1}, {"grain_algo", 2}, {"grain_size", .75f},
+                                      {"grain_density", .475f}, {"grain_reverse", 1}, {"grain_mix", .6f},
+                                      {"space_type", 3}, {"space_decay", .66f}, {"space_mix", .45f}},
+         {{"grain_size", Perlin, .03f, .2f}, {"space_mix", Sine, .02f, .2f}}},
+        {"GRAIN", "Octave Rain", {{"offset", .2f}, {"echo_on", 0}, {"grain_on", 1}, {"grain_algo", 0}, {"grain_sync", 1}, {"grain_div", 2 / 13.f},
+                                  {"grain_env", 3}, {"grain_size", .3f}, {"grain_chance", .6f}, {"grain_m12", 1}, {"grain_p7", 0},
+                                  {"grain_mix", .55f}, {"space_type", 0}, {"space_decay", .3f}, {"space_mix", .3f}},
+         {{"grain_chance", Chaos, .05f, .3f}}},
+        {"GRAIN", "Frozen Grains", {{"offset", .3f}, {"echo_on", 0}, {"stretch_on", 1}, {"stretch_factor", .57f}, {"stretch_mix", .6f},
+                                    {"grain_on", 1}, {"grain_algo", 2}, {"grain_size", .85f}, {"grain_density", .316f}, {"grain_reverse", .5f},
+                                    {"grain_mix", .5f}, {"space_type", 2}, {"space_decay", .6f}, {"space_mix", .4f}},
+         {{"stretch_mix", Perlin, .02f, .25f}, {"grain_reverse", Sine, .03f, .3f}}},
+        {"GRAIN", "Bit Grains", {{"offset", .2f}, {"echo_on", 0}, {"derez_on", 1}, {"derez_crush", .3f}, {"derez_bits", .4f}, {"derez_mix", .5f},
+                                 {"grain_on", 1}, {"grain_algo", 1}, {"grain_env", 2}, {"grain_size", .2f}, {"grain_density", .633f},
+                                 {"grain_mix", .6f}, {"space_type", 0}, {"space_mix", .25f}},
+         {{"derez_crush", SampleHold, .3f, .25f}, {"grain_size", Perlin, .05f, .2f}}},
+        {"GRAIN", "Long Shadows", {{"offset", .3f}, {"echo_on", 0}, {"grain_on", 1}, {"grain_algo", 2}, {"grain_size", 1.0f},
+                                   {"grain_density", .158f}, {"grain_reverse", .3f}, {"grain_fdbk", .4f}, {"grain_mix", .55f},
+                                   {"space_type", 3}, {"space_decay", .7f}, {"space_mix", .5f}},
+         {{"grain_fdbk", Perlin, .02f, .2f}, {"space_mix", Sine, .015f, .2f}}},
+        {"GRAIN", "Glitter", {{"offset", .25f}, {"echo_on", 0}, {"grain_on", 1}, {"grain_algo", 1}, {"grain_env", 3}, {"grain_size", .088f},
+                              {"grain_density", .893f}, {"grain_0", 0}, {"grain_reverse", .5f}, {"grain_mix", .45f},
+                              {"space_type", 1}, {"space_decay", .5f}, {"space_mix", .35f}, {"color_air", .55f}},
+         {{"grain_density", Chaos, .05f, .25f}}},
+        {"GRAIN", "Fifth Swarm", {{"offset", .3f}, {"echo_on", 0}, {"grain_on", 1}, {"grain_algo", 2}, {"grain_size", .45f},
+                                  {"grain_density", .633f}, {"grain_p12", 0}, {"grain_mix", .55f},
+                                  {"space_type", 2}, {"space_decay", .55f}, {"space_mix", .4f}},
+         {{"grain_density", Perlin, .05f, .25f}, {"offset", RSine, .1f, .15f}}},
+        {"GRAIN", "Minor Cloud", {{"offset", .3f}, {"echo_on", 0}, {"grain_on", 1}, {"grain_algo", 2}, {"grain_size", .6f},
+                                  {"grain_density", .475f}, {"grain_m12", 1}, {"grain_p3", 1}, {"grain_p12", 0}, {"grain_reverse", .25f},
+                                  {"grain_mix", .55f}, {"space_type", 2}, {"space_decay", .6f}, {"space_mix", .4f}},
+         {{"grain_size", Perlin, .03f, .2f}, {"grain_reverse", Drunk, .02f, .2f}}},
+        {"GRAIN", "Reverse Tape", {{"offset", .3f}, {"grain_on", 1}, {"grain_algo", 0}, {"grain_sync", 1}, {"grain_div", 8 / 13.f},
+                                   {"grain_env", 1}, {"grain_size", .6f}, {"grain_reverse", 1}, {"grain_mix", .55f},
+                                   {"echo_div", 9 / 13.f}, {"echo_fdbk", .5f}, {"echo_mix", .3f}, {"space_type", 1}, {"space_mix", .25f}},
+         {{"offset", Sine, .4f, .15f}, {"echo_mix", Perlin, .03f, .2f}}},
+        {"GRAIN", "Grain Feedback", {{"offset", .2f}, {"echo_on", 0}, {"grain_on", 1}, {"grain_algo", 1}, {"grain_size", .3f},
+                                     {"grain_density", .475f}, {"grain_p7", 0}, {"grain_reverse", .2f}, {"grain_fdbk", .7f}, {"grain_mix", .5f},
+                                     {"space_type", 2}, {"space_decay", .5f}, {"space_mix", .3f}},
+         {{"grain_fdbk", Sine, .02f, .2f}}},
+        {"GRAIN", "Sub Grains", {{"offset", .2f}, {"echo_on", 0}, {"grain_on", 1}, {"grain_algo", 2}, {"grain_size", .6f},
+                                 {"grain_density", .316f}, {"grain_m12", 1}, {"grain_p7", 0}, {"grain_p12", 0}, {"grain_mix", .55f},
+                                 {"color_lpf", .73f}, {"space_type", 2}, {"space_decay", .6f}, {"space_tone", .35f}, {"space_mix", .4f}},
+         {{"color_lpf", Perlin, .03f, .1f}}},
+        {"GRAIN", "Pitched Down", {{"offset", .3f}, {"echo_on", 0}, {"pitch_on", 1}, {"pitch_semi", .25f}, {"pitch_mix", .5f},
+                                   {"grain_on", 1}, {"grain_algo", 2}, {"grain_size", .6f}, {"grain_density", .475f}, {"grain_mix", .55f},
+                                   {"space_type", 3}, {"space_decay", .6f}, {"space_mix", .45f}},
+         {{"pitch_mix", Perlin, .02f, .25f}}},
+        {"GRAIN", "Crushed Reverse", {{"offset", .2f}, {"echo_on", 0}, {"derez_on", 1}, {"derez_interval", .25f}, {"derez_crush", .35f},
+                                      {"derez_mix", .4f}, {"grain_on", 1}, {"grain_algo", 1}, {"grain_size", .45f}, {"grain_density", .475f},
+                                      {"grain_reverse", 1}, {"grain_mix", .55f}, {"space_type", 2}, {"space_mix", .3f}},
+         {{"derez_mix", SampleHold, .2f, .3f}, {"grain_density", Perlin, .04f, .2f}}},
+        {"GRAIN", "Stretch Dust", {{"offset", .3f}, {"echo_on", 0}, {"stretch_on", 1}, {"stretch_factor", .67f}, {"stretch_mix", .8f},
+                                   {"grain_on", 1}, {"grain_algo", 1}, {"grain_env", 3}, {"grain_size", .088f}, {"grain_density", .777f},
+                                   {"grain_mix", .4f}, {"space_type", 3}, {"space_decay", .66f}, {"space_mix", .45f}},
+         {{"grain_density", Perlin, .04f, .25f}, {"stretch_mix", Sine, .02f, .15f}}},
+        {"GRAIN", "Stutter", {{"offset", .15f}, {"echo_on", 0}, {"grain_on", 1}, {"grain_algo", 0}, {"grain_sync", 1}, {"grain_div", 2 / 13.f},
+                              {"grain_env", 2}, {"grain_size", .2f}, {"grain_chance", .9f}, {"grain_p7", 0}, {"grain_p12", 0},
+                              {"grain_mix", .6f}, {"space_type", 0}, {"space_mix", .2f}},
+         {{"grain_chance", Sine, .2f, .3f}, {"grain_reverse", SampleHold, .5f, .4f}}},
+        {"GRAIN", "Bloom Grains", {{"offset", .3f}, {"echo_on", 0}, {"grain_on", 1}, {"grain_algo", 2}, {"grain_size", .85f},
+                                   {"grain_density", .316f}, {"grain_reverse", .4f}, {"grain_mix", .5f},
+                                   {"space_type", 4}, {"space_decay", .6f}, {"space_mix", .5f}},
+         {{"grain_reverse", Perlin, .02f, .25f}}},
+        {"GRAIN", "Singing Grains", {{"offset", .25f}, {"echo_on", 0}, {"grain_on", 1}, {"grain_algo", 1}, {"grain_size", .3f},
+                                     {"grain_density", .633f}, {"grain_p12", 0}, {"grain_mix", .5f},
+                                     {"space_type", 5}, {"space_decay", .55f}, {"space_mix", .45f}},
+         {{"grain_density", Perlin, .04f, .2f}}},
+        {"GRAIN", "Wandering", {{"offset", .3f}, {"echo_on", 0}, {"grain_on", 1}, {"grain_algo", 2}, {"grain_size", .45f},
+                                {"grain_density", .475f}, {"grain_mix", .55f}, {"space_type", 2}, {"space_decay", .55f}, {"space_mix", .4f}},
+         {{"grain_size", Perlin, .05f, .3f}, {"grain_reverse", Perlin, .03f, .3f}, {"offset", Drunk, .1f, .15f}}},
+        {"GRAIN", "Grain Halo", {{"offset", .3f}, {"echo_on", 0}, {"grain_on", 1}, {"grain_algo", 2}, {"grain_size", .6f},
+                                 {"grain_density", .633f}, {"grain_reverse", .3f}, {"grain_mix", .5f},
+                                 {"space_type", 2}, {"space_decay", .62f}, {"space_mix", .45f}, {"shimmer_depth", .4f}, {"shimmer_pitch", .75f}},
+         {{"shimmer_depth", Sine, .02f, .2f}}},
     };
     return list;
 }

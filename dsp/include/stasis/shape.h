@@ -63,7 +63,9 @@ private:
 //             the reverb tails get gritty as they fade
 //  DRIVE   0..1  amount: subtle in the lower half, x40 gain at the top. Level is matched at -12 dBFS
 //  HARM    0..1  asymmetry: adds even harmonics; the DC it creates is removed
-// All types but TAPE run 2× oversampled.
+// Every type but SLEW runs 4× oversampled (two 2× stages); SLEW, whose steps are set per
+// sample, stays at 2×. TAPE keeps its ADAA on top. At full DRIVE on a 5 kHz sine the
+// folded-back harmonics were -3 dB of the output (FOLD, RECT) at 2×, -18 dB for TAPE at 1×.
 class Shape {
 public:
     enum class Type { Tape, Tube, Fold, Rectify, Slew, Bloom };
@@ -159,9 +161,7 @@ private:
             for (int n = 0; n < numSamples; ++n) {
                 float v = high_[c].process(low_[c].process(in[c][n]));
                 if (saturate_) {
-                    if (params_.type == Type::Tape) {
-                        v = (ch.adaa.process(gain_ * v + bias_) - biasOut) * norm_;
-                    } else {
+                    if (params_.type != Type::Slew) {
                         float norm = norm_, gain = gain_;
                         if (params_.type == Type::Bloom) {
                             ch.env += envCoef_ * (std::abs(v) - ch.env);
@@ -169,10 +169,23 @@ private:
                             gain = 1.0f + (20.0f * params_.drive + 40.0f * params_.drive * params_.drive * params_.drive) * quiet;
                             norm = 0.25f / (std::tanh(gain * 0.25f + bias_) - biasOut + 1.0e-6f);
                         }
+                        const auto bend = [&](float x) {
+                            x = gain * x + bias_;
+                            return ((params_.type == Type::Tape ? ch.adaa.process(x) : curve(x)) - biasOut) * norm;
+                        };
+                        // 4×: each 2× sample goes up once more, through the curve, and back.
+                        float a, b, a1, a2, b1, b2;
+                        ch.oversampler.up(v, a, b);
+                        ch.inner.up(a, a1, a2);
+                        a = ch.inner.down(bend(a1), bend(a2));
+                        ch.inner.up(b, b1, b2);
+                        b = ch.inner.down(bend(b1), bend(b2));
+                        v = ch.oversampler.down(a, b);
+                    } else {  // SLEW, 2×
                         float a, b;
                         ch.oversampler.up(v, a, b);
-                        a = (shapeSample(ch, gain * a + bias_) - biasOut) * norm;
-                        b = (shapeSample(ch, gain * b + bias_) - biasOut) * norm;
+                        a = (shapeSample(ch, gain_ * a + bias_) - biasOut) * norm_;
+                        b = (shapeSample(ch, gain_ * b + bias_) - biasOut) * norm_;
                         v = ch.oversampler.down(a, b);
                     }
                     v = dcBlock_[c].highpass(v);
@@ -184,7 +197,7 @@ private:
 
     struct Channel {
         TanhAdaa adaa;
-        Oversampler2x oversampler;
+        Oversampler2x oversampler, inner;  // 2×, then 2× again (4×)
         float slewed = 0.0f, env = 0.0f;
     };
 

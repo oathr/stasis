@@ -9,8 +9,9 @@ namespace stasis {
 //               and the ratio up (1.5:1 → 3:1). A 12 dB soft knee, a stereo-linked RMS
 //               detector (30 ms), 60 ms attack and 600 ms release: it rides the level,
 //               it never pumps or grabs the attacks.
-// Makeup is automatic and set so a signal at -14 dBFS RMS (a sensible mix level) comes out
-// unchanged: louder passages are brought down towards it, quieter ones lifted a little.
+// Makeup is automatic and set so a signal at -20 dBFS RMS comes out unchanged: louder
+// passages are brought down towards it, quieter ones lifted by that makeup at most (0 dB
+// at 30 %, +6.7 dB at 100 %). Set at -14 dBFS it lifted every quiet tail by up to +10.7 dB.
 class Glue {
 public:
     void prepare(float sampleRate) {
@@ -44,7 +45,7 @@ public:
     }
 
 private:
-    static constexpr float kKneeDb = 12.0f, kReferenceDb = -14.0f;
+    static constexpr float kKneeDb = 12.0f, kReferenceDb = -20.0f;
 
     // dB taken off a signal at levelDb (soft knee: quadratic over kKneeDb around the threshold).
     float gainReductionDb(float levelDb) const {
