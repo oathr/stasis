@@ -130,7 +130,7 @@ private:
         SvfEq lowpass;
     };
 
-    // Rounding to the nearest step; amp (0..1 of a step) turns the jump into a smooth
+    // Rounding to the nearest step; ramp (0..1 of a step) turns the jump into a smooth
     // S-curve centred between two steps: continuous, so quiet sounds hiss instead of crackle.
     static float quantize(float x, float ramp) {
         const float k = std::floor(x), f = x - k;
