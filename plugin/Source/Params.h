@@ -66,9 +66,9 @@ inline const std::array<float, 14> kDivisionBeats = {0.125f, 1.0f / 6.0f, 0.25f,
 // (not a parameter): the UI changes it, the engine reads it.
 // Indices are stable (new modules are added at the end); kDefaultOrder is the order
 // a new instance starts with.
-inline const std::array<const char*, 10> kModules = {"shape", "derez", "pitch", "stretch", "echo", "space", "focus", "air", "color", "grain"};
-inline const std::array<int, 10> kDefaultOrder = {1, 2, 3, 9, 4, 5, 6, 7, 8, 0};  // DEREZ PITCH STRETCH GRAIN ECHO SPACE FOCUS AIR COLOR SHAPE
-inline const char* const kDefaultOrderNames = "derez,pitch,stretch,grain,echo,space,focus,air,color,shape";
+inline const std::array<const char*, 11> kModules = {"shape", "derez", "pitch", "stretch", "echo", "space", "focus", "air", "color", "grain", "trim"};
+inline const std::array<int, 11> kDefaultOrder = {1, 2, 3, 9, 4, 5, 6, 7, 8, 0, 10};  // DEREZ PITCH STRETCH GRAIN ECHO SPACE FOCUS AIR COLOR SHAPE GAIN
+inline const char* const kDefaultOrderNames = "derez,pitch,stretch,grain,echo,space,focus,air,color,shape,trim";
 
 // MOTION: 12 LFO lanes. The user maps each one to any knob (the mapping is part of the
 // state, not a parameter); by default only lane 1 is mapped, to the global DRY / WET.
@@ -201,6 +201,9 @@ inline const std::vector<Spec>& all() {
         {"color_trem_sync", "Color Tremolo Sync", Kind::Choice, 0.0f, {"Free", "Sync"}},
         {"tonal", "Tonal / Noise", Kind::Float, 0.5f, {}, [](float t) { return bip(t, 1.0f, "", "%+.2f"); }},
         {"tonal_place", "Tonal Place", Kind::Choice, 1.0f, {"Pre space", "Post space"}},
+        // GAIN: a level anywhere in the chain (module "trim": "gain_" is GAIN STAGING's).
+        {"trim_on", "Gain On", Kind::Bool, 1.0f},
+        {"trim_db", "Gain", Kind::Float, 0.5f, {}, [](float t) { return bip(t, 24.0f, " dB"); }},
         // MOTION
         {"motion_on", "Motion On", Kind::Bool, 1.0f},
         {"motion_amount", "Motion Amount", Kind::Float, 1.0f, {}, pct},
