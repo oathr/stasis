@@ -1,0 +1,145 @@
+#order=derez,pitch,stretch,grain,echo,space,focus,air,color,shape,trim
+#targets=space_mix,echo_mix,color_lpf,,,,,,,,,
+108124	Dry / Wet	100%
+110414	Output	+0.0 dB
+881080983	Freeze	Off
+773352680	Bypass	Off
+1127703699	Stereo Offset	4.0 ms
+3175989	Glue	30%
+102636411	Gain Staging	On
+1401877309	Shape On	Off
+732009752	Shape Type	Tape
+731994267	Shape Tilt	+0.0 dB
+1202474860	Shape Drive	20%
+731629266	Shape Harmonics	30%
+1887954750	Pitch On	Off
+1848429837	Pitch Semitones	+12 st
+1466835651	Pitch Shift	+0.0 Hz
+544536797	Pitch Mix	40%
+730004724	Air On	Off
+1900815605	Air Breath	30%
+11168401	Air Width	100%
+1454785371	Air Lo-fi	10%
+235721283	Air Smooth	141 ms
+259812561	Air Threshold	-60 dB
+94411811	Grain On	Off
+535021463	Grain Algorithm	Scatter
+779273001	Grain Envelope	Sine
+535570399	Grain Sync	Free
+522080548	Grain Density	3.6 /s
+779271885	Grain Division	1/8
+960421752	Grain Chance	70%
+535555397	Grain Size	159 ms
+779280536	Grain Mix	70%
+535162571	Grain Feedback	0%
+69209886	Grain Reverse	forward
+779278730	Grain -12	Off
+94411694	Grain -7	Off
+94411692	Grain -5	Off
+94411690	Grain -3	Off
+280140140	Grain 0	On
+94411783	Grain +3	Off
+94411785	Grain +5	Off
+94411787	Grain +7	On
+779281613	Grain +12	On
+991661112	Derez On	Off
+303004766	Derez Interval	+0 st
+1780278722	Derez Rate	n=6
+1650684191	Derez Bits	8.3
+1954815879	Derez Smooth	70%
+676721443	Derez Mix	70%
+1488023897	Stretch On	Off
+1167265737	Stretch Memory	1.0 s
+1031582242	Stretch Mix	50%
+229808697	Echo On	On
+1802770301	Echo Mode	Ping-pong
+1802958965	Echo Sync	Sync
+1802973351	Echo Time	285 ms
+681608055	Echo Division	1/4.
+1802551137	Echo Feedback	70%
+681616706	Echo Mix	45%
+2047450040	Space On	On
+504629971	Space Type	Plate
+504585114	Space Size	0.90
+595758913	Space Decay	6.5 s
+504620299	Space Tone	45%
+1193923657	Space Mod	50%
+1193926634	Space Predelay	6 ms
+1193923491	Space Mix	40%
+761732613	Shimmer Depth	0%
+772937346	Shimmer Pitch	+12 st
+613426509	Space Width	100%
+52547238	Focus On	Off
+1105716394	Focus Mode	Key
+1391482271	Focus Amount	60%
+2056355996	Focus Depth	90%
+1628962421	Focus Mix	100%
+1518658619	Color On	On
+1289139771	Color Bass	+0.0 dB
+1289152766	Color Body	+0.0 dB
+1981258976	Color Mids	-2.7 dB
+1314167506	Color Presence	-2.2 dB
+1981247086	Color Air	+0.0 dB
+1981254018	Color Low Cut	off
+1981257862	Color High Cut	off
+1289691906	Color Tremolo	0%
+687371261	Color Tremolo Rate	2.8 Hz
+687423928	Color Tremolo Sync	Free
+110544062	Tonal / Noise	+0.00
+1858927174	Tonal Place	Post space
+1087763228	Gain On	On
+1087762875	Gain	+0.0 dB
+1570049800	Motion On	On
+1193841921	Motion Amount	100%
+1149802976	Motion Drift	x1.00
+2132325201	Motion 1 Rate	0.030 Hz
+1678686032	Motion 1 Shape	SINE
+1664758386	Motion 1 Depth	40%
+2132377868	Motion 1 Sync	Free
+13470704	Motion 2 Rate	0.050 Hz
+418706065	Motion 2 Shape	TRI
+404778419	Motion 2 Depth	32%
+13523371	Motion 2 Sync	Free
+42099855	Motion 3 Rate	0.030 Hz
+1306209746	Motion 3 Shape	PERLIN
+1292282100	Motion 3 Depth	15%
+42152522	Motion 3 Sync	Free
+70729006	Motion 4 Rate	0.20 Hz
+46229779	Motion 4 Shape	R-SINE
+32302133	Motion 4 Depth	0%
+70781673	Motion 4 Sync	Free
+99358157	Motion 5 Rate	0.030 Hz
+933733460	Motion 5 Shape	R-SINE
+919805814	Motion 5 Depth	0%
+99410824	Motion 5 Sync	Free
+127987308	Motion 6 Rate	0.020 Hz
+1821237141	Motion 6 Shape	PERLIN
+1807309495	Motion 6 Depth	0%
+128039975	Motion 6 Sync	Free
+156616459	Motion 7 Rate	0.080 Hz
+561257174	Motion 7 Shape	SINE
+547329528	Motion 7 Depth	0%
+156669126	Motion 7 Sync	Free
+185245610	Motion 8 Rate	0.050 Hz
+1448760855	Motion 8 Shape	SLEW
+1434833209	Motion 8 Depth	0%
+185298277	Motion 8 Sync	Free
+213874761	Motion 9 Rate	0.070 Hz
+188780888	Motion 9 Shape	TRI
+174853242	Motion 9 Depth	0%
+213927428	Motion 9 Sync	Free
+843716083	Motion 10 Rate	0.12 Hz
+386509038	Motion 10 Shape	BREATH
+372581392	Motion 10 Depth	0%
+843768750	Motion 10 Sync	Free
+872345234	Motion 11 Rate	0.040 Hz
+1274012719	Motion 11 Shape	PERLIN
+1260085073	Motion 11 Depth	0%
+872397901	Motion 11 Sync	Free
+900974385	Motion 12 Rate	0.050 Hz
+14032752	Motion 12 Shape	SINE
+105106	Motion 12 Depth	0%
+901027052	Motion 12 Sync	Free
+1284119508	Motion Hard	0%
+1652125811	Bypass	Off
+1886548852	Program	ECHO / Dotted Haze

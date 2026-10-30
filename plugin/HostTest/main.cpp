@@ -39,7 +39,7 @@ juce::String stateAttribute(const juce::MemoryBlock& chunk, const juce::String& 
     juce::MemoryBlock inner;
     if (auto* component = outer->getChildByName("IComponent")) inner.fromBase64Encoding(component->getAllSubText());
     const std::string raw(static_cast<const char*>(inner.getData()), inner.getSize());
-    const auto at = raw.find(" " + name.toStdString() + "=\"");
+    const auto at = raw.find(" " + name.toStdString() + "=\"", raw.find("<STASIS"));  // the tree, not the XML header
     if (at == std::string::npos) return {};
     const auto start = at + size_t(name.length()) + 3;
     return juce::String(raw.substr(start, raw.find('"', start) - start));
@@ -54,7 +54,7 @@ juce::MemoryBlock withStateAttribute(const juce::MemoryBlock& chunk, const juce:
     juce::MemoryBlock inner;
     inner.fromBase64Encoding(component->getAllSubText());
     std::string raw(static_cast<const char*>(inner.getData()), inner.getSize());
-    const auto at = raw.find(" " + name.toStdString() + "=\"");
+    const auto at = raw.find(" " + name.toStdString() + "=\"", raw.find("<STASIS"));
     if (at == std::string::npos || raw.compare(0, 4, "VC2!") != 0) return chunk;
     const auto start = at + size_t(name.length()) + 3, end = raw.find('"', start);
     raw.replace(start, end - start, value.toStdString());
@@ -1018,6 +1018,8 @@ int main(int argc, char** argv) {
             int checked = 0, wrong = 0;
             juce::StringArray lanes;
             juce::HashMap<juce::String, juce::String> oldShown;
+            // Conversions apply only to sessions saved before state 4 (v0.1.6).
+            const bool before4 = stateAttribute(chunk, "version").getIntValue() < 4;
             const auto where = state.getParentDirectory().getFileName() + "/" + state.getFileNameWithoutExtension();
             for (const auto& line : juce::StringArray::fromLines(state.withFileExtension("txt").loadFileAsString())) {
                 if (line.startsWith("#")) {
@@ -1036,7 +1038,7 @@ int main(int argc, char** argv) {
                 // Since state 4 the cut filters have a wider travel: a lane that moves only
                 // one of them gets a smaller DEPTH for the same swing in octaves.
                 double factor = 1.0;
-                if (fields[1].startsWith("Motion ") && fields[1].endsWith(" Depth")) {
+                if (before4 && fields[1].startsWith("Motion ") && fields[1].endsWith(" Depth")) {
                     const int lane = fields[1].fromFirstOccurrenceOf("Motion ", false, false).getIntValue() - 1;
                     const auto targets = juce::StringArray::fromTokens(lane >= 0 && lane < lanes.size() ? lanes[lane] : juce::String(), "|", "");
                     const auto only = [&](const char* id) { return !targets.isEmpty() && std::all_of(targets.begin(), targets.end(), [&](const juce::String& t) { return t == id; }); };
@@ -1046,7 +1048,7 @@ int main(int argc, char** argv) {
                 oldShown.set(fields[1], fields[2]);
                 // Since state 4 a PLATE's DECAY is a real RT60: the knob moves so that the
                 // tail keeps the length it really had (0.3 + 0.69 t, 4 times per trip).
-                if (p != nullptr && fields[1] == "Space Decay" && oldShown["Space Type"] == "Plate" && fields[2] != "inf") {
+                if (before4 && p != nullptr && fields[1] == "Space Decay" && oldShown["Space Type"] == "Plate" && fields[2] != "inf") {
                     const double t = std::log(fields[2].getDoubleValue() / 0.5) / std::log(120.0);
                     const double trip = 0.7254 * (0.5 + 1.5 * oldShown["Space Size"].getDoubleValue());
                     const double expected = std::min(-0.75 * trip / std::log10(0.3 + 0.69 * t), 0.5 * std::pow(120.0, 0.98));
