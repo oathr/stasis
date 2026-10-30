@@ -50,7 +50,8 @@ inline float grainDensity(float t) { return 0.5f * std::pow(80.0f, t); }  // 0.5
 inline float grainSizeMs(float t) { return 20.0f * std::pow(100.0f, t); }   // 20 ms .. 2 s
 inline float offsetMs(float t) { return 25.0f * t * t; }  // 0 .. 25 ms, fine near 0
 inline float airSmoothMs(float t) { return 20.0f * std::pow(50.0f, t); }    // 20 ms .. 1 s (BREATH's envelope)
-inline float tremRateHz(float t) { return 0.5f * std::pow(32.0f, t); }       // 0.5 .. 16 Hz (AIR TREMOLO)
+inline float tremRateHz(float t) { return 0.5f * std::pow(32.0f, t); }       // 0.5 .. 16 Hz (COLOR TREMOLO, free)
+inline float airThresholdDb(float t) { return -60.0f + 54.0f * t; }      // -60 .. -6 dBFS (AIR BREATH)
 inline float pitchSemitones(float t) { return std::round((2.0f * t - 1.0f) * 24.0f); }
 // ±50 Hz with fine control near 0 (cubic): ±1 Hz beats live in the middle of the travel.
 inline float shiftHz(float t) { const float x = 2.0f * t - 1.0f; return 50.0f * x * x * x; }
@@ -94,8 +95,11 @@ inline float laneSyncBeats(float t) {
     return std::pow(2.0f, std::clamp(std::round(std::log2(beats)), -3.0f, 8.0f));
 }
 inline std::string laneId(int lane, const char* what) { return (lane < 9 ? "m0" : "m") + std::to_string(lane + 1) + "_" + what; }
-// What MOTION may move: every continuous knob, except MOTION's own.
-inline bool isMotionId(const std::string& id) { return id.rfind("motion_", 0) == 0 || (id.size() > 4 && id[0] == 'm' && id[3] == '_'); }
+// What MOTION may not move: its global knobs and the lanes' shapes. A lane's RATE and DEPTH
+// may be moved by another lane (an LFO on an LFO).
+inline bool isMotionId(const std::string& id) { return id.rfind("motion_", 0) == 0 || (id.size() > 4 && id[0] == 'm' && id[3] == '_' && id.substr(4) == "shape"); }
+// The lane (0..11) a lane parameter id belongs to, or -1.
+inline int laneOf(const std::string& id) { return id.size() > 4 && id[0] == 'm' && id[3] == '_' ? std::stoi(id.substr(1, 2)) - 1 : -1; }
 
 
 inline const std::vector<Spec>& all() {
@@ -124,8 +128,7 @@ inline const std::vector<Spec>& all() {
         {"air_width", "Air Width", Kind::Float, 0.67f, {}, [](float t) { return pct(1.5f * t); }},
         {"air_lofi", "Air Lo-fi", Kind::Float, 0.1f, {}, pct},
         {"air_smooth", "Air Smooth", Kind::Float, 0.5f, {}, [](float t) { return fmt("%.0f ms", double(airSmoothMs(t))); }},
-        {"air_trem", "Air Tremolo", Kind::Float, 0.0f, {}, pct},
-        {"air_trem_rate", "Air Tremolo Rate", Kind::Float, 0.5f, {}, [](float t) { return fmt("%.1f Hz", double(tremRateHz(t))); }},
+        {"air_thresh", "Air Threshold", Kind::Float, 0.0f, {}, [](float t) { return fmt("%.0f dB", double(airThresholdDb(t))); }},
         // GRAIN
         {"grain_on", "Grain On", Kind::Bool, 0.0f},
         {"grain_algo", "Grain Algorithm", Kind::Choice, 1.0f, {"Pulse", "Scatter", "Drift"}},
@@ -136,6 +139,7 @@ inline const std::vector<Spec>& all() {
         {"grain_chance", "Grain Chance", Kind::Float, 0.7f, {}, pct},
         {"grain_size", "Grain Size", Kind::Float, 0.45f, {}, [](float t) { return fmt("%.0f ms", double(grainSizeMs(t))); }},
         {"grain_mix", "Grain Mix", Kind::Float, 0.7f, {}, pct},
+        {"grain_fdbk", "Grain Feedback", Kind::Float, 0.0f, {}, pct},
         // Allowed transpositions, in semitones from the sound (GrainCloud::kIntervals, in order).
         {"grain_m12", "Grain -12", Kind::Bool, 0.0f}, {"grain_m7", "Grain -7", Kind::Bool, 0.0f},
         {"grain_m5", "Grain -5", Kind::Bool, 0.0f},   {"grain_m3", "Grain -3", Kind::Bool, 0.0f},
@@ -189,6 +193,9 @@ inline const std::vector<Spec>& all() {
         {"color_air", "Color Air", Kind::Float, 0.5f, {}, [](float t) { return bip(t, 24.0f, " dB"); }},
         {"color_hpf", "Color Low Cut", Kind::Float, 0.0f, {}, [](float t) { return t <= 0.0f ? std::string("off") : fmt("%.0f Hz", highpassHz(t)); }},
         {"color_lpf", "Color High Cut", Kind::Float, 1.0f, {}, [](float t) { return t >= 1.0f ? std::string("off") : lowpassHz(t) >= 1000.0f ? fmt("%.1f kHz", lowpassHz(t) / 1000.0) : fmt("%.0f Hz", lowpassHz(t)); }},
+        {"color_trem", "Color Tremolo", Kind::Float, 0.0f, {}, pct},
+        {"color_trem_rate", "Color Tremolo Rate", Kind::Float, 0.5f, {}, [](float t) { return fmt("%.1f Hz", double(tremRateHz(t))); }},
+        {"color_trem_sync", "Color Tremolo Sync", Kind::Choice, 0.0f, {"Free", "Sync"}},
         {"tonal", "Tonal / Noise", Kind::Float, 0.5f, {}, [](float t) { return bip(t, 1.0f, "", "%+.2f"); }},
         {"tonal_place", "Tonal Place", Kind::Choice, 1.0f, {"Pre space", "Post space"}},
         // MOTION
@@ -209,6 +216,7 @@ inline const std::vector<Spec>& all() {
             all.push_back({laneId(i, "depth"), name + " Depth", Kind::Float, 0.0f, {}, pct});
         }
         all.push_back({"motion_sync", "Motion Sync", Kind::Choice, 0.0f, {"Free", "Sync"}});
+        all.push_back({"motion_hard", "Motion Hard", Kind::Bool, 0.0f});
         return all;
     }();
     return withLanes;

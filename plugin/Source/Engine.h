@@ -76,6 +76,10 @@ public:
         for (auto& b : buffers_) b.assign(kMaxBlock, 0.0f);
         for (auto& b : preSpace_) b.assign(kMaxBlock, 0.0f);
         modulated_.assign(params::all().size(), 0.0f);
+        for (auto& line : grainFbLine_) line.fill(0.0f);
+        grainFbPos_ = 0;
+        rateOffset_.fill(0.0f);
+        depthOffset_.fill(0.0f);
         for (size_t i = 0; i < lanes_.size(); ++i) {
             lanes_[i].prepare(sampleRate, uint32_t(i + 1) * 7919u);
             laneRate_[i] = params::indexOf(params::laneId(int(i), "rate"));
@@ -115,6 +119,8 @@ public:
             const double at = ppq + double(start) * bpm / 60.0 / sampleRate_;
             grain_.setTransport(bpm, at, playing);
             update(modulate(values, n, bpm, at + double(n) * bpm / 60.0 / sampleRate_, playing), bpm);
+            // TREMOLO SYNC: on the song's grid while playing.
+            if (tremSync_ && playing) color_.setTremoloPhase(float(std::fmod(at / double(tremBeats_), 1.0)));
             processBlock(left + start, right + start, n);
         }
     }
@@ -159,41 +165,47 @@ private:
 
     float v(const float* values, int index) const { return values[index]; }
 
-    // MOTION: each lane sweeps its target between the user's setting (depth 0) and the
-    // knob's whole travel (depth 100 %): value = set + depth · (lfo01 − set).
+    // MOTION: each lane swings its target around the user's setting (set ± depth).
+    // A lane may move another lane's RATE or DEPTH: those read the previous block's
+    // modulation (one block late, ~10 ms), so the lanes' order does not matter.
+    // HARD: the moved knobs move in steps of 1/32 and COLOR stops gliding, so each step
+    // lands at once and clicks, short and on the LFO's rhythm.
     // ppqEnd: song position at the end of this block (tempo sync).
     const float* modulate(const float* values, int n, float bpm, double ppqEnd, bool playing) {
         static const int iOn = params::indexOf("motion_on"), iAmount = params::indexOf("motion_amount"), iDrift = params::indexOf("motion_drift"),
-                         iSync = params::indexOf("motion_sync");
+                         iSync = params::indexOf("motion_sync"), iHard = params::indexOf("motion_hard");
         const bool on = values[iOn] > 0.5f;
         if (!on) {  // MOTION off: nothing runs, the parameters pass as they are
             if (motionWasOn_) for (auto& v : laneValues_) v.store(0.0f, std::memory_order_relaxed);
+            rateOffset_.fill(0.0f);
+            depthOffset_.fill(0.0f);
             motionWasOn_ = false;
             return values;
         }
         motionWasOn_ = true;
         std::copy(values, values + modulated_.size(), modulated_.begin());
         const float amount = values[iAmount], drift = params::driftScale(values[iDrift]);
-        const bool sync = values[iSync] > 0.5f;
+        const bool sync = values[iSync] > 0.5f, hard = values[iHard] > 0.5f;
         const float beatsPerSecond = std::clamp(bpm, 20.0f, 999.0f) / 60.0f;
         for (size_t i = 0; i < lanes_.size(); ++i) {
-            const float depth = values[laneDepth_[i]];
+            const float depth = std::clamp(values[laneDepth_[i]] + depthOffset_[i], 0.0f, 1.0f);
             const int targetIndex = laneTarget_[i].load(std::memory_order_relaxed);
             if (depth <= 0.0f || targetIndex < 0) {  // an empty lane, or one at 0 %, does not run
                 laneValues_[i].store(0.0f, std::memory_order_relaxed);
                 continue;
             }
             Lfo& lfo = lanes_[i];
+            const float rate = std::clamp(values[laneRate_[i]] + rateOffset_[i], 0.0f, 1.0f);
             lfo.setShape(values[laneShape_[i]]);
             float x;
             if (sync) {
                 // Locked to the song position while playing, at the tempo otherwise. DRIFT
                 // does not apply: the grid decides.
-                const float beats = params::laneSyncBeats(values[laneRate_[i]]);
+                const float beats = params::laneSyncBeats(rate);
                 lfo.setRate(beatsPerSecond / beats);
                 x = playing ? lfo.advanceTo(float(std::fmod(ppqEnd / double(beats), 1.0))) : lfo.advance(n);
             } else {
-                lfo.setRate(params::laneRateHz(values[laneRate_[i]]) * drift);
+                lfo.setRate(params::laneRateHz(rate) * drift);
                 x = lfo.advance(n);
             }
             laneValues_[i].store(x, std::memory_order_relaxed);
@@ -201,6 +213,11 @@ private:
             // each way (a knob at 20 % goes from -80 % to 120 %, held inside 0 .. 100 %).
             float& target = modulated_[size_t(targetIndex)];
             target = std::clamp(target + amount * depth * x, 0.0f, 1.0f);
+            if (hard) target = std::round(target * 32.0f) / 32.0f;
+        }
+        for (size_t i = 0; i < lanes_.size(); ++i) {
+            rateOffset_[i] = modulated_[size_t(laneRate_[i])] - values[laneRate_[i]];
+            depthOffset_[i] = modulated_[size_t(laneDepth_[i])] - values[laneDepth_[i]];
         }
         // MOTION never makes a tail endless on its own: DECAY stops short of ∞ and
         // FEEDBACK short of self-sustain, unless the knob itself is already there.
@@ -233,7 +250,9 @@ private:
                          iFocusDepth = indexOf("focus_depth"), iFocusMix = indexOf("focus_mix");
         static const int iColorOn = indexOf("color_on"), iBass = indexOf("color_bass"), iBody = indexOf("color_body"), iMud = indexOf("color_mud"),
                          iHarsh = indexOf("color_harsh"), iAir = indexOf("color_air"), iHpf = indexOf("color_hpf"), iLpf = indexOf("color_lpf"),
-                         iTonal = indexOf("tonal"), iPlace = indexOf("tonal_place");
+                         iTonal = indexOf("tonal"), iPlace = indexOf("tonal_place"), iTrem = indexOf("color_trem"),
+                         iTremRate = indexOf("color_trem_rate"), iTremSync = indexOf("color_trem_sync"), iHard = indexOf("motion_hard"),
+                         iMotionOn = indexOf("motion_on");
 
         const auto changed = [&](std::initializer_list<int> ids) {
             bool any = false;
@@ -251,7 +270,7 @@ private:
                          iShapeType = indexOf("shape_type");
         static const int iPitchOn = indexOf("pitch_on"), iSemi = indexOf("pitch_semi"), iShift = indexOf("pitch_shift"), iPitchMix = indexOf("pitch_mix");
         static const int iAirOn = indexOf("air_on"), iBreath = indexOf("air_breath"), iWidthAir = indexOf("air_width"), iLofi = indexOf("air_lofi"),
-                         iAirSmooth = indexOf("air_smooth"), iTrem = indexOf("air_trem"), iTremRate = indexOf("air_trem_rate");
+                         iAirSmooth = indexOf("air_smooth"), iAirThresh = indexOf("air_thresh");
         on_[kShape] = v(values, iShapeOn) > 0.5f;
         on_[kPitch] = v(values, iPitchOn) > 0.5f;
         on_[kAir] = v(values, iAirOn) > 0.5f;
@@ -260,14 +279,16 @@ private:
         if (changed({iTilt, iDrive, iHarm, iShapeType}))
             shape_.setParams({2.0f * v(values, iTilt) - 1.0f, v(values, iDrive), v(values, iHarm), Shape::Type(std::clamp(int(v(values, iShapeType)), 0, 5))});
         if (changed({iSemi, iShift, iPitchMix})) pitch_.setParams({pitchSemitones(v(values, iSemi)), shiftHz(v(values, iShift)), v(values, iPitchMix)});
-        if (changed({iBreath, iWidthAir, iLofi, iAirSmooth, iTrem, iTremRate}))
+        if (changed({iBreath, iWidthAir, iLofi, iAirSmooth, iAirThresh}))
             air_.setParams({v(values, iBreath), v(values, iWidthAir), v(values, iLofi), airSmoothMs(v(values, iAirSmooth)) / 1000.0f,
-                            v(values, iTrem), tremRateHz(v(values, iTremRate))});
+                            airThresholdDb(v(values, iAirThresh))});
         static const int iGrainOn = indexOf("grain_on"), iAlgo = indexOf("grain_algo"), iEnv = indexOf("grain_env"), iDensity = indexOf("grain_density"),
                          iChance = indexOf("grain_chance"), iGrainSize = indexOf("grain_size"), iGrainMix = indexOf("grain_mix"),
-                         iInterval0 = indexOf("grain_m12"), iGrainSync = indexOf("grain_sync"), iGrainDiv = indexOf("grain_div");
+                         iInterval0 = indexOf("grain_m12"), iGrainSync = indexOf("grain_sync"), iGrainDiv = indexOf("grain_div"),
+                         iGrainFdbk = indexOf("grain_fdbk");
         on_[kGrain] = v(values, iGrainOn) > 0.5f;
         mix_[kGrain] = v(values, iGrainMix);
+        grainFeedback_ = 0.95f * v(values, iGrainFdbk);  // 100 % on the knob: just short of runaway
         if (changed({iAlgo, iEnv, iDensity, iChance, iGrainSize, iGrainSync, iGrainDiv, iInterval0, iInterval0 + 1, iInterval0 + 2, iInterval0 + 3,
                      iInterval0 + 4, iInterval0 + 5, iInterval0 + 6, iInterval0 + 7, iInterval0 + 8})) {
             GrainCloud::Params p;
@@ -401,7 +422,11 @@ private:
             focus_.setParams(p);
         }
 
-        if (changed({iBass, iBody, iMud, iHarsh, iAir, iHpf, iLpf})) {
+        tremSync_ = v(values, iTremSync) > 0.5f;
+        tremBeats_ = kDivisionBeats[size_t(std::clamp(echoDivision(v(values, iTremRate)), 0, 13))];
+        const bool hard = v(values, iMotionOn) > 0.5f && v(values, iHard) > 0.5f;
+        if (changed({iBass, iBody, iMud, iHarsh, iAir, iHpf, iLpf, iTrem, iTremRate, iTremSync, iHard, iMotionOn}) || (tremSync_ && std::abs(bpm - tremBpm_) > 1.0e-3f)) {
+            tremBpm_ = bpm;
             Color::Params p;
             p.bass = 2.0f * v(values, iBass) - 1.0f;
             p.body = 2.0f * v(values, iBody) - 1.0f;
@@ -410,6 +435,10 @@ private:
             p.air = 2.0f * v(values, iAir) - 1.0f;
             p.highpassHz = highpassHz(v(values, iHpf));
             p.lowpassHz = lowpassHz(v(values, iLpf));
+            p.tremolo = v(values, iTrem);
+            // SYNC: RATE is a division of the tempo (1/32 .. 1/1, dotted, triplets).
+            p.tremoloHz = tremSync_ ? std::max(bpm, 20.0f) / 60.0f / tremBeats_ : tremRateHz(v(values, iTremRate));
+            p.hard = hard;
             color_.setParams(p);
         }
         tonal_.setParams({tonalBalance_, 0.5f, 1.0f});
@@ -525,7 +554,25 @@ private:
                     break;
                 case 6: runModule(kFocus, wetL, wetR, n, [&](auto... a) { focus_.process(a...); }); break;
                 case 8: runModule(kColor, wetL, wetR, n, [&](auto... a) { color_.process(a...); }); break;
-                case 9: runModule(kGrain, wetL, wetR, n, [&](auto... a) { grain_.process(a...); }); break;
+                case 9: runModule(kGrain, wetL, wetR, n, [&](const float* inL, const float* inR, float* outL, float* outR, int count) {
+                        if (grainFeedback_ <= 0.0f) return grain_.process(inL, inR, outL, outR, count);
+                        // FEEDBACK: the grains go back in (512 samples later, soft-clipped), so
+                        // grains are cut from grains: cascades, then a self-feeding cloud.
+                        float* fbL = preSpace_[0].data();
+                        float* fbR = preSpace_[1].data();
+                        for (int i = 0; i < count; ++i) {
+                            const int at = (grainFbPos_ + i - kGrainFbDelay) & kGrainFbMask;
+                            fbL[i] = inL[i] + grainFeedback_ * std::tanh(grainFbLine_[0][size_t(at)]);
+                            fbR[i] = inR[i] + grainFeedback_ * std::tanh(grainFbLine_[1][size_t(at)]);
+                        }
+                        grain_.process(fbL, fbR, outL, outR, count);
+                        for (int i = 0; i < count; ++i) {
+                            grainFbLine_[0][size_t((grainFbPos_ + i) & kGrainFbMask)] = outL[i];
+                            grainFbLine_[1][size_t((grainFbPos_ + i) & kGrainFbMask)] = outR[i];
+                        }
+                        grainFbPos_ = (grainFbPos_ + count) & kGrainFbMask;
+                    });
+                    break;
             }
         }
         if (!tonalPre_) runTonal(wetL, wetR, n);
@@ -650,6 +697,13 @@ private:
     std::atomic<uint16_t> focusClasses_{0}, midiClasses_{0}, resonatorClasses_{0};
     std::atomic<uint64_t> order_{defaultOrder()};
     std::array<Lfo, 12> lanes_;
+    std::array<float, 12> rateOffset_{}, depthOffset_{};
+    static constexpr int kGrainFbDelay = kMaxBlock, kGrainFbMask = 2 * kMaxBlock - 1;
+    std::array<std::array<float, 2 * kMaxBlock>, 2> grainFbLine_{};
+    int grainFbPos_ = 0;
+    float grainFeedback_ = 0.0f;
+    bool tremSync_ = false;
+    float tremBeats_ = 1.0f, tremBpm_ = 0.0f;  // what other lanes did to each lane's RATE / DEPTH
     std::array<int, 12> laneRate_{}, laneShape_{}, laneDepth_{};
     std::array<std::atomic<int>, 12> laneTarget_{};
     std::array<std::atomic<float>, 12> laneValues_{}, laneTargets_{};

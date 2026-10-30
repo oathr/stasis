@@ -171,7 +171,10 @@ void StasisProcessor::setLaneTarget(int lane, const juce::String& id) {
     const int index = stasis::params::indexOf(id.toStdString());
     if (index < 0) return;
     const auto& spec = stasis::params::all()[size_t(index)];
-    if (spec.kind != stasis::params::Kind::Float || stasis::params::isMotionId(spec.id)) return;
+    if (spec.kind != stasis::params::Kind::Float || stasis::params::isMotionId(spec.id) || stasis::params::laneOf(spec.id) == lane) return;
+    // One LFO per knob: a lane already on it lets go.
+    for (int other = 0; other < 12; ++other)
+        if (other != lane && engine.laneTargetIndex(other) == index) engine.setLaneTarget(other, -1);
     engine.setLaneTarget(lane, index);
 }
 
