@@ -54,18 +54,18 @@ private:
     float ic1_ = 0.0f, ic2_ = 0.0f;
 };
 
-// COLOR: five words instead of an EQ, low to high, plus two filters.
-//  BASS   -1..1  low shelf ±18 dB at 120 Hz; below 0 a high-pass also rises (20 → 120 Hz)
-//  BODY   -1..1  bell ±12 dB at 180 Hz: the warmth of a pad, below the mud
-//  MUD     0..1  cuts the 200-600 Hz build-up. Part static, part dynamic: the cut
-//                deepens only when that band dominates the spectrum, so a clean
-//                signal stays full and a muddy tail gets cleared.
-//  HARSH   0..1  the same idea at 2-5 kHz: tames the glassy edge of shimmers and
-//                bright pads, and leaves a soft signal alone.
-//  AIR    -1..1  high shelf ±16 dB at 6 kHz
+// COLOR: five words instead of an EQ, low to high, plus two filters. Every word is
+// bipolar: centre = flat, up = boost, down = cut.
+//  BASS   -1..1  low shelf ±24 dB at 110 Hz; below 0 a high-pass also rises (20 → 120 Hz)
+//  BODY   -1..1  bell ±18 dB at 220 Hz: the warmth of a pad
+//  MUD    -1..1  bell ±18 dB at 450 Hz: the boxy build-up of long tails (cut it to clear)
+//  HARSH  -1..1  bell ±18 dB at 3.5 kHz: the glassy edge of shimmers and bright pads
+//  AIR    -1..1  high shelf ±24 dB at 7 kHz
 //  HPF / LPF     12 dB/oct, 20 Hz .. 1 kHz and 1 kHz .. 20 kHz (at the ends: off)
 class Color {
 public:
+    static constexpr float kShelfDb = 24.0f, kBellDb = 18.0f;
+
     struct Params {
         float bass = 0.0f;
         float body = 0.0f;
@@ -78,38 +78,29 @@ public:
 
     void prepare(float sampleRate) {
         sampleRate_ = sampleRate;
-        detector_.set(kMudHz, 0.7f, sampleRate);
-        harshDetector_.set(kHarshHz, 0.7f, sampleRate);
-        envCoef_ = smoothingCoef(0.12f, sampleRate);
         setParams(params_);
-        updateDynamics(0.0f, 0.0f);
     }
 
     void setParams(const Params& p) {
         params_ = p;
-        const float bass = std::clamp(p.bass, -1.0f, 1.0f), air = std::clamp(p.air, -1.0f, 1.0f);
+        const auto clamp = [](float x) { return std::clamp(x, -1.0f, 1.0f); };
+        const float bass = clamp(p.bass);
         const float hpHz = std::max(bass < 0.0f ? 20.0f + 100.0f * bass * bass : 10.0f, p.highpassHz > 20.0f ? p.highpassHz : 10.0f);
         lowpassOn_ = p.lowpassHz > 0.0f && p.lowpassHz < 20000.0f;
         for (int c = 0; c < 2; ++c) {
             highpass_[c].set(SvfEq::Type::Highpass, hpHz, 0.707f, 0.0f, sampleRate_);
             lowpass_[c].set(SvfEq::Type::Lowpass, lowpassOn_ ? p.lowpassHz : 20000.0f, 0.707f, 0.0f, sampleRate_);
-            lowShelf_[c].set(SvfEq::Type::LowShelf, 120.0f, 0.707f, 18.0f * bass, sampleRate_);
-            bodyBell_[c].set(SvfEq::Type::Bell, 180.0f, 0.9f, 12.0f * std::clamp(p.body, -1.0f, 1.0f), sampleRate_);
-            highShelf_[c].set(SvfEq::Type::HighShelf, 6000.0f, 0.707f, 16.0f * air, sampleRate_);
+            lowShelf_[c].set(SvfEq::Type::LowShelf, 110.0f, 0.707f, kShelfDb * bass, sampleRate_);
+            bodyBell_[c].set(SvfEq::Type::Bell, 220.0f, 0.9f, kBellDb * clamp(p.body), sampleRate_);
+            mudBell_[c].set(SvfEq::Type::Bell, 450.0f, 1.0f, kBellDb * clamp(p.mud), sampleRate_);
+            harshBell_[c].set(SvfEq::Type::Bell, 3500.0f, 0.8f, kBellDb * clamp(p.harsh), sampleRate_);
+            highShelf_[c].set(SvfEq::Type::HighShelf, 7000.0f, 0.707f, kShelfDb * clamp(p.air), sampleRate_);
         }
     }
 
     // In-place safe.
     void process(const float* inL, const float* inR, float* outL, float* outR, int numSamples) {
         for (int n = 0; n < numSamples; ++n) {
-            const float mid = 0.5f * (inL[n] + inR[n]);
-            const float band = detector_.process(mid).band, harsh = harshDetector_.process(mid).band;
-            bandEnv_ += envCoef_ * (band * band - bandEnv_);
-            harshEnv_ += envCoef_ * (harsh * harsh - harshEnv_);
-            fullEnv_ += envCoef_ * (mid * mid - fullEnv_);
-            if ((counter_++ & 31) == 0)
-                updateDynamics(std::sqrt(bandEnv_ / (fullEnv_ + 1.0e-12f)), std::sqrt(harshEnv_ / (fullEnv_ + 1.0e-12f)));
-
             const float in[2] = {inL[n], inR[n]};
             float out[2];
             for (int c = 0; c < 2; ++c) {
@@ -127,26 +118,10 @@ public:
     }
 
 private:
-    static constexpr float kMudHz = 320.0f, kHarshHz = 3500.0f;
-
-    void updateDynamics(float mudRatio, float harshRatio) {
-        // Ratios ≈ share of each band in the signal (0..1). High bands carry less energy
-        // in a natural spectrum, so HARSH reacts from a lower share.
-        const float mudExcess = std::clamp((mudRatio - 0.3f) / 0.4f, 0.0f, 1.0f);
-        const float harshExcess = std::clamp((harshRatio - 0.12f) / 0.25f, 0.0f, 1.0f);
-        const float mudDb = -std::clamp(params_.mud, 0.0f, 1.0f) * (6.0f + 18.0f * mudExcess);  // up to -24 dB
-        const float harshDb = -std::clamp(params_.harsh, 0.0f, 1.0f) * (4.0f + 16.0f * harshExcess);  // up to -20 dB
-        for (auto& bell : mudBell_) bell.set(SvfEq::Type::Bell, kMudHz, 0.8f, mudDb, sampleRate_);
-        for (auto& bell : harshBell_) bell.set(SvfEq::Type::Bell, kHarshHz, 0.7f, harshDb, sampleRate_);
-    }
-
     float sampleRate_ = 48000.0f;
     Params params_;
     SvfEq highpass_[2], lowpass_[2], lowShelf_[2], bodyBell_[2], mudBell_[2], harshBell_[2], highShelf_[2];
-    Svf detector_, harshDetector_;
-    float bandEnv_ = 0.0f, harshEnv_ = 0.0f, fullEnv_ = 0.0f, envCoef_ = 0.001f;
     bool lowpassOn_ = false;
-    uint32_t counter_ = 0;
 };
 
 }  // namespace stasis

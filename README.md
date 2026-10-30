@@ -46,6 +46,7 @@ MIDI IN ─────────┴──────────────
 - `OFFSET` widens the wet signal: its right channel arrives 0 to 25 ms after the left (Haas effect, like Arturia's offset mode). The dry signal is untouched; at 0, nothing is computed.
 - `⏻` (BYPASS): the output goes back to the untouched input, with a 30 ms fade, and the rack dims. The effects keep running underneath, so the tails do not freeze.
 - The button left of the themes puts the visualizer **on top** or **at the side** (for short screens: the window loses 13 % of its height; in the side column, time runs downwards). The choice is saved with the project.
+- **Level makeup**: the modules' losses used to add up (GRAIN, DEREZ, STRETCH… a preset could come out 10 to 18 dB quieter than its input). The wet is now brought back up to the input's loudness: slowly (1.5 s up, 150 ms down, so a reverb still building never overshoots), makeup only (0 to +12 dB: a module that boosts keeps its boost), and frozen while the input is silent so tails fade naturally. Measured: the 60 presets now sit between −3.6 and +2 dB of the input.
 - **An invisible safety limiter** at the very end: nothing goes above −0.3 dBFS, and if a bug ever produced invalid values (NaN), the output mutes for 0.25 s and the engine resets. Your ears are safe.
 - `FREEZE` holds the reverb: the tail lasts forever, without drifting.
 - `PANIC` (red, top right): instant silence, clears every tail and buffer (reverb, echo, stretch, capture, held notes) and releases FREEZE. Settings, order and MOTION stay as they are.
@@ -57,7 +58,7 @@ MIDI IN ─────────┴──────────────
 |---|---|
 | `TYPE` | How DRIVE bends the wave (see below) |
 | `TILT` | ±6 dB tilt around 800 Hz: dark ◂▸ bright |
-| `DRIVE` | Amount; the level at −12 dBFS stays the same whatever the type |
+| `DRIVE` | Amount: subtle in the lower half, furious at the top (×40 gain at 100 %); the level at −12 dBFS stays the same whatever the type |
 | `HARM` | Asymmetry: even harmonics, "tube" warmth |
 
 | Type | Character |
@@ -85,6 +86,7 @@ Every type except TAPE runs 2× oversampled; aliasing measured at 3.1 kHz, −3 
 | `SMOOTH` | How smoothly the breath follows the sound: 20 ms (nervous) to 1 s (a slow wave). 140 ms by default |
 | `WIDTH` | Stereo width, from mono to 150 % |
 | `LO-FI` | Worn medium: the top closes (16 → 3.5 kHz), the resolution drops, peaks are rounded |
+| `TREMOLO` / `RATE` | Amplitude wobble (smooth sine, sample-accurate): at 100 % the dips reach silence; 0.5 to 16 Hz |
 
 ### DEREZ — *tuned* resolution reduction
 Inspired by Airwindows' DeRez, but instead of shifting the pitch chaotically, the reduced sample rate is locked to the note being played: the aliasing lands on a musical interval.
@@ -168,11 +170,13 @@ The notes being followed light up on the module's keyboard.
 ### COLOR — finishing the wet signal
 | Control | What it does |
 |---|---|
-| `BASS` | ±18 dB shelf at 120 Hz (below 0, a high-pass is added) |
-| `BODY` | ±12 dB bell at 180 Hz: the warmth of the pad, below the mud |
-| `MUD` | Cuts 200–600 Hz (down to −24 dB), partly **dynamic**: it only digs in when that band dominates |
-| `HARSH` | Same idea at 2–5 kHz (down to −20 dB): softens the glassiness of shimmers and bright pads |
-| `AIR` | ±16 dB shelf at 6 kHz |
+| `BASS` | ±24 dB shelf at 110 Hz (below 0, a high-pass is added) |
+| `BODY` | ±18 dB bell at 220 Hz: the warmth of the pad |
+| `MUD` | ±18 dB bell at 450 Hz: the boxy build-up of long tails (down to clear it) |
+| `HARSH` | ±18 dB bell at 3.5 kHz: the glassy edge of shimmers and bright pads |
+| `AIR` | ±24 dB shelf at 7 kHz |
+
+Every word is bipolar: centre = flat, up = boost, down = cut, shown in dB.
 | `LOW CUT` / `HIGH CUT` | High-pass 20 Hz – 1 kHz, low-pass 1 – 20 kHz (12 dB/oct, *off* at the ends) |
 | `NOISE ◂▸ TONAL` | Right: keeps only the notes. Left: keeps only the breath and texture. Double-click to centre |
 | `PRE` / `POST` | TONAL before the reverb (it rebuilds its tail from what is left) or after it (the tail itself is filtered) |
@@ -186,21 +190,22 @@ Each lane moves **the knob of your choice**. By default only lane 1 is assigned,
 |---|---|
 | Target | Click the name: a list of knobs, grouped by module in chain order (GLOBAL, SHAPE, DEREZ… COLOR), or *Empty* |
 | `◎` TOUCH | Arms the lane: every assignable knob gets outlined, and clicking one assigns it (Esc to cancel) |
-| `RATE` | 0.001 to 20 Hz |
+| `RATE` | FREE: 0.001 to 20 Hz. SYNC: a division of the tempo, 64 bars to 1/32, locked to the song position while playing |
 | Shape | A click opens the shape menu, with their drawings: sine, triangle, saws, square, S&H, slew, random sine, drunk, Perlin, chaos (Lorenz), breath |
-| `DEPTH` | Share of the knob's **whole** travel that the lane sweeps: at 100 %, it goes from 0 to 100 %; at 0 % (the default), the lane does nothing and computes nothing |
-| `MOTION` / `DRIFT` | Global depth, global speed (×0.25 to ×4) |
+| `DEPTH` | How far the lane swings the knob **around where you set it**, as a share of the whole travel: a knob at 20 % with DEPTH 100 % swings from −80 % to 120 %, held inside 0–100 %. At 0 % (the default), the lane does nothing and computes nothing. MOTION never turns DECAY or FEEDBACK endless on its own |
+| `FREE` / `SYNC` | Free rates in Hz, or every lane on the host tempo |
+| `MOTION` / `DRIFT` | Global depth, global speed (×0.25 to ×4, FREE only) |
 
 A modulated knob shows an orange arc and dot that follow the LFO; hovering a lane outlines its target. Assignments are saved with the project.
 
 ## Presets
-60 factory presets, in three families of 20. Each comes with its own MOTION modulations (2 or 3 slow lanes, matched to the sound), and many use GRAIN. Click the preset name to open the list, ‹ › to step through. They also show up as VST3 *programs* in the host. Loading a preset first clears every tail (like PANIC), so you hear the new preset on its own.
+60 factory presets, in three families of 20. Each comes with its own MOTION modulations (2 to 4 lanes, matched to the sound), almost all use OFFSET (several move it with an LFO: the pitch wavers like tape), and many use GRAIN. None is endless: FEEDBACK and DECAY stay finite. A new instance starts on **Glacier**. Click the preset name to open the list, ‹ › to step through. They also show up as VST3 *programs* in the host. Loading a preset first clears every tail (like PANIC), so you hear the new preset on its own.
 
 | ECHO | REVERB | AMBIENT |
 |---|---|---|
 | Tape Memory | Cathedral 25 | Glacier |
 | Dub Wash | Endless Hall | Frozen Orchard |
-| Broken Cassette | Glass Plate | Dust & Breath |
+| Cassette | Glass Plate | Dust & Breath |
 | Ping-Pong Garden | Small Room Halo | Tuned Ruins |
 | Infinite Tape | Shimmer Cascade | Pure Tones |
 | Octave Repeats | Fifth Heaven | Monastery Tape |

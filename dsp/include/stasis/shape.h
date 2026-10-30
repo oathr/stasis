@@ -61,7 +61,7 @@ private:
 //             ghostly, slightly detuned grit that follows the pitch
 //    BLOOM    drive follows the level inversely: loud notes stay clean, their decay and
 //             the reverb tails get gritty as they fade
-//  DRIVE   0..1  amount. Level is matched at -12 dBFS
+//  DRIVE   0..1  amount: subtle in the lower half, x40 gain at the top. Level is matched at -12 dBFS
 //  HARM    0..1  asymmetry: adds even harmonics; the DC it creates is removed
 // All types but TAPE run 2× oversampled.
 class Shape {
@@ -91,12 +91,14 @@ public:
             high_[c].set(SvfEq::Type::HighShelf, 800.0f, 0.5f, tiltDb, sampleRate_);
         }
         const float d = std::clamp(p.drive, 0.0f, 1.0f);
-        gain_ = 1.0f + 7.0f * d * d;
-        if (p.type == Type::Fold) gain_ = 1.0f + 11.0f * d * d;  // folding starts past full scale
-        if (p.type == Type::Slew) gain_ = 1.0f + 2.0f * d;
+        // Gentle at the bottom (as before), furious at the top: ~x40 at DRIVE 100 %.
+        const float d4 = d * d * d * d;
+        gain_ = 1.0f + 7.0f * d * d + 32.0f * d4;
+        if (p.type == Type::Fold) gain_ = 1.0f + 11.0f * d * d + 30.0f * d4;  // folding starts past full scale
+        if (p.type == Type::Slew) gain_ = 1.0f + 2.0f * d + 3.0f * d * d;
         bias_ = 0.4f * std::clamp(p.harm, 0.0f, 1.0f);
         // SLEW: largest step per (oversampled) sample, from free to a crawl.
-        slewStep_ = 1.0f / (1.0f + 40.0f * d * d);
+        slewStep_ = 1.0f / (1.0f + 40.0f * d * d + 400.0f * d4);
         saturate_ = d > 1.0e-3f || p.harm > 1.0e-3f;
         // Level matched at -12 dBFS: the RMS of a sine at that level, through the curve
         // (DC removed, as the DC blocker will), equals the input's. BLOOM matches per
@@ -129,7 +131,7 @@ public:
                         if (params_.type == Type::Bloom) {
                             ch.env += envCoef_ * (std::abs(v) - ch.env);
                             const float quiet = 1.0f - std::min(1.0f, ch.env / 0.3f);
-                            gain = 1.0f + 20.0f * params_.drive * quiet;
+                            gain = 1.0f + (20.0f * params_.drive + 40.0f * params_.drive * params_.drive * params_.drive) * quiet;
                             norm = 0.25f / (std::tanh(gain * 0.25f + bias_) - biasOut + 1.0e-6f);
                         }
                         float a, b;

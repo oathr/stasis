@@ -6,7 +6,7 @@
 //   stasis_hosttest path/to/STASIS.vst3 [--no-timing] [--checks]
 //
 // --no-timing reports CPU without failing on it (shared CI machines are noisy).
-// --checks runs only the targeted measurements (FOCUS, GRAIN, PITCH, DEREZ…), not the
+// --checks runs only the targeted measurements (FOCUS, GRAIN, PITCH, DEREZâ€¦), not the
 // stress test and the presets.
 
 #include <juce_audio_processors/juce_audio_processors.h>
@@ -130,7 +130,7 @@ int main(int argc, char** argv) {
             plugin->setCurrentProgram(p);
             juce::AudioBuffer<float> buffer(2, 512);
             juce::MidiBuffer midi;
-            double tail = 0.0;
+            double tail = 0.0, held = 0.0;
             float peak = 0.0f;
             bool finite = true;
             const int blocks = int(8.0 * 48000 / 512);
@@ -150,11 +150,14 @@ int main(int argc, char** argv) {
                         finite = finite && std::isfinite(v);
                         peak = std::max(peak, std::abs(v));
                         if (b >= blocks / 2) tail += double(v) * v;
+                        else if (b >= blocks / 4) held += double(v) * v;
                     }
             }
             const double tailDb = 10.0 * std::log10(tail / (blocks / 2 * 512 * 2) + 1.0e-20);
-            std::printf("  %2d  %-30s  peak %+5.1f dBFS   tail %6.1f dB\n", p + 1, plugin->getProgramName(p).toRawUTF8(),
-                        20.0 * std::log10(std::max(peak, 1.0e-9f)), tailDb);
+            // Level while the chord plays, against the input (three sines at 0.08: -20.2 dBFS RMS).
+            const double levelDb = 10.0 * std::log10(held / ((blocks / 2 - blocks / 4) * 512 * 2) + 1.0e-20) + 20.2;
+            std::printf("  %2d  %-30s  peak %+5.1f dBFS   level %+5.1f dB   tail %6.1f dB\n", p + 1, plugin->getProgramName(p).toRawUTF8(),
+                        20.0 * std::log10(std::max(peak, 1.0e-9f)), levelDb, tailDb);
             if (!finite) fail("preset " + plugin->getProgramName(p) + ": non-finite output");
             if (peak > 1.0f) fail("preset " + plugin->getProgramName(p) + ": clips");
             plugin->releaseResources();
@@ -167,6 +170,8 @@ int main(int argc, char** argv) {
         auto plugin = formats.createPluginInstance(*found[0], 48000.0, 512, error);
         plugin->setPlayConfigDetails(2, 2, 48000.0, 512);
         plugin->prepareToPlay(48000.0, 512);
+        // From the raw parameter defaults (a new instance starts on a preset).
+        for (auto* p : plugin->getParameters()) p->setValueNotifyingHost(p->getDefaultValue());
         std::printf("\nFOCUS via MIDI (input bus: %s):\n", plugin->acceptsMidi() ? "yes" : "NO");
         if (!plugin->acceptsMidi()) fail("the VST3 has no MIDI input");
         const auto set = [&](const char* name, float value) {
@@ -219,6 +224,8 @@ int main(int argc, char** argv) {
             auto grain = formats.createPluginInstance(*found[0], 48000.0, 512, error);
             grain->setPlayConfigDetails(2, 2, 48000.0, 512);
             grain->prepareToPlay(48000.0, 512);
+            // From the raw parameter defaults (a new instance starts on a preset).
+            for (auto* p : grain->getParameters()) p->setValueNotifyingHost(p->getDefaultValue());
             const auto setG = [&](const juce::String& name, float value) {
                 for (auto* p : grain->getParameters())
                     if (p->getName(64) == name) return p->setValueNotifyingHost(value);
@@ -256,6 +263,8 @@ int main(int argc, char** argv) {
             auto derez = formats.createPluginInstance(*found[0], 48000.0, 512, error);
             derez->setPlayConfigDetails(2, 2, 48000.0, 512);
             derez->prepareToPlay(48000.0, 512);
+            // From the raw parameter defaults (a new instance starts on a preset).
+            for (auto* p : derez->getParameters()) p->setValueNotifyingHost(p->getDefaultValue());
             const auto setD = [&](const juce::String& name, float value) {
                 for (auto* p : derez->getParameters())
                     if (p->getName(64) == name) return p->setValueNotifyingHost(value);
@@ -296,6 +305,8 @@ int main(int argc, char** argv) {
             auto global = formats.createPluginInstance(*found[0], 48000.0, 512, error);
             global->setPlayConfigDetails(2, 2, 48000.0, 512);
             global->prepareToPlay(48000.0, 512);
+            // From the raw parameter defaults (a new instance starts on a preset).
+            for (auto* p : global->getParameters()) p->setValueNotifyingHost(p->getDefaultValue());
             const auto setG = [&](const juce::String& name, float value) {
                 for (auto* p : global->getParameters())
                     if (p->getName(64) == name) return p->setValueNotifyingHost(value);
@@ -344,6 +355,8 @@ int main(int argc, char** argv) {
             auto pitch = formats.createPluginInstance(*found[0], 48000.0, 512, error);
             pitch->setPlayConfigDetails(2, 2, 48000.0, 512);
             pitch->prepareToPlay(48000.0, 512);
+            // From the raw parameter defaults (a new instance starts on a preset).
+            for (auto* p : pitch->getParameters()) p->setValueNotifyingHost(p->getDefaultValue());
             const auto setP = [&](const juce::String& name, float value) {
                 for (auto* p : pitch->getParameters())
                     if (p->getName(64) == name) return p->setValueNotifyingHost(value);
@@ -381,12 +394,59 @@ int main(int argc, char** argv) {
         const double downOctave = pitchRun(0.25f, 0.5f, 220.0, "-12 st");
         if (std::abs(upOctave) > 1.5 || std::abs(shifted) > 1.5 || std::abs(downOctave) > 1.5) fail("PITCH MIX 50 % is not half and half");
 
+        // Level of each module alone, at its default settings (MIX included), with the chord
+        // of the preset test in: where the output loses (or gains) level.
+        std::printf("\nModule levels (alone, default settings, chord in at -20.2 dBFS RMS):\n");
+        const auto moduleLevel = [&](const juce::String& module, const std::function<void(const std::function<void(const juce::String&, float)>&)>& extra) {
+            auto inst = formats.createPluginInstance(*found[0], 48000.0, 512, error);
+            inst->setPlayConfigDetails(2, 2, 48000.0, 512);
+            inst->prepareToPlay(48000.0, 512);
+            // From the raw parameter defaults (a new instance starts on a preset).
+            for (auto* p : inst->getParameters()) p->setValueNotifyingHost(p->getDefaultValue());
+            const std::function<void(const juce::String&, float)> setM = [&](const juce::String& name, float value) {
+                for (auto* p : inst->getParameters())
+                    if (p->getName(64) == name) return p->setValueNotifyingHost(value);
+                fail("no parameter " + name);
+            };
+            for (const char* m : {"Shape", "Pitch", "Air", "Grain", "Derez", "Stretch", "Echo", "Space", "Focus", "Color"})
+                setM(juce::String(m) + " On", juce::String(m) == module ? 1.0f : 0.0f);
+            extra(setM);
+            juce::AudioBuffer<float> buffer(2, 512);
+            juce::MidiBuffer midi;
+            double e = 0.0;
+            const int blocks = int(5.0 * 48000 / 512);
+            for (int b = 0, s = 0; b < blocks; ++b) {
+                for (int i = 0; i < 512; ++i, ++s) {
+                    float v = 0.0f;
+                    for (const double f : {220.0, 261.63, 329.63}) v += 0.08f * float(std::sin(2.0 * juce::MathConstants<double>::pi * f * s / 48000.0));
+                    buffer.setSample(0, i, v), buffer.setSample(1, i, v);
+                }
+                inst->processBlock(buffer, midi);
+                if (b >= blocks - int(2.0 * 48000 / 512))
+                    for (int c = 0; c < 2; ++c)
+                        for (int i = 0; i < 512; ++i) e += double(buffer.getSample(c, i)) * buffer.getSample(c, i);
+            }
+            inst->releaseResources();
+            return 10.0 * std::log10(e / (int(2.0 * 48000 / 512) * 512 * 2) + 1e-20) + 20.2;
+        };
+        const auto noExtra = [](const auto&) {};
+        for (const char* m : {"Shape", "Pitch", "Air", "Grain", "Derez", "Stretch", "Echo", "Focus", "Color"})
+            std::printf("  %-10s %+5.1f dB\n", m, moduleLevel(m, noExtra));
+        const char* types[] = {"Room", "Plate", "Hall", "Cathedral", "Bloom", "Resonator"};
+        for (int t = 0; t < 6; ++t) {
+            const double atMix = moduleLevel("Space", [&](const auto& set) { set("Space Type", float(t) / 5.0f); });
+            const double wet = moduleLevel("Space", [&](const auto& set) { set("Space Type", float(t) / 5.0f), set("Space Mix", 1.0f); });
+            std::printf("  Space %-10s %+5.1f dB  (100 %% wet %+5.1f dB)\n", types[t], atMix, wet);
+        }
+
         // SPACE alone at 100 % wet, one type (index of 6). Feeds `input(sample)` for `seconds`,
         // MIDI `note` held from the start (-1: none); returns the left output.
         const auto spaceRun = [&](int type, double seconds, const std::function<float(int)>& input, int note = -1) {
             auto space = formats.createPluginInstance(*found[0], 48000.0, 512, error);
             space->setPlayConfigDetails(2, 2, 48000.0, 512);
             space->prepareToPlay(48000.0, 512);
+            // From the raw parameter defaults (a new instance starts on a preset).
+            for (auto* p : space->getParameters()) p->setValueNotifyingHost(p->getDefaultValue());
             const auto setS = [&](const juce::String& name, float value) {
                 for (auto* p : space->getParameters())
                     if (p->getName(64) == name) return p->setValueNotifyingHost(value);

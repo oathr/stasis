@@ -6,8 +6,8 @@
 
 namespace {
 
-constexpr int kWidth = 1340, kHeight = 934;  // the page's own layout size, scaled to fit
-constexpr int kSideWidth = 1558, kSideHeight = 814;  // the same, visualizer on the right (page 1744 x 976)
+constexpr int kWidth = 1251, kHeight = 934;  // the page (1500 x 1120) scaled: same proportions, no side bands
+constexpr int kSideWidth = 1455, kSideHeight = 814;  // the same, visualizer on the right (page 1744 x 976)
 constexpr int kBands = 96;                     // spectrum rows sent to the visual (MIDI 30 .. 118)
 
 std::optional<juce::WebBrowserComponent::Resource> getResource(const juce::String& url) {
