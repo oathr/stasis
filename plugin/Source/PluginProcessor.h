@@ -23,7 +23,8 @@ public:
 
     // Factory presets (Presets.h) are the host's programs too.
     int getNumPrograms() override;
-    int getCurrentProgram() override { return currentPreset_; }
+    int getCurrentProgram() override { return std::max(0, currentPreset_); }  // -1 (INIT) shows as the first
+    int currentPresetOrInit() const { return currentPreset_; }
     void setCurrentProgram(int index) override { applyPreset(index); }
     const juce::String getProgramName(int index) override;
     void applyPreset(int index, bool flush = true);  // flush: clear the tails (not before prepareToPlay)
@@ -50,7 +51,8 @@ public:
     // short screens). Part of the state; the editor sizes its window from it.
     juce::String layout = "top";
     void resetEngine();  // flush only (used by panic and by the NaN guard)
-    void setLaneTarget(int lane, const juce::String& id);  // ignores ids MOTION may not move
+    void setLaneTarget(int lane, const juce::String& ids);  // 'a|b|c' (up to 4); ignores ids MOTION may not move
+    void resetAll();                                         // INIT: defaults everywhere, tails cleared
 
     juce::AudioProcessorValueTreeState apvts;
     stasis::Engine engine;

@@ -155,27 +155,55 @@ void StasisProcessor::panic() {
     resetEngine();
 }
 
+// Per lane: its knobs joined by '|' ("" = empty).
 juce::StringArray StasisProcessor::getLaneTargets() const {
-    juce::StringArray ids;
+    juce::StringArray lanes;
     const auto& specs = stasis::params::all();
     for (int lane = 0; lane < 12; ++lane) {
-        const int index = engine.laneTargetIndex(lane);
-        ids.add(index >= 0 ? juce::String(specs[size_t(index)].id) : juce::String());
+        juce::StringArray ids;
+        for (int slot = 0; slot < int(stasis::Engine::kLaneTargets); ++slot) {
+            const int index = engine.laneTargetIndex(lane, slot);
+            if (index >= 0) ids.add(juce::String(specs[size_t(index)].id));
+        }
+        lanes.add(ids.joinIntoString("|"));
     }
-    return ids;
+    return lanes;
 }
 
-void StasisProcessor::setLaneTarget(int lane, const juce::String& id) {
+// ids: one knob, or several joined by '|' (up to 4), or "" to empty the lane.
+void StasisProcessor::setLaneTarget(int lane, const juce::String& ids) {
     if (lane < 0 || lane >= 12) return;
-    if (id.isEmpty()) return engine.setLaneTarget(lane, -1);
-    const int index = stasis::params::indexOf(id.toStdString());
-    if (index < 0) return;
-    const auto& spec = stasis::params::all()[size_t(index)];
-    if (spec.kind != stasis::params::Kind::Float || stasis::params::isMotionId(spec.id) || stasis::params::laneOf(spec.id) == lane) return;
-    // One LFO per knob: a lane already on it lets go.
+    std::vector<int> indices;
+    for (const auto& id : juce::StringArray::fromTokens(ids, "|", "")) {
+        const int index = stasis::params::indexOf(id.trim().toStdString());
+        if (index < 0) continue;
+        const auto& spec = stasis::params::all()[size_t(index)];
+        if (spec.kind != stasis::params::Kind::Float || stasis::params::isMotionId(spec.id) || stasis::params::laneOf(spec.id) == lane) continue;
+        if (std::find(indices.begin(), indices.end(), index) == indices.end() && indices.size() < stasis::Engine::kLaneTargets) indices.push_back(index);
+    }
+    // One LFO per knob: a lane already on one of them lets go of it.
     for (int other = 0; other < 12; ++other)
-        if (other != lane && engine.laneTargetIndex(other) == index) engine.setLaneTarget(other, -1);
-    engine.setLaneTarget(lane, index);
+        for (int slot = 0; slot < int(stasis::Engine::kLaneTargets); ++slot)
+            if (other != lane && std::find(indices.begin(), indices.end(), engine.laneTargetIndex(other, slot)) != indices.end())
+                engine.setLaneTarget(other, slot, -1);
+    for (int slot = 0; slot < int(stasis::Engine::kLaneTargets); ++slot)
+        engine.setLaneTarget(lane, slot, slot < int(indices.size()) ? indices[size_t(slot)] : -1);
+}
+
+// INIT: every knob at its starting point, MOTION back to lane 1 on DRY / WET, the default
+// order, the tails cleared. Not a factory preset: the preset name shows INIT.
+void StasisProcessor::resetAll() {
+    for (auto* param : getParameters())
+        if (auto* p = dynamic_cast<juce::RangedAudioParameter*>(param)) p->setValueNotifyingHost(p->getDefaultValue());
+    for (int lane = 0; lane < 12; ++lane) setLaneTarget(lane, stasis::params::kDefaultTargets[size_t(lane)]);
+    resetEngine();
+    setModuleOrder(juce::StringArray::fromTokens(stasis::params::kDefaultOrderNames, ",", ""));
+    currentPreset_ = -1;
+    juce::MessageManager::callAsync([safe = juce::WeakReference<StasisProcessor>(this)] {
+        if (safe == nullptr) return;
+        if (safe->onOrderChanged) safe->onOrderChanged();
+        if (safe->onPresetChanged) safe->onPresetChanged();
+    });
 }
 
 int StasisProcessor::getNumPrograms() { return int(stasis::presets::all().size()); }
@@ -193,7 +221,9 @@ void StasisProcessor::applyPreset(int index, bool flush) {
     const auto& list = stasis::presets::all();
     if (index < 0 || index >= int(list.size())) return;
     const auto& preset = list[size_t(index)];
-    std::vector<std::pair<std::string, float>> values(preset.values.begin(), preset.values.end());
+    // The base (the knobs' former starting points), then the preset's own values: later wins.
+    std::vector<std::pair<std::string, float>> values(stasis::presets::kBase.begin(), stasis::presets::kBase.end());
+    values.insert(values.end(), preset.values.begin(), preset.values.end());
     for (size_t lane = 0; lane < preset.motion.size() && lane < 12; ++lane) {
         const auto& mod = preset.motion[lane];
         values.push_back({laneId(int(lane), "rate"), stasis::params::laneRateT(mod.hz)});

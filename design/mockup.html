@@ -255,7 +255,11 @@ header { display: grid; grid-template-columns: auto 1fr auto; align-items: cente
 /* ---------- MOTION ---------- */
 .motion-body { display: grid; grid-template-columns: 1fr 1fr 130px; gap: 0 22px; }
 .lanes { display: grid; grid-auto-rows: 29px; }
-.cols { display: grid; grid-template-columns: 18px 150px 80px 84px 54px 1fr; align-items: center; gap: 8px; }
+.cols { display: grid; grid-template-columns: 18px 150px 98px 84px 54px 1fr; align-items: center; gap: 8px; }
+.lane .rate { display: flex; align-items: center; gap: 4px; }
+.lane .sync { width: 16px; height: 16px; flex: none; border: 1px solid var(--line); background: none; color: var(--on-dark-muted); font: inherit; font-size: 8px; font-weight: 600; padding: 0; cursor: pointer; }
+.lane .sync[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.preset-menu .init { grid-column: 1 / -1; border-bottom: 1px solid var(--dark-line) !important; margin-bottom: 4px; padding-bottom: 6px !important; letter-spacing: .14em !important; }
 .lane { border-bottom: 1px solid var(--line); }
 .lane .i { color: var(--muted); font-size: 9px; }
 .lane .target { display: flex; align-items: center; gap: 5px; min-width: 0; }
@@ -270,7 +274,7 @@ header { display: grid; grid-template-columns: auto 1fr auto; align-items: cente
 .lane .touch[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); }
 /* TOUCH armed: every knob MOTION can move is outlined, a click maps it */
 body.learning [data-mapid] { outline: 1px dashed var(--accent); outline-offset: 3px; cursor: crosshair; }
-body.learning [data-mapid^="m0"], body.learning [data-mapid^="m1"], body.learning [data-mapid^="motion_"] { outline: none; cursor: default; }
+body.learning [data-mapid^="motion_"], body.learning .own-lane { outline: none; cursor: default; }
 .target-menu { position: absolute; z-index: 30; display: grid; grid-template-columns: repeat(6, 132px); gap: 10px 14px; padding: 14px 16px;
   background: var(--dark); color: var(--on-dark); border: 1px solid var(--dark-line); box-shadow: 0 18px 40px rgba(0,0,0,.55); }
 .target-menu h4 { font-family: Archivo, sans-serif; font-weight: 600; font-size: 9.5px; letter-spacing: .26em; color: var(--accent); padding-bottom: 5px; margin-bottom: 3px; border-bottom: 1px solid var(--dark-line); }
@@ -289,13 +293,12 @@ body.learning [data-mapid^="m0"], body.learning [data-mapid^="m1"], body.learnin
 .lane-head { font-size: 8.5px; font-weight: 400; letter-spacing: .14em; color: var(--muted); padding-bottom: 5px; border-bottom: 1px solid currentColor; }
 .macros { border-left: 1px solid var(--line); padding-left: 18px; display: flex; flex-direction: column; justify-content: space-between; }
 .macros .knob { width: 100%; }
-.macros .knob svg { width: 40px; height: 40px; }
+.macros .knob svg { width: 36px; height: 36px; }
+.macro-knobs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); column-gap: 0; }
+.macro-knobs .knob .v { font-size: 9.5px; }
+.macros .hard-knob .v { color: #E5483B; }
 .macros .seg { flex-wrap: nowrap; gap: 2px; }
 .macros .seg button { flex: 1; padding: 3px 4px; font-size: 8.5px; }
-.motion-modes { display: grid; grid-template-columns: 1fr auto; gap: 3px; }
-.macros .hard { padding: 3px 5px !important; }
-.macros .hard { background: none; border: 1px solid #E5483B; color: #E5483B; font: inherit; font-size: 8.5px; font-weight: 600; letter-spacing: .14em; padding: 3px 0; cursor: pointer; }
-.macros .hard[aria-pressed="true"] { background: #E5483B; color: var(--dark); }
 .status { font-size: 9px; font-weight: 400; color: var(--muted); letter-spacing: .1em; line-height: 1.7; }
 .status b { color: var(--on-dark); }
 
@@ -432,7 +435,7 @@ const bridge = {
     window.__JUCE__.backend.addEventListener('stasis_spectrum', bands => { live.spectrum = bands; });
     window.__JUCE__.backend.addEventListener('stasis_motion', m => { live.lanes = m.lanes; live.targets = m.targets; });
     window.__JUCE__.backend.addEventListener('stasis_grains', list => list.forEach(g => grains.push({ at: performance.now(), ...g })));
-    const showTargets = ids => ids.forEach((id, i) => setLaneTarget(i, id, true));
+    const showTargets = list => setLaneTargetsFromHost(list);
     J.getNativeFunction('getLaneTargets')().then(showTargets);
     window.__JUCE__.backend.addEventListener('stasis_targets', showTargets);
     window.__JUCE__.backend.addEventListener('stasis_status', s => live.status(s));
@@ -591,7 +594,7 @@ const GRAIN_INTERVALS = [['grain_m12', '−12', false], ['grain_m7', '−7', fal
 function knobRow(list, opts) { const row = document.createElement('div'); row.className = 'knobs'; list.forEach(k => row.appendChild(knob(k, opts))); return row; }
 
 // ---------- live state driving the visual ----------
-const state = { size: .9, decay: .75, tone: .45, shimmer: .5, freeze: false, stretch: .6, motion: .6, drift: 1 };
+const state = { size: .6, decay: .5, tone: .45, shimmer: .5, freeze: false, stretch: .6, motion: .6, drift: 1 };
 
 // ---------- modules ----------
 // Modules that exist in the audio engine (the others are design only for now).
@@ -599,25 +602,25 @@ const LIVE_MODS = ['shape', 'derez', 'pitch', 'stretch', 'grain', 'echo', 'space
 const MODS = {
   shape:  { n: '01', name: 'SHAPE',   code: 'Tilt · drive', build: b => b.append(
             seg(['Tape', 'Tube', 'Fold', 'Rect', 'Slew', 'Bloom'], 0, null, 'shape_type'),
-            knobRow([{ id: 'shape_tilt', l: 'Tilt', t: .5, f: bip(' dB', 6, 1) }, { id: 'shape_drive', l: 'Drive', t: .2, f: pct }, { id: 'shape_harm', l: 'Harm', t: .3, f: pct }])) },
+            knobRow([{ id: 'shape_tilt', l: 'Tilt', t: .5, f: bip(' dB', 6, 1) }, { id: 'shape_drive', l: 'Drive', t: .15, f: pct }, { id: 'shape_harm', l: 'Harm', t: 0, f: pct }])) },
   derez:  { n: '02', name: 'DEREZ',   code: 'Tuned · A2', build: b => {
             // Interval: a cursor in semitones, -24 .. +24, snapped to the semitone.
             const st = v => { const n = Math.round(v * 24); return (n > 0 ? '+' : '') + n + ' st'; };
             const interval = cursor('−24', '+24', 0, 'derez_interval', { format: st, steps: 24 });
             interval.classList.add('pitch-cursor');
             // Knob up = clean, down = destroyed (like Airwindows DeRez's Rate and Rez).
-            const knobs = knobRow([{ id: 'derez_crush', l: 'Rate', t: .4, f: t => 'n=' + Math.round(32 * Math.pow(2 / 32, 1 - t)) },
-                                   { id: 'derez_bits', l: 'Bits', t: .45, f: lin(2, 16, '', 1) }, { id: 'derez_smooth', l: 'Smooth', t: .7, f: pct },
-                                   { id: 'derez_mix', l: 'Mix', t: .7, f: pct }]);
+            const knobs = knobRow([{ id: 'derez_crush', l: 'Rate', t: .6, f: t => 'n=' + Math.round(32 * Math.pow(2 / 32, 1 - t)) },
+                                   { id: 'derez_bits', l: 'Bits', t: .7, f: lin(2, 16, '', 1) }, { id: 'derez_smooth', l: 'Smooth', t: .7, f: pct },
+                                   { id: 'derez_mix', l: 'Mix', t: .35, f: pct }]);
             knobs.classList.add('two');
             b.append(interval, knobs); } },
   pitch:  { n: '03', name: 'PITCH',   units: .75, code: 'Vocoder · shift', build: b => b.append(knobRow([
             { id: 'pitch_semi', l: 'Semi', t: .75, f: t => { const v = Math.round((2 * t - 1) * 24); return (v >= 0 ? '+' : '') + v + ' st'; } },
             { id: 'pitch_shift', l: 'Shift', t: .5, f: t => { const x = 2 * t - 1, v = 50 * x * x * x; return (v >= 0 ? '+' : '') + v.toFixed(Math.abs(v) < 10 ? 1 : 0) + ' Hz'; } },
-            { id: 'pitch_mix', l: 'Mix', t: .4, f: pct }])) },
+            { id: 'pitch_mix', l: 'Mix', t: .25, f: pct }])) },
   stretch:{ n: '04', name: 'STRETCH', units: .7, code: 'Blur · pad', build: b => b.append(
             knobRow([{ id: 'stretch_factor', l: 'Memory', t: .3, f: t => { const s = Math.pow(1000, t) / 8; return s.toFixed(s < 10 ? 1 : 0) + ' s'; }, on: v => state.stretch = v },
-                     { id: 'stretch_mix', l: 'Mix', t: .5, f: pct }])) },
+                     { id: 'stretch_mix', l: 'Mix', t: .35, f: pct }])) },
   grain:  { n: '11', name: 'GRAIN',   units: 2, code: 'Random notes from the sound', build: b => {
             const modes = document.createElement('div'); modes.className = 'grain-modes';
             modes.append(seg(['Pulse', 'Scatter', 'Drift'], 1, null, 'grain_algo'), seg(['Sine', 'Tri', 'Square', 'Perc'], 0, null, 'grain_env'));
@@ -642,7 +645,7 @@ const MODS = {
                    : { id: 'grain_density', l: 'Density', t: .45, f: t => (0.5 * Math.pow(80, t)).toFixed(1) + '/s' },
               { id: 'grain_chance', l: 'Chance', t: .7, f: pct },
               { id: 'grain_size', l: 'Size', t: .45, f: t => Math.round(20 * Math.pow(100, t)) + ' ms' },
-              { id: 'grain_fdbk', l: 'Fdbk', t: 0, f: pct }, { id: 'grain_mix', l: 'Mix', t: .7, f: pct }]);
+              { id: 'grain_fdbk', l: 'Fdbk', t: 0, f: pct }, { id: 'grain_mix', l: 'Mix', t: .35, f: pct }]);
             row = knobs(false);
             modes.append(seg(['Free', 'Sync'], 0, i => { const next = knobs(i === 1); row.replaceWith(next); row = next; }, 'grain_sync'));
             b.append(modes, notes, row); } },
@@ -653,7 +656,7 @@ const MODS = {
             const knobs = sync => knobRow([
               sync ? { id: 'echo_div', l: 'Time', t: 9 / 13, f: t => DIVS[Math.round(t * (DIVS.length - 1))] }
                    : { id: 'echo_time', l: 'Time', t: .55, f: expo(20, 2500, ' ms', 0) },
-              { id: 'echo_fdbk', l: 'Fdbk', t: .6, f: pct }, { id: 'echo_mix', l: 'Mix', t: .35, f: pct }]);
+              { id: 'echo_fdbk', l: 'Fdbk', t: .4, f: pct }, { id: 'echo_mix', l: 'Mix', t: .25, f: pct }]);
             const modes = seg(['Mono', 'Ping-pong'], 1, null, 'echo_mode');
             row = knobs(true);
             const sync = seg(['Free', 'Sync'], 1, i => { const next = knobs(i === 1); row.replaceWith(next); row = next; }, 'echo_sync');
@@ -664,10 +667,10 @@ const MODS = {
             keys.id = 'focusKeys';
             [0, 4, 7, 9, 11].forEach(i => keys.light(i, true));
             b.append(seg(['Key', 'Harm', 'Auto'], 0, null, 'focus_mode'), keys,
-                     knobRow([{ id: 'focus_amount', l: 'Focus', t: .6, f: pct }, { id: 'focus_depth', l: 'Depth', t: .9, f: pct }, { id: 'focus_mix', l: 'Mix', t: 1, f: pct }])); } },
+                     knobRow([{ id: 'focus_amount', l: 'Focus', t: .35, f: pct }, { id: 'focus_depth', l: 'Depth', t: .6, f: pct }, { id: 'focus_mix', l: 'Mix', t: 1, f: pct }])); } },
   air:    { n: '08', name: 'AIR',     code: 'Matter · width', build: b => { const k = knobRow([
-            { id: 'air_breath', l: 'Breath', t: .3, f: pct }, { id: 'air_smooth', l: 'Smooth', t: .5, f: expo(20, 1000, ' ms', 0) },
-            { id: 'air_width', l: 'Width', t: .67, f: t => Math.round(150 * t) + '%' }, { id: 'air_lofi', l: 'Lo-fi', t: .1, f: pct },
+            { id: 'air_breath', l: 'Breath', t: .15, f: pct }, { id: 'air_smooth', l: 'Smooth', t: .5, f: expo(20, 1000, ' ms', 0) },
+            { id: 'air_width', l: 'Width', t: .67, f: t => Math.round(150 * t) + '%' }, { id: 'air_lofi', l: 'Lo-fi', t: 0, f: pct },
             { id: 'air_thresh', l: 'Thresh', t: 0, f: t => Math.round(-60 + 54 * t) + ' dB' }]); k.classList.add('three'); b.append(k); } },
   color:  { n: '09', name: 'COLOR',   units: 2.6, code: 'Tone · low → high', build: b => {
             b.append(knobRow([{ id: 'color_bass', l: 'Bass', t: .5, f: bip(' dB', 24, 1) }, { id: 'color_body', l: 'Body', t: .5, f: bip(' dB', 18, 1) },
@@ -689,11 +692,11 @@ const MODS = {
             tremRow.append(label('TREMOLO'), trem, tremRate, tremMode);
             b.append(filters, tremRow, tonalRow()); } },
   space:  { n: '06', name: 'SPACE',   units: 2, code: 'FDN-16 · Dattorro plate', build: b => {
-            { const types = seg(['Room', 'Plate', 'Hall', 'Cathedral', 'Bloom', 'Resonator'], 3, null, 'space_type'); types.classList.add('types'); b.append(types); }
+            { const types = seg(['Room', 'Plate', 'Hall', 'Cathedral', 'Bloom', 'Resonator'], 2, null, 'space_type'); types.classList.add('types'); b.append(types); }
             b.append(knobRow([{ id: 'space_size', l: 'Size', t: state.size, f: t => t.toFixed(2), on: v => state.size = v },
                        { id: 'space_decay', l: 'Decay', t: state.decay, f: t => t > .98 ? '∞' : (0.5 * Math.pow(120, t)).toFixed(1) + ' s', on: v => state.decay = v },
                        { id: 'space_tone', l: 'Tone', t: state.tone, f: pct, on: v => state.tone = v },
-                       { id: 'space_mod', l: 'Mod', t: .5, f: pct }, { id: 'space_pre', l: 'Pre', t: .3, f: expo(1, 500, ' ms', 0) }, { id: 'space_mix', l: 'Mix', t: .6, f: pct }]));
+                       { id: 'space_mod', l: 'Mod', t: .5, f: pct }, { id: 'space_pre', l: 'Pre', t: .3, f: expo(1, 500, ' ms', 0) }, { id: 'space_mix', l: 'Mix', t: .3, f: pct }]));
             const sub = document.createElement('div'); sub.className = 'shimmer-row';
             sub.innerHTML = '<div class="title">SHIMMER<br>PHASE<br>VOCODER</div>';
             sub.append(knobRow([{ id: 'shimmer_depth', l: 'Depth', t: state.shimmer, f: pct, on: v => state.shimmer = v }, { id: 'shimmer_pitch', l: 'Pitch', t: .75, f: bip(' st', 24) },
@@ -868,38 +871,59 @@ const targetName = id => {
   for (const [mod, list] of Object.entries(MAPPABLE)) { const hit = list.find(([x]) => x === id); if (hit) return `${mod.toUpperCase()} · ${hit[1]}`; }
   return '';
 };
-// The 12 lanes' targets ('' = empty). Default: lane 1 on the global DRY / WET.
-let laneTargets = ['mix', '', '', '', '', '', '', '', '', '', '', ''];
+// The 12 lanes' targets: up to 4 knobs each, one lane per knob. Default: lane 1 on DRY / WET.
+const MAX_TARGETS = 4;
+let laneTargets = [['mix'], [], [], [], [], [], [], [], [], [], [], []];
 const laneTargetViews = [];
-function setLaneTarget(i, id, fromHost) {
-  laneTargets[i] = id;
-  const v = laneTargetViews[i];
-  if (v) { v.textContent = id ? targetName(id) : '—'; v.classList.toggle('empty', !id); }
-  if (fromHost) return;
-  // One LFO per knob: a lane already on it lets go.
-  if (id) laneTargets.forEach((x, j) => { if (j !== i && x === id) setLaneTarget(j, '', true); });
-  if (bridge.juce) bridge.juce.getNativeFunction('setLaneTarget')(i, id).then(ids => Array.isArray(ids) && ids.forEach((x, j) => j !== i && setLaneTarget(j, x, true)));
+function showLane(i) {
+  const v = laneTargetViews[i]; if (!v) return;
+  const ids = laneTargets[i];
+  v.textContent = ids.length ? targetName(ids[0]) + (ids.length > 1 ? ' +' + (ids.length - 1) : '') : '—';
+  v.title = ids.length ? ids.map(targetName).join('\n') : 'Choose what this lane moves (shift-click: several)';
+  v.classList.toggle('empty', !ids.length);
 }
-// Hovering a lane outlines the knob it moves.
-const focusTarget = (i, on) => knobsById[laneTargets[i]]?.classList.toggle('mod-focus', on);
+// From the plugin: one string per lane, its knobs joined by '|'.
+function setLaneTargetsFromHost(list) {
+  list.forEach((s, i) => { laneTargets[i] = String(s || '').split('|').filter(Boolean); showLane(i); });
+}
+// add (shift-click): keep the lane's other knobs, and the same knob again takes it off.
+function setLaneTarget(i, id, add = false) {
+  let ids = laneTargets[i];
+  if (!id) ids = [];
+  else if (add) ids = ids.includes(id) ? ids.filter(x => x !== id) : [...ids, id].slice(-MAX_TARGETS);
+  else ids = [id];
+  laneTargets[i] = ids;
+  // One LFO per knob: a lane already on it lets go.
+  if (id && ids.includes(id)) laneTargets.forEach((x, j) => { if (j !== i && x.includes(id)) { laneTargets[j] = x.filter(y => y !== id); showLane(j); } });
+  showLane(i);
+  if (bridge.juce) bridge.juce.getNativeFunction('setLaneTarget')(i, ids.join('|')).then(list => Array.isArray(list) && setLaneTargetsFromHost(list));
+}
+// Hovering a lane outlines the knobs it moves.
+const focusTarget = (i, on) => laneTargets[i].forEach(id => knobsById[id]?.classList.toggle('mod-focus', on));
 
-// TOUCH: arm a lane, then click any knob to map it. Esc or a second press cancels.
-let learning = -1;
+// TOUCH: arm a lane, then click a knob to map it (another lane's RATE or DEPTH too).
+// Shift-click adds a knob and stays armed, so 2, 3 or 4 knobs go on one lane (a plain click
+// then adds the last one and disarms). Esc or a second press of TOUCH cancels.
+let learning = -1, learningAdded = false;
 function learn(i) {
   learning = learning === i ? -1 : i;
+  learningAdded = false;
   document.body.classList.toggle('learning', learning >= 0);
   document.querySelectorAll('.lane .touch').forEach((b, j) => b.setAttribute('aria-pressed', j === learning));
+  document.querySelectorAll('[data-mapid]').forEach(k => k.classList.toggle('own-lane', learning >= 0 && k.dataset.mapid.startsWith(laneId(learning, ''))));
 }
 document.addEventListener('pointerdown', e => {
   if (learning < 0) return;
   const k = e.target.closest('[data-mapid]');
-  if (!k || !targetName(k.dataset.mapid)) { if (!e.target.closest('.touch')) learn(learning); return; }
+  const id = k && k.dataset.mapid;
+  if (!id || !targetName(id) || id.startsWith(laneId(learning, ''))) { if (!e.target.closest('.touch')) learn(learning); return; }
   e.preventDefault(); e.stopPropagation();
-  setLaneTarget(learning, k.dataset.mapid);
-  learn(learning);
+  // After shift-clicks, a plain click adds the last knob and disarms.
+  setLaneTarget(learning, id, e.shiftKey || learningAdded);
+  if (e.shiftKey) learningAdded = true;
+  else learn(learning);
 }, true);
 document.addEventListener('keydown', e => { if (e.key === 'Escape' && learning >= 0) learn(learning); });
-
 // The list, by module, in chain order.
 function openTargetMenu(i, anchor) {
   closeMenus();
@@ -909,8 +933,15 @@ function openTargetMenu(i, anchor) {
     col.innerHTML = `<h4>${mod.toUpperCase()}</h4>`;
     list.forEach(([id, label]) => {
       const b = document.createElement('button'); b.textContent = label;
-      b.setAttribute('aria-pressed', laneTargets[i] === id);
-      b.onclick = e => { e.stopPropagation(); setLaneTarget(i, id); closeMenus(); };
+      b.setAttribute('aria-pressed', laneTargets[i].includes(id));
+      b.onclick = e => {
+        e.stopPropagation();
+        const add = e.shiftKey || e.ctrlKey || e.metaKey;
+        setLaneTarget(i, id, add);
+        if (add) menu.querySelectorAll('button[data-id]').forEach(x => x.setAttribute('aria-pressed', laneTargets[i].includes(x.dataset.id)));
+        else closeMenus();
+      };
+      b.dataset.id = id;
       col.append(b);
     });
     menu.append(col);
@@ -919,7 +950,7 @@ function openTargetMenu(i, anchor) {
   order.forEach(m => add(m, MAPPABLE[m]));
   add('motion', MAPPABLE.motion.filter(([id]) => !id.startsWith(laneId(i, ''))));
   menu.lastChild.classList.add('lfos');
-  const none = document.createElement('button'); none.className = 'none'; none.textContent = '— Empty';
+  const none = document.createElement('button'); none.className = 'none'; none.textContent = '— Empty          shift-click: add or remove a knob (up to 4)';
   none.onclick = e => { e.stopPropagation(); setLaneTarget(i, ''); closeMenus(); };
   menu.append(none);
   document.getElementById('stage').append(menu);
@@ -951,8 +982,8 @@ document.addEventListener('click', closeMenus);
 const lanes = [];
 // SYNC: the nearest power-of-two division to the free rate at 120 BPM (as Params.h laneSyncBeats).
 const syncBeats = t => Math.pow(2, Math.min(8, Math.max(-3, Math.round(Math.log2(2 / (.001 * Math.pow(20000, t)))))));
-const rateLabel = t => {
-  if (state.sync) { const b = syncBeats(t); return b >= 4 ? (b / 4) + (b > 4 ? ' bars' : ' bar') : '1/' + (4 / b); }
+const rateLabel = (t, sync) => {
+  if (sync) { const b = syncBeats(t); return b >= 4 ? (b / 4) + (b > 4 ? ' bars' : ' bar') : '1/' + (4 / b); }
   const hz = .001 * Math.pow(20000, t); return (hz < 1 ? hz.toFixed(hz < .1 ? 3 : 2) : hz.toFixed(1)) + ' Hz';
 };
 function buildMotion(b) {
@@ -973,10 +1004,17 @@ function buildMotion(b) {
       touch.innerHTML = '<svg viewBox="0 0 12 12"><circle cx="6" cy="6" r="4.5" fill="none" stroke="currentColor"/><circle cx="6" cy="6" r="1.6" fill="currentColor"/></svg>';
       touch.onclick = e => { e.stopPropagation(); learn(idx); };
       target.append(touch, name); row.append(target);
-      laneTargetViews[idx] = name; setLaneTarget(idx, laneTargets[idx], true);
+      laneTargetViews[idx] = name; showLane(idx);
       row.onmouseenter = () => focusTarget(idx, true);
       row.onmouseleave = () => focusTarget(idx, false);
-      row.append(knob({ id: laneId(idx, 'rate'), l: 'rate', t: Math.log(rate / .001) / Math.log(20000), f: rateLabel, on: t => lane.rate = .001 * Math.pow(20000, t) }, { small: true }));
+      // RATE, and its FREE / SYNC switch (S lit: a division of the tempo, on the song's grid).
+      const rateCell = document.createElement('div'); rateCell.className = 'rate';
+      const rateKnob = knob({ id: laneId(idx, 'rate'), l: 'rate', t: Math.log(rate / .001) / Math.log(20000), f: t => rateLabel(t, lane.sync), on: t => lane.rate = .001 * Math.pow(20000, t) }, { small: true });
+      const sync = document.createElement('button'); sync.className = 'sync'; sync.textContent = 'S'; sync.title = 'Free (Hz) or Sync (tempo)';
+      const showSync = v => { lane.sync = !!v; sync.setAttribute('aria-pressed', lane.sync); rateKnob.redraw(); };
+      sync.onclick = e => { e.stopPropagation(); showSync(!lane.sync); bridge.send(laneId(idx, 'sync'), lane.sync ? 1 : 0); };
+      bridge.register(laneId(idx, 'sync'), 'choice', i => showSync(i === 1));
+      rateCell.append(rateKnob, sync); row.append(rateCell);
       const sh = document.createElement('div'); sh.className = 'shape'; sh.title = 'Choose the shape';
       const paint = () => sh.innerHTML = shapeIcon(lane.shape) + SHAPES[lane.shape];
       const pick = i => { lane.shape = i; paint(); bridge.send(laneId(idx, 'shape'), i); };
@@ -990,22 +1028,16 @@ function buildMotion(b) {
   }
   const macros = document.createElement('div'); macros.className = 'macros';
   macros.append(knob({ id: 'motion_amount', l: 'Motion', t: 1, f: pct, on: t => state.motion = t }, { stack: true }),
-                knob({ id: 'motion_drift', l: 'Drift', t: .5, f: t => '×' + Math.pow(4, t * 2 - 1).toFixed(2), on: t => state.drift = Math.pow(4, t * 2 - 1) }, { stack: true }));
+                knob({ id: 'motion_drift', l: 'Drift', t: .5, f: t => '×' + Math.pow(4, t * 2 - 1).toFixed(2), on: t => state.drift = Math.pow(4, t * 2 - 1) }, { stack: true }),
+                // HARD: modulations in steps (coarser as it rises) and COLOR's filters kicked: cracks.
+                knob({ id: 'motion_hard', l: 'Hard', t: 0, f: t => t <= 0 ? 'off' : pct(t) }, { stack: true }));
+  macros.lastChild.classList.add('hard-knob');
+  const knobs3 = document.createElement('div'); knobs3.className = 'macro-knobs';
+  knobs3.append(...macros.children);
+  macros.append(knobs3);
   const st = document.createElement('div'); st.className = 'status';
   st.id = 'status';
   st.innerHTML = 'CPU <b>2.1%</b><br>LATENCY <b>0 SMP</b><br>MIDI <b>A C E G B</b>';
-  // FREE: RATE in Hz (DRIFT scales it). SYNC: RATE picks a division, locked to the song.
-  const rateKnobs = () => document.querySelectorAll('.lane .knob').forEach(k => k.redraw && k.redraw());
-  macros.prepend(seg(['Free', 'Sync'], 0, i => { state.sync = i === 1; rateKnobs(); }, 'motion_sync'));
-  // HARD: the moved knobs step (1/32 of their travel) and COLOR stops gliding: wanted clicks.
-  const hard = document.createElement('button'); hard.className = 'hard'; hard.textContent = 'HARD'; hard.title = 'Modulations in steps: short clicks on the rhythm of the LFOs';
-  let hardOn = false;
-  const showHard = v => { hardOn = !!v; hard.setAttribute('aria-pressed', hardOn); };
-  hard.onclick = () => { showHard(!hardOn); bridge.send('motion_hard', hardOn); };
-  showHard(false); bridge.register('motion_hard', 'toggle', showHard);
-  const modes = document.createElement('div'); modes.className = 'motion-modes';
-  modes.append(macros.firstChild, hard);
-  macros.prepend(modes);
   macros.append(st); body.append(macros); b.append(body);
 }
 
@@ -1052,8 +1084,8 @@ function scramble(el, text) {
 }
 function showPreset(i, quiet) {
   presetIndex = i;
-  const p = PRESETS[i]; if (!p) return;
-  document.getElementById('presetNum').textContent = String(i + 1).padStart(2, '0');
+  const p = i < 0 ? { category: 'INIT', name: 'every knob at its start' } : PRESETS[i]; if (!p) return;
+  document.getElementById('presetNum').textContent = i < 0 ? '--' : String(i + 1).padStart(2, '0');
   scramble(document.getElementById('presetName'), `${p.category} / ${p.name.toUpperCase()}`);
   document.querySelectorAll('.preset-menu button').forEach((b, j) => b.setAttribute('aria-pressed', j === i));
   if (!quiet) glitch();
@@ -1068,6 +1100,11 @@ function buildPresetMenu() {
   let menu = document.querySelector('.preset-menu');
   if (!menu) { menu = document.createElement('div'); menu.className = 'preset-menu'; document.querySelector('.preset').append(menu); }
   menu.innerHTML = '';
+  // INIT: every knob back to its (subtle) starting point, MOTION cleared, default order.
+  const init = document.createElement('button'); init.className = 'init';
+  init.innerHTML = '<span>--</span>INIT — reset all';
+  init.onclick = e => { e.stopPropagation(); if (bridge.juce) bridge.juce.getNativeFunction('resetAll')(); showPreset(-1); menu.classList.remove('open'); };
+  menu.append(init);
   ['ECHO', 'REVERB', 'AMBIENT'].forEach(cat => {
     const col = document.createElement('div');
     col.innerHTML = `<h4>${cat}</h4>`;
@@ -1243,15 +1280,15 @@ function drawLanes() {
   // Show on each target knob where MOTION has moved it (plugin: the engine's own value).
   const on = !document.querySelector('[data-mod="motion"]').classList.contains('off');
   Object.values(knobsById).forEach(k => k.modded = false);
-  laneTargets.forEach((id, i) => {
-    const k = knobsById[id]; if (!k || !id) return;
+  laneTargets.forEach((ids, i) => ids.forEach((id, s) => {
+    const k = knobsById[id]; if (!k) return;
     if (!on || lanes[i].depth <= 0) return;
     const set = k.value();
-    const m = live.targets ? live.targets[i] : Math.min(1, Math.max(0, set + state.motion * lanes[i].depth * lanes[i].f(lanes[i].shape, 0)));
+    const m = live.targets && Array.isArray(live.targets[i]) ? live.targets[i][s] : Math.min(1, Math.max(0, set + state.motion * lanes[i].depth * lanes[i].f(lanes[i].shape, 0)));
     const swing = state.motion * lanes[i].depth;
     k.modded = true;
     k.showMod(m, Math.max(0, set - swing), Math.min(1, set + swing));
-  });
+  }));
   Object.values(knobsById).forEach(k => { if (!k.modded) k.showMod(null); });
 }
 

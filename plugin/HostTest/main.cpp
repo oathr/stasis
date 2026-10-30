@@ -6,7 +6,7 @@
 //   stasis_hosttest path/to/STASIS.vst3 [--no-timing] [--checks]
 //
 // --no-timing reports CPU without failing on it (shared CI machines are noisy).
-// --checks runs only the targeted measurements (FOCUS, GRAIN, PITCH, DEREZâ€¦), not the
+// --checks runs only the targeted measurements (FOCUS, GRAIN, PITCH, DEREZ…), not the
 // stress test and the presets.
 
 #include <juce_audio_processors/juce_audio_processors.h>
@@ -338,6 +338,52 @@ int main(int argc, char** argv) {
             color->releaseResources();
             return db;
         };
+        // HARD on an LFO: lane 1 (square, 4 Hz, 30 %) on SPACE MIX, set through the state as a
+        // project would; every step it takes must crack at the output.
+        const auto lfoRun = [&](float hard) {
+            auto inst = formats.createPluginInstance(*found[0], 48000.0, 512, error);
+            inst->setPlayConfigDetails(2, 2, 48000.0, 512);
+            inst->prepareToPlay(48000.0, 512);
+            for (auto* p : inst->getParameters()) p->setValueNotifyingHost(p->getDefaultValue());
+            juce::MemoryBlock state;
+            inst->getStateInformation(state);
+            if (auto xml = juce::AudioProcessor::getXmlFromBinary(state.getData(), int(state.getSize()))) {
+                xml->setAttribute("targets", "space_mix,,,,,,,,,,,");
+                juce::AudioProcessor::copyXmlToBinary(*xml, state);
+                inst->setStateInformation(state.getData(), int(state.getSize()));
+            }
+            const auto setL = [&](const juce::String& name, float value) {
+                for (auto* p : inst->getParameters())
+                    if (p->getName(64) == name) return p->setValueNotifyingHost(value);
+                fail("no parameter " + name);
+            };
+            setL("Echo On", 0.0f), setL("Color On", 0.0f), setL("Space On", 1.0f), setL("Space Mix", 0.5f);
+            setL("Motion 1 Shape", 4.0f / 11.0f), setL("Motion 1 Rate", float(std::log(4.0 / 0.001) / std::log(20000.0))), setL("Motion 1 Depth", 0.3f);
+            setL("Motion Hard", hard);
+            juce::AudioBuffer<float> buffer(2, 512);
+            juce::MidiBuffer midi;
+            juce::IIRFilter hp1, hp2;
+            hp1.setCoefficients(juce::IIRCoefficients::makeHighPass(48000.0, 4000.0)), hp2.setCoefficients(juce::IIRCoefficients::makeHighPass(48000.0, 4000.0));
+            double high = 0.0, all = 0.0;
+            for (int b = 0, s = 0; b < int(4.0 * 48000 / 512); ++b) {
+                for (int i = 0; i < 512; ++i, ++s) {
+                    const float v = 0.2f * float(std::sin(2.0 * juce::MathConstants<double>::pi * 440.0 * s / 48000.0));
+                    buffer.setSample(0, i, v), buffer.setSample(1, i, v);
+                }
+                inst->processBlock(buffer, midi);
+                for (int i = 0; i < 512; ++i) {
+                    const float y = buffer.getSample(0, i);
+                    const float h = hp2.processSingleSampleRaw(hp1.processSingleSampleRaw(y));
+                    if (b > 90) high += double(h) * h, all += double(y) * y;
+                }
+            }
+            inst->releaseResources();
+            return 10.0 * std::log10((high + 1e-20) / (all + 1e-20));
+        };
+        const double lfoSoft = lfoRun(0.0f), lfoHard = lfoRun(1.0f);
+        std::printf("  LFO on SPACE MIX (square 4 Hz):  HARD off %+6.1f dB   HARD 100 %% %+6.1f dB\n", lfoSoft, lfoHard);
+        if (lfoHard < lfoSoft + 10.0) fail("HARD does not crack on LFO steps");
+
         const double glide = colorRun(false), hardClicks = colorRun(true);
         if (glide > -60.0) fail("COLOR crackles when its knobs move");
         if (hardClicks < glide + 15.0) fail("HARD does not click");

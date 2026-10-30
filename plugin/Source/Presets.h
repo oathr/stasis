@@ -47,6 +47,11 @@ struct Preset {
 
 inline const char* const kCategories[] = {"ECHO", "REVERB", "AMBIENT"};
 
+// The presets were written when these knobs started elsewhere (before the defaults became
+// subtle): every preset starts from these values, then its own.
+inline const std::vector<std::pair<const char*, float>> kBase = {
+    {"shape_drive", 0.2f}, {"shape_harm", 0.3f}, {"pitch_mix", 0.4f}, {"air_breath", 0.3f}, {"air_lofi", 0.1f}, {"grain_mix", 0.7f}, {"derez_mix", 0.7f}, {"derez_crush", 0.4f}, {"derez_bits", 0.45f}, {"stretch_mix", 0.5f}, {"echo_fdbk", 0.6f}, {"echo_mix", 0.35f}, {"space_type", 3.0f}, {"space_size", 0.9f}, {"space_decay", 0.75f}, {"space_mix", 0.6f}, {"focus_amount", 0.6f}, {"focus_depth", 0.9f}};
+
 inline const std::vector<Preset>& all() {
     static const std::vector<Preset> list = {
         // ---------------------------------------------------------------- ECHO
