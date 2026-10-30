@@ -54,5 +54,6 @@ target_link_libraries(Stasis
 # Host-side stress test: loads the built VST3 like a DAW does.
 juce_add_console_app(stasis_hosttest PRODUCT_NAME "stasis_hosttest")
 target_sources(stasis_hosttest PRIVATE HostTest/main.cpp)
-target_compile_definitions(stasis_hosttest PRIVATE JUCE_PLUGINHOST_VST3=1 JUCE_USE_CURL=0 JUCE_WEB_BROWSER=0)
+target_compile_definitions(stasis_hosttest PRIVATE JUCE_PLUGINHOST_VST3=1 JUCE_USE_CURL=0 JUCE_WEB_BROWSER=0
+                           STASIS_COMPAT_DIR="${CMAKE_CURRENT_SOURCE_DIR}/HostTest/compat")
 target_link_libraries(stasis_hosttest PRIVATE juce::juce_audio_processors juce::juce_recommended_config_flags)

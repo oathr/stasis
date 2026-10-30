@@ -179,6 +179,25 @@ private:
     // HARD (amount): the moved knobs move in steps (32 per travel, down to 6 at 100 %) and
     // COLOR stops gliding and kicks its filters, so each step lands at once and cracks.
     // ppqEnd: song position at the end of this block (tempo sync).
+    // Is this knob's module switched on? Knobs outside a module (DRY / WET, OUTPUT,
+    // OFFSET, GLUE, the LFOs themselves) always are. SHIMMER belongs to SPACE, TONAL to COLOR.
+    static bool targetLive(const float* values, int paramIndex) {
+        static const std::vector<int> onIndex = [] {
+            std::vector<int> table;
+            for (const auto& spec : params::all()) {
+                std::string module = spec.id.substr(0, spec.id.find('_'));
+                if (module == "shimmer") module = "space";
+                if (module == "tonal") module = "color";
+                const bool isModule = std::find_if(params::kModules.begin(), params::kModules.end(),
+                                                   [&](const char* m) { return module == m; }) != params::kModules.end();
+                table.push_back(isModule && spec.id != module + "_on" ? params::indexOf(module + "_on") : -1);
+            }
+            return table;
+        }();
+        const int on = onIndex[size_t(paramIndex)];
+        return on < 0 || values[on] > 0.5f;
+    }
+
     const float* modulate(const float* values, int n, float bpm, double ppqEnd, bool playing) {
         static const int iOn = params::indexOf("motion_on"), iAmount = params::indexOf("motion_amount"), iDrift = params::indexOf("motion_drift"),
                          iHard = params::indexOf("motion_hard");
@@ -198,8 +217,13 @@ private:
         const float beatsPerSecond = std::clamp(bpm, 20.0f, 999.0f) / 60.0f;
         for (size_t i = 0; i < lanes_.size(); ++i) {
             const float depth = std::clamp(values[laneDepth_[i]] + depthOffset_[i], 0.0f, 1.0f);
+            // A knob whose module is off is left alone; a lane with nothing left to move
+            // does not run.
             bool any = false;
-            for (const auto& slot : laneTarget_[i]) any = any || slot.load(std::memory_order_relaxed) >= 0;
+            for (const auto& slot : laneTarget_[i]) {
+                const int t = slot.load(std::memory_order_relaxed);
+                any = any || (t >= 0 && targetLive(values, t));
+            }
             if (depth <= 0.0f || !any) {  // an empty lane, or one at 0 %, does not run
                 laneValues_[i].store(0.0f, std::memory_order_relaxed);
                 continue;
@@ -223,7 +247,7 @@ private:
             // each way (a knob at 20 % goes from -80 % to 120 %, held inside 0 .. 100 %).
             for (const auto& slot : laneTarget_[i]) {
                 const int targetIndex = slot.load(std::memory_order_relaxed);
-                if (targetIndex < 0) continue;
+                if (targetIndex < 0 || !targetLive(values, targetIndex)) continue;
                 float& target = modulated_[size_t(targetIndex)];
                 target = std::clamp(target + amount * depth * x, 0.0f, 1.0f);
                 if (hardSteps > 0.0f) {
