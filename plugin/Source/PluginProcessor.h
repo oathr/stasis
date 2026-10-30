@@ -34,6 +34,22 @@ public:
     void getStateInformation(juce::MemoryBlock& destData) override;
     void setStateInformation(const void* data, int sizeInBytes) override;
 
+    // User presets: .stasis files (the state as XML) in Documents/STASIS/Presets. Loading one
+    // flushes the tails like a factory preset; the preset name then shows USER / name.
+    static constexpr int kUserPreset = -2;
+    static juce::File userPresetFolder();
+    static juce::StringArray userPresets();
+    bool saveUserPreset(const juce::String& name);
+    bool loadPresetFile(const juce::File& file);
+    bool importPreset(const juce::File& file);  // loads it and copies it into the user folder
+    bool exportPreset(const juce::File& file);
+    bool deleteUserPreset(const juce::String& name);
+    juce::String userPresetName;  // set while a user preset is the current one
+
+    // The editor's last zoom (window width / page layout width; 0 = not set yet), so it
+    // reopens at the size it was left. Saved with the project.
+    double editorScale = 0.0;
+
     // Module order, as names from stasis::params::kModules. setModuleOrder ignores
     // anything that is not a full permutation.
     juce::StringArray getModuleOrder() const;
@@ -50,6 +66,7 @@ public:
     // Where the visualizer sits: "top" (default) or "side" (a column on the right, for
     // short screens). Part of the state; the editor sizes its window from it.
     juce::String layout = "top";
+    bool motionOpen = true;  // MOTION's lanes shown (closed: the window is 228 page px shorter)
     void resetEngine();  // flush only (used by panic and by the NaN guard)
     void setLaneTarget(int lane, const juce::String& ids);  // 'a|b|c' (up to 4); ignores ids MOTION may not move
     void resetAll();                                         // INIT: defaults everywhere, tails cleared
@@ -59,6 +76,8 @@ public:
     std::atomic<float> cpuLoad{0.0f};  // share of the block duration spent processing
 
 private:
+    juce::ValueTree stateTree(bool forPreset);
+    void applyStateTree(juce::ValueTree state, bool fromPreset);
     std::vector<std::atomic<float>*> raw_;
     std::vector<float> values_;
     int currentPreset_ = 0;

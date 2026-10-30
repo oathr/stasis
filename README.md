@@ -43,9 +43,12 @@ MIDI IN ─────────┴──────────────
 - The visualizer at the top shows the actual spectrum of the wet signal.
 - Each module has a switch (the square at the bottom of its spine) with a 30 ms fade, so it never clicks.
 - `DRY / WET` (top, 100 % by default) balances wet against dry; `OUTPUT` sets the output level (±12 dB).
+- `GLUE` (top): the last stage, a soft and slow compressor on the whole output (12 dB soft knee, ratio 1.5:1 to 3:1, 60 ms attack, 600 ms release, stereo-linked RMS). One knob: the threshold goes from −8 to −30 dBFS as it rises; makeup is automatic so a signal at −14 dBFS RMS comes out unchanged. 30 % by default (gentle: +0.9 dB at −20 dBFS), 0 = off and nothing computed.
+- `LVL` (gain staging, off by default): the wet follows the input's loudness **both ways** (−12 to +12 dB), on top of the makeup below that only lifts.
 - `OFFSET` widens the wet signal: its right channel arrives 0 to 25 ms after the left (Haas effect, like Arturia's offset mode). The dry signal is untouched; at 0, nothing is computed.
 - `⏻` (BYPASS): the output goes back to the untouched input, with a 30 ms fade, and the rack dims. The effects keep running underneath, so the tails do not freeze.
 - The button left of the themes puts the visualizer **on top** or **at the side** (for short screens: the window loses 13 % of its height; in the side column, time runs downwards). The choice is saved with the project.
+- The window reopens at the size it was left (saved with the project, and remembered for new instances). The square next to it cycles through the themes.
 - **Level makeup**: the modules' losses used to add up (GRAIN, DEREZ, STRETCH… a preset could come out 10 to 18 dB quieter than its input). The wet is now brought back up to the input's loudness: slowly (1.5 s up, 150 ms down, so a reverb still building never overshoots), makeup only (0 to +12 dB: a module that boosts keeps its boost), and frozen while the input is silent so tails fade naturally. Measured: the 60 presets now sit between −3.6 and +2 dB of the input.
 - **An invisible safety limiter** at the very end: nothing goes above −0.3 dBFS, and if a bug ever produced invalid values (NaN), the output mutes for 0.25 s and the engine resets. Your ears are safe.
 - `FREEZE` holds the reverb: the tail lasts forever, without drifting.
@@ -122,6 +125,7 @@ Replays small slices of what was just played, under an envelope, at random momen
 | `−12` `−7` `−5` `−3` `0` `+3` `+5` `+7` `+12` | Allowed transpositions, in semitones, relative to the sound itself (no pitch detection needed): `0` = unison, `+7` = a fifth up, `−12` = an octave down. Default: 0, +7, +12 |
 | `FREE` / `SYNC` | FREE: `DENSITY` in grains per second (0.5 to 40). SYNC: `RATE` as a division of the host tempo (1/32 to 1/1, dotted, triplets); in PULSE the grains land on the song's grid, in SCATTER / DRIFT the randomness stays around that rate |
 | `FDBK` | Feedback, 0 to 100 %: the grains go back into the cloud (512 samples later, soft-clipped), so grains are cut from grains: cascades, then a cloud that feeds itself. At 100 % it stays bounded and fades (−56 dB after 9 s of silence) |
+| `REV` | Direction: the chance that a grain plays its slice backwards. Left: all forward; middle: half and half; right: all reverse |
 | `CHANCE` | Probability that a scheduled grain actually plays |
 | `SIZE` | 20 ms to 2 s |
 | `MIX` | Blend (at 100 %: the notes only) |
@@ -188,7 +192,7 @@ Every word is bipolar: centre = flat, up = boost, down = cut, shown in dB. Moves
 Measured separation: a notes-to-noise ratio of +7.6 dB at the input → **+17.1 dB** at full TONAL, **−1.8 dB** at full NOISE.
 
 ### MOTION — 12 freely assignable LFOs
-Each lane moves **the knob of your choice**. By default only lane 1 is assigned, to the global DRY / WET; the others are empty.
+Each lane moves **the knob of your choice**. By default only lane 1 is assigned, to the global DRY / WET; the others are empty. The ▾ in MOTION's header folds the 12 lanes away (the window gets shorter) and brings them back.
 
 | Control | What it does |
 |---|---|
@@ -207,6 +211,10 @@ A modulated knob shows an orange arc over the whole swing, always visible, and a
 
 ## Presets
 60 factory presets, in three families of 20. Each comes with its own MOTION modulations (2 to 4 lanes, matched to the sound), almost all use OFFSET (several move it with an LFO: the pitch wavers like tape), and many use GRAIN. None is endless: FEEDBACK and DECAY stay finite. A new instance starts on **Glacier**. Click the preset name to open the list, ‹ › to step through. They also show up as VST3 *programs* in the host. Loading a preset first clears every tail (like PANIC), so you hear the new preset on its own.
+
+**Your own presets**: the USER column of the preset list. Type a name and SAVE: the preset is a `.stasis` file (readable XML) in `Documents\STASIS\Presets`. Click one to load it (the tails are flushed, like a factory preset), × deletes its file. EXPORT… saves the current sound anywhere, IMPORT… loads a `.stasis` file and adds it to your list.
+
+**In the DAW** (Ableton Live, Reaper, Bitwig…): every knob is an automatable parameter with a clear name ("Space Decay", "Echo Feedback"…) and its value in its unit ("5.5 s", "−6.0 dB", "1/8."). They are grouped by module (GLOBAL, SHAPE… MOTION LFO 1 to 12) where the host shows groups, and a value typed in the host ("500 ms") lands on the knob position that shows it.
 
 | ECHO | REVERB | AMBIENT |
 |---|---|---|

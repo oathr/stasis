@@ -5,35 +5,70 @@
 
 namespace {
 
+// The DAW's view: each module's knobs in a group (VST3 units: Reaper, Cubase, Bitwig show
+// them; Live lists them flat), every value as text with its unit, and typing a value back
+// ("500 ms", "-6 dB", "40 %") finds the knob position that shows it.
+juce::String groupOf(const std::string& id) {
+    static const std::vector<std::pair<std::string, const char*>> prefixes = {
+        {"shape_", "SHAPE"}, {"pitch_", "PITCH"}, {"air_", "AIR"}, {"grain_", "GRAIN"}, {"derez_", "DEREZ"}, {"stretch_", "STRETCH"},
+        {"echo_", "ECHO"}, {"space_", "SPACE"}, {"shimmer_", "SPACE"}, {"focus_", "FOCUS"}, {"color_", "COLOR"}, {"tonal", "COLOR"},
+        {"motion_", "MOTION"}};
+    for (const auto& [prefix, name] : prefixes)
+        if (id.rfind(prefix, 0) == 0) return name;
+    if (stasis::params::laneOf(id) >= 0) return "MOTION LFO " + juce::String(stasis::params::laneOf(id) + 1);
+    return "GLOBAL";
+}
+
+float valueFromText(const std::function<std::string(float)>& text, const juce::String& typed) {
+    const double wanted = typed.retainCharacters("+-.0123456789").getDoubleValue();
+    float best = 0.0f;
+    double bestDistance = 1.0e30;
+    for (int i = 0; i <= 1000; ++i) {
+        const float t = float(i) / 1000.0f;
+        const double shown = juce::String(text(t)).retainCharacters("+-.0123456789").getDoubleValue();
+        if (std::abs(shown - wanted) < bestDistance) bestDistance = std::abs(shown - wanted), best = t;
+    }
+    return best;
+}
+
 juce::AudioProcessorValueTreeState::ParameterLayout createLayout() {
     using namespace stasis::params;
     juce::AudioProcessorValueTreeState::ParameterLayout layout;
+    std::unique_ptr<juce::AudioProcessorParameterGroup> group;
+    int groups = 0;
     for (const Spec& s : all()) {
+        const auto name = groupOf(s.id);
+        if (group == nullptr || group->getName() != name) {
+            if (group != nullptr) layout.add(std::move(group));
+            // A module may come back later in the table (MOTION's globals, its HARD): unique ids.
+            group = std::make_unique<juce::AudioProcessorParameterGroup>(name.toLowerCase().removeCharacters(" ") + juce::String(++groups), name, " | ");
+        }
         const juce::ParameterID id{s.id.c_str(), 1};
         switch (s.kind) {
             case Kind::Float: {
                 auto text = s.text;
-                layout.add(std::make_unique<juce::AudioParameterFloat>(
-                    id, juce::String(s.name), juce::NormalisableRange<float>(0.0f, 1.0f), s.defaultValue,
-                    juce::AudioParameterFloatAttributes().withStringFromValueFunction([text](float v, int) {
-                        return text ? juce::String(text(v)) : juce::String(v, 2);
-                    })));
+                auto attributes = juce::AudioParameterFloatAttributes().withStringFromValueFunction([text](float v, int) {
+                    return text ? juce::String(text(v)) : juce::String(v, 2);
+                });
+                if (text) attributes = attributes.withValueFromStringFunction([text](const juce::String& typed) { return valueFromText(text, typed); });
+                group->addChild(std::make_unique<juce::AudioParameterFloat>(id, juce::String(s.name), juce::NormalisableRange<float>(0.0f, 1.0f),
+                                                                            s.defaultValue, attributes));
                 break;
             }
             case Kind::Bool:
-                layout.add(std::make_unique<juce::AudioParameterBool>(id, juce::String(s.name), s.defaultValue > 0.5f));
+                group->addChild(std::make_unique<juce::AudioParameterBool>(id, juce::String(s.name), s.defaultValue > 0.5f));
                 break;
             case Kind::Choice: {
                 juce::StringArray choices;
                 for (const auto& c : s.choices) choices.add(c);
-                layout.add(std::make_unique<juce::AudioParameterChoice>(id, juce::String(s.name), choices, int(s.defaultValue)));
+                group->addChild(std::make_unique<juce::AudioParameterChoice>(id, juce::String(s.name), choices, int(s.defaultValue)));
                 break;
             }
         }
     }
+    if (group != nullptr) layout.add(std::move(group));
     return layout;
 }
-
 // Saved before GRAIN had intervals (v0.1.0): twelve keys above the source plus 0-2
 // octaves. Keep what still exists: unison, minor third, fourth, fifth, and an octave.
 void migrateGrainNotes(juce::ValueTree& state) {
@@ -199,6 +234,7 @@ void StasisProcessor::resetAll() {
     resetEngine();
     setModuleOrder(juce::StringArray::fromTokens(stasis::params::kDefaultOrderNames, ",", ""));
     currentPreset_ = -1;
+    userPresetName = {};
     juce::MessageManager::callAsync([safe = juce::WeakReference<StasisProcessor>(this)] {
         if (safe == nullptr) return;
         if (safe->onOrderChanged) safe->onOrderChanged();
@@ -245,6 +281,7 @@ void StasisProcessor::applyPreset(int index, bool flush) {
     const juce::String order(preset.order);
     setModuleOrder(juce::StringArray::fromTokens(order.isEmpty() ? juce::String(stasis::params::kDefaultOrderNames) : order, ",", ""));
     currentPreset_ = index;
+    userPresetName = {};
     juce::MessageManager::callAsync([safe = juce::WeakReference<StasisProcessor>(this)] {
         if (safe == nullptr) return;
         if (safe->onOrderChanged) safe->onOrderChanged();
@@ -279,46 +316,113 @@ void StasisProcessor::setModuleOrder(const juce::StringArray& input) {
     engine.setOrder(order);
 }
 
-void StasisProcessor::getStateInformation(juce::MemoryBlock& destData) {
+// The whole state as a tree: parameters, order, MOTION targets, version. A project also
+// keeps the preset shown, the layout and the window size; a preset file does not.
+juce::ValueTree StasisProcessor::stateTree(bool forPreset) {
     auto state = apvts.copyState();
     state.setProperty("order", getModuleOrder().joinIntoString(","), nullptr);
-    state.setProperty("preset", currentPreset_, nullptr);
     state.setProperty("targets", getLaneTargets().joinIntoString(","), nullptr);
     state.setProperty("version", kStateVersion, nullptr);
-    state.setProperty("layout", layout, nullptr);
-    if (auto xml = state.createXml()) copyXmlToBinary(*xml, destData);
+    if (!forPreset) {
+        state.setProperty("preset", currentPreset_, nullptr);
+        state.setProperty("userPreset", userPresetName, nullptr);
+        state.setProperty("layout", layout, nullptr);
+        state.setProperty("motionOpen", motionOpen, nullptr);
+        state.setProperty("editorScale", editorScale, nullptr);
+    }
+    return state;
+}
+
+void StasisProcessor::getStateInformation(juce::MemoryBlock& destData) {
+    if (auto xml = stateTree(false).createXml()) copyXmlToBinary(*xml, destData);
 }
 
 void StasisProcessor::setStateInformation(const void* data, int sizeInBytes) {
-    if (auto xml = getXmlFromBinary(data, sizeInBytes)) {
-        if (!xml->hasTagName(apvts.state.getType())) return;
-        auto state = juce::ValueTree::fromXml(*xml);
-        migrateGrainNotes(state);
-        const int version = int(state.getProperty("version", 1));
-        if (version < 2) migrateToVersion2(state);
-        if (version < 3) migrateToVersion3(state);
-        apvts.replaceState(state);
-        setModuleOrder(juce::StringArray::fromTokens(state.getProperty("order").toString(), ",", ""));
+    if (auto xml = getXmlFromBinary(data, sizeInBytes))
+        if (xml->hasTagName(apvts.state.getType())) applyStateTree(juce::ValueTree::fromXml(*xml), false);
+}
+
+void StasisProcessor::applyStateTree(juce::ValueTree state, bool fromPreset) {
+    migrateGrainNotes(state);
+    const int version = int(state.getProperty("version", 1));
+    if (version < 2) migrateToVersion2(state);
+    if (version < 3) migrateToVersion3(state);
+    apvts.replaceState(state);
+    setModuleOrder(juce::StringArray::fromTokens(state.getProperty("order").toString(), ",", ""));
+    if (!fromPreset) {
         currentPreset_ = int(state.getProperty("preset", 0));
+        userPresetName = state.getProperty("userPreset", "").toString();
         layout = state.getProperty("layout", "top").toString() == "side" ? "side" : "top";
-        if (state.hasProperty("targets")) {
-            const auto ids = juce::StringArray::fromTokens(state.getProperty("targets").toString(), ",", "");
-            for (int lane = 0; lane < 12; ++lane) setLaneTarget(lane, lane < ids.size() ? ids[lane] : juce::String());
-        } else {
-            // Saved before MOTION was assignable (v0.3 and earlier): its lanes had fixed
-            // targets and non-zero depths, which would now land on other knobs. Start
-            // MOTION from scratch: default targets, every depth at 0.
-            for (int lane = 0; lane < 12; ++lane) {
-                setLaneTarget(lane, stasis::params::kDefaultTargets[size_t(lane)]);
-                if (auto* depth = apvts.getParameter(stasis::params::laneId(lane, "depth").c_str())) depth->setValueNotifyingHost(0.0f);
-            }
-        }
-        juce::MessageManager::callAsync([safe = juce::WeakReference<StasisProcessor>(this)] {
-            if (safe == nullptr) return;
-            if (safe->onOrderChanged) safe->onOrderChanged();
-            if (safe->onPresetChanged) safe->onPresetChanged();
-        });
+        motionOpen = bool(state.getProperty("motionOpen", true));
+        editorScale = double(state.getProperty("editorScale", editorScale));
     }
+    if (state.hasProperty("targets")) {
+        const auto ids = juce::StringArray::fromTokens(state.getProperty("targets").toString(), ",", "");
+        for (int lane = 0; lane < 12; ++lane) setLaneTarget(lane, lane < ids.size() ? ids[lane] : juce::String());
+    } else {
+        // Saved before MOTION was assignable (v0.3 and earlier): its lanes had fixed
+        // targets and non-zero depths, which would now land on other knobs. Start
+        // MOTION from scratch: default targets, every depth at 0.
+        for (int lane = 0; lane < 12; ++lane) {
+            setLaneTarget(lane, stasis::params::kDefaultTargets[size_t(lane)]);
+            if (auto* depth = apvts.getParameter(stasis::params::laneId(lane, "depth").c_str())) depth->setValueNotifyingHost(0.0f);
+        }
+    }
+    juce::MessageManager::callAsync([safe = juce::WeakReference<StasisProcessor>(this)] {
+        if (safe == nullptr) return;
+        if (safe->onOrderChanged) safe->onOrderChanged();
+        if (safe->onPresetChanged) safe->onPresetChanged();
+    });
+}
+
+// ---- User presets: one .stasis file each (the state as XML), in Documents/STASIS/Presets.
+juce::File StasisProcessor::userPresetFolder() {
+    return juce::File::getSpecialLocation(juce::File::userDocumentsDirectory).getChildFile("STASIS").getChildFile("Presets");
+}
+
+juce::StringArray StasisProcessor::userPresets() {
+    juce::StringArray names;
+    for (const auto& file : userPresetFolder().findChildFiles(juce::File::findFiles, false, "*.stasis"))
+        names.add(file.getFileNameWithoutExtension());
+    names.sortNatural();
+    return names;
+}
+
+bool StasisProcessor::exportPreset(const juce::File& file) {
+    auto xml = stateTree(true).createXml();
+    return xml != nullptr && file.getParentDirectory().createDirectory() && xml->writeTo(file);
+}
+
+bool StasisProcessor::saveUserPreset(const juce::String& name) {
+    const auto clean = juce::File::createLegalFileName(name.trim());
+    if (clean.isEmpty() || !exportPreset(userPresetFolder().getChildFile(clean + ".stasis"))) return false;
+    userPresetName = clean;
+    currentPreset_ = kUserPreset;
+    if (onPresetChanged) onPresetChanged();
+    return true;
+}
+
+bool StasisProcessor::loadPresetFile(const juce::File& file) {
+    auto xml = juce::XmlDocument::parse(file);
+    if (xml == nullptr || !xml->hasTagName(apvts.state.getType())) return false;
+    // Like a factory preset: every knob from the file, the old tails flushed.
+    applyStateTree(juce::ValueTree::fromXml(*xml), true);
+    resetEngine();
+    userPresetName = file.getFileNameWithoutExtension();
+    currentPreset_ = kUserPreset;
+    return true;
+}
+
+bool StasisProcessor::importPreset(const juce::File& file) {
+    if (!loadPresetFile(file)) return false;
+    // Imported presets join the user list.
+    const auto copy = userPresetFolder().getChildFile(file.getFileName());
+    if (copy != file && userPresetFolder().createDirectory()) file.copyFileTo(copy);
+    return true;
+}
+
+bool StasisProcessor::deleteUserPreset(const juce::String& name) {
+    return userPresetFolder().getChildFile(juce::File::createLegalFileName(name) + ".stasis").deleteFile();
 }
 
 juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter() { return new StasisProcessor(); }

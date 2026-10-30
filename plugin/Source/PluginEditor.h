@@ -24,6 +24,9 @@ private:
     juce::WebBrowserComponent::Options createOptions(Relays&);
     void sendOrder();
     void applyLayout(bool keepScale);
+    static juce::PropertiesFile::Options settingsOptions();
+    void sendUserPresets();
+    std::unique_ptr<juce::FileChooser> chooser_;
 
     void timerCallback() override;
     void sendSpectrum();

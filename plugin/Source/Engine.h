@@ -2,6 +2,7 @@
 
 #include <stasis/air.h>
 #include <stasis/bloom.h>
+#include <stasis/glue.h>
 #include <stasis/grain.h>
 #include <stasis/capture_stretch.h>
 #include <stasis/color.h>
@@ -67,6 +68,7 @@ public:
         echo_.prepare(sampleRate);
         space_.prepare(sampleRate);
         plate_.prepare(sampleRate);
+        glue_.prepare(sampleRate);
         bloom_.prepare(sampleRate);
         resonator_.prepare(sampleRate);
         focus_.prepare(sampleRate);
@@ -258,7 +260,7 @@ private:
         using namespace params;
         static const auto& specs = all();
         static const int iMix = indexOf("mix"), iOut = indexOf("out"), iFreeze = indexOf("freeze"), iBypass = indexOf("bypass"),
-                         iOffset = indexOf("offset");
+                         iOffset = indexOf("offset"), iGlue = indexOf("glue"), iStaging = indexOf("gain_staging");
         static const int iDerezOn = indexOf("derez_on"), iInterval = indexOf("derez_interval"), iCrush = indexOf("derez_crush"),
                          iBits = indexOf("derez_bits"), iDerezMix = indexOf("derez_mix"), iDerezSmooth = indexOf("derez_smooth");
         static const int iStretchOn = indexOf("stretch_on"), iFactor = indexOf("stretch_factor"), iStretchMix = indexOf("stretch_mix");
@@ -306,12 +308,12 @@ private:
         static const int iGrainOn = indexOf("grain_on"), iAlgo = indexOf("grain_algo"), iEnv = indexOf("grain_env"), iDensity = indexOf("grain_density"),
                          iChance = indexOf("grain_chance"), iGrainSize = indexOf("grain_size"), iGrainMix = indexOf("grain_mix"),
                          iInterval0 = indexOf("grain_m12"), iGrainSync = indexOf("grain_sync"), iGrainDiv = indexOf("grain_div"),
-                         iGrainFdbk = indexOf("grain_fdbk");
+                         iGrainFdbk = indexOf("grain_fdbk"), iGrainReverse = indexOf("grain_reverse");
         on_[kGrain] = v(values, iGrainOn) > 0.5f;
         mix_[kGrain] = v(values, iGrainMix);
         grainFeedback_ = 0.95f * v(values, iGrainFdbk);  // 100 % on the knob: just short of runaway
         if (changed({iAlgo, iEnv, iDensity, iChance, iGrainSize, iGrainSync, iGrainDiv, iInterval0, iInterval0 + 1, iInterval0 + 2, iInterval0 + 3,
-                     iInterval0 + 4, iInterval0 + 5, iInterval0 + 6, iInterval0 + 7, iInterval0 + 8})) {
+                     iInterval0 + 4, iInterval0 + 5, iInterval0 + 6, iInterval0 + 7, iInterval0 + 8, iGrainReverse})) {
             GrainCloud::Params p;
             p.algo = GrainCloud::Algo(std::clamp(int(v(values, iAlgo)), 0, 2));
             p.envelope = GrainCloud::Envelope(std::clamp(int(v(values, iEnv)), 0, 3));
@@ -319,6 +321,7 @@ private:
             p.chance = v(values, iChance);
             p.sizeMs = grainSizeMs(v(values, iGrainSize));
             p.sync = v(values, iGrainSync) > 0.5f;
+            p.reverse = v(values, iGrainReverse);
             p.divisionBeats = kDivisionBeats[size_t(std::clamp(echoDivision(v(values, iGrainDiv)), 0, 13))];
             p.intervals = 0;
             for (int i = 0; i < int(GrainCloud::kIntervals.size()); ++i)
@@ -335,6 +338,10 @@ private:
         outTarget_ = dbToGain((2.0f * v(values, iOut) - 1.0f) * 12.0f);
         bypassTarget_ = v(values, iBypass) > 0.5f ? 1.0f : 0.0f;
         offsetTarget_ = offsetMs(v(values, iOffset)) * 0.001f * sampleRate_;
+        if (changed({iGlue})) glue_.setAmount(v(values, iGlue));
+        // GAIN STAGING: the wet follows the input's loudness both ways (-12 .. +12 dB);
+        // off, it is only lifted back when the chain lost level (0 .. +12 dB).
+        makeupFloor_ = v(values, iStaging) > 0.5f ? 0.25f : 1.0f;
         tonalBalance_ = 2.0f * v(values, iTonal) - 1.0f;
         tonalPre_ = v(values, iPlace) < 0.5f;
         freeze_ = v(values, iFreeze) > 0.5f;
@@ -628,7 +635,7 @@ private:
             wetLevel_ += (wetPower - wetLevel_) * levelCoef_;
             dryFast_ += (dryPower - dryFast_) * gateCoef_;
             if (dryFast_ > 1.0e-6f) {  // -60 dBFS, over 50 ms
-                const float wanted = std::clamp(std::sqrt(dryLevel_ / std::max(wetLevel_, 1.0e-12f)), 1.0f, 4.0f);
+                const float wanted = std::clamp(std::sqrt(dryLevel_ / std::max(wetLevel_, 1.0e-12f)), makeupFloor_, 4.0f);
                 // Up slowly (1.5 s), down fast (150 ms): a reverb still building never overshoots.
                 makeup_ += (wanted - makeup_) * (wanted > makeup_ ? makeupCoef_ : makeupDownCoef_);
             }
@@ -644,6 +651,8 @@ private:
             }
             float l = outGain_ * (left[i] + mixGain_ * (wl - left[i]));
             float r = outGain_ * (right[i] + mixGain_ * (wr - right[i]));
+            // GLUE: the soft, slow compressor on the whole output.
+            if (glue_.active()) glue_.process(l, r);
             // BYPASS: back to the untouched input (30 ms ramp); the chain keeps running.
             bypassGain_ += (bypassTarget_ - bypassGain_) * rampCoef_;
             l += bypassGain_ * (left[i] - l);
@@ -696,6 +705,8 @@ private:
     TapeEcho echo_;
     SpaceReverb space_;
     PlateReverb plate_;
+    Glue glue_;
+    float makeupFloor_ = 1.0f;
     BloomFeeder bloom_;
     Resonator resonator_;
     Resonator::Params resonatorParams_;

@@ -39,6 +39,7 @@ public:
         float spread = 0.8f;      // pan width 0..1
         bool sync = false;
         float divisionBeats = 0.5f;  // SYNC: one grain per this many quarter notes (average)
+        float reverse = 0.0f;        // chance that a grain plays its slice backwards: 0 all forward, 0.5 half, 1 all
     };
 
     // Host tempo and song position (quarter notes) at the start of the next block.
@@ -124,7 +125,7 @@ private:
     struct Voice {
         bool active = false;
         double position = 0.0;
-        float ratio = 1.0f, gain = 1.0f, panL = 1.0f, panR = 1.0f;
+        float ratio = 1.0f, gain = 1.0f, panL = 1.0f, panR = 1.0f;  // ratio < 0: backwards
         int length = 1, age = 0;
         Envelope envelope = Envelope::Sine;
     };
@@ -180,7 +181,9 @@ private:
 
         const float pan = std::clamp(params_.spread, 0.0f, 1.0f) * rng_.bipolar();
         const float angle = (pan + 1.0f) * 0.25f * kPi;
-        *voice = {true, double(written_) - back, ratio, level, std::cos(angle) * 1.41421356f, std::sin(angle) * 1.41421356f, length, 0,
+        // REVERSE: the same slice, read from its end back to its start.
+        const bool backwards = rng_.uniform() < params_.reverse;
+        *voice = {true, backwards ? start + double(length) * ratio : start, backwards ? -ratio : ratio, level, std::cos(angle) * 1.41421356f, std::sin(angle) * 1.41421356f, length, 0,
                   params_.envelope};
 
         const uint32_t head = eventHead_.load(std::memory_order_relaxed);
