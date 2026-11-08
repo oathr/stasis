@@ -85,7 +85,12 @@ public:
 
             if (grid) {  // on the host's grid
                 beat_ += beatsPerSample;
-                const int64_t step = int64_t(std::floor(beat_ / division));
+                // A SINE or TRIANGLE grain is loudest at its middle: it starts half a grain
+                // early so that middle lands on the grid (started on it, it sounded late:
+                // +80 ms for a 160 ms grain). SQUARE and PERC are loud from their start.
+                const bool swells = params_.envelope == Envelope::Sine || params_.envelope == Envelope::Triangle;
+                const double lead = swells ? 0.5 * double(size) * double(bpm_) / 60.0 : 0.0;
+                const int64_t step = int64_t(std::floor((beat_ + lead) / division));
                 if (step != lastStep_) {
                     lastStep_ = step;
                     if (rng_.uniform() < params_.chance) spawn(size, level);

@@ -82,6 +82,28 @@ bool sameShown(const juce::String& a, const juce::String& b) {
     return std::abs(x - y) <= std::max(step, 0.01 * std::abs(x));
 }
 
+// The division menu, in quarter notes (written out here, the test's own truth):
+// 1/32 1/16T 1/16 1/16. 1/8T 1/8 1/8. 1/4T 1/4 1/4. 1/2T 1/2 1/2. 1/1
+double stasis_division_beats(int index) {
+    static const double beats[] = {0.125, 1.0 / 6.0, 0.25, 0.375, 1.0 / 3.0, 0.5, 0.75, 2.0 / 3.0, 1.0, 1.5, 4.0 / 3.0, 2.0, 3.0, 4.0};
+    return beats[std::clamp(index, 0, 13)];
+}
+
+// A DAW's transport: playing from bar 1 at a fixed tempo; `samples` advances per block.
+struct FakePlayHead : juce::AudioPlayHead {
+    double bpm = 120.0, sampleRate = 48000.0;
+    int64_t samples = 0;
+    juce::Optional<PositionInfo> getPosition() const override {
+        PositionInfo info;
+        info.setBpm(bpm);
+        info.setTimeInSamples(samples);
+        info.setPpqPosition(double(samples) / sampleRate * bpm / 60.0);
+        info.setIsPlaying(true);
+        info.setTimeSignature(TimeSignature{4, 4});
+        return info;
+    }
+};
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -1077,6 +1099,97 @@ int main(int argc, char** argv) {
         }
     }
 #endif
+    // Tempo sync against a DAW transport (playing from bar 1). ECHO: the first repeat of a
+    // click must land one division after it. GRAIN PULSE and the synced tremolo: where the
+    // energy sits relative to the grid (circular mean over one division), in ms after it.
+    {
+        std::printf("\nTempo sync (DAW transport playing):\n");
+        const auto makeSynced = [&](double bpm, FakePlayHead& head, const std::function<void(const std::function<void(const juce::String&, float)>&)>& setup) {
+            juce::String error;
+            auto inst = formats.createPluginInstance(*found[0], 48000.0, 512, error);
+            inst->setPlayConfigDetails(2, 2, 48000.0, 512);
+            head.bpm = bpm;
+            inst->setPlayHead(&head);
+            inst->prepareToPlay(48000.0, 512);
+            for (auto* p : inst->getParameters()) p->setValueNotifyingHost(p->getDefaultValue());
+            const std::function<void(const juce::String&, float)> set = [&inst](const juce::String& name, float value) {
+                for (auto* p : inst->getParameters())
+                    if (p->getName(64) == name) return p->setValueNotifyingHost(value);
+                fail("no parameter " + name);
+            };
+            for (const char* m : {"Shape", "Pitch", "Air", "Grain", "Derez", "Stretch", "Echo", "Space", "Focus", "Color"}) set(juce::String(m) + " On", 0.0f);
+            set("Glue", 0.0f), set("Gain Staging", 0.0f), set("Motion On", 0.0f), set("Stereo Offset", 0.0f);
+            setup(set);
+            return inst;
+        };
+        const auto render = [](juce::AudioPluginInstance& inst, FakePlayHead& head, double seconds, const std::function<float(int64_t)>& input) {
+            juce::AudioBuffer<float> buffer(2, 512);
+            juce::MidiBuffer midi;
+            std::vector<float> out;
+            for (int b = 0; b < int(seconds * 48000 / 512); ++b) {
+                for (int i = 0; i < 512; ++i) {
+                    const float v = input(head.samples + i);
+                    buffer.setSample(0, i, v), buffer.setSample(1, i, v);
+                }
+                inst.processBlock(buffer, midi);
+                for (int i = 0; i < 512; ++i) out.push_back(0.5f * (buffer.getSample(0, i) + buffer.getSample(1, i)));
+                head.samples += 512;
+            }
+            return out;
+        };
+        // ECHO: a click on a beat, the first repeat's peak.
+        for (const auto [bpm, div, name, pingPong] : {std::tuple{120.0, 5, "1/8", false}, std::tuple{120.0, 8, "1/4", false}, std::tuple{120.0, 6, "1/8.", false},
+                                                    std::tuple{97.0, 8, "1/4", false}, std::tuple{120.0, 5, "1/8", true}}) {
+            FakePlayHead head;
+            auto inst = makeSynced(bpm, head, [&](const auto& set) {
+                set("Echo On", 1.0f), set("Echo Sync", 1.0f), set("Echo Mode", pingPong ? 1.0f : 0.0f), set("Echo Division", float(div) / 13.0f);
+                set("Echo Feedback", 0.0f), set("Echo Mix", 1.0f), set("Dry / Wet", 1.0f);
+            });
+            const int64_t click = 96000;  // bar 2 at 120 BPM: settled by then
+            const auto out = render(*inst, head, 4.0, [&](int64_t s) { return s == click ? 0.5f : 0.0f; });
+            const double expected = stasis_division_beats(div) * 60.0 / bpm;
+            const size_t from = size_t(click + 480), to = std::min(out.size(), size_t(click + int64_t(2.0 * expected * 48000.0)));
+            size_t at = from;
+            for (size_t i = from; i < to; ++i)
+                if (std::abs(out[i]) > std::abs(out[at])) at = i;
+            const double late = (double(at - size_t(click)) / 48000.0 - expected) * 1000.0;
+            std::printf("  ECHO %-4s at %3.0f BPM%s: first repeat %+6.2f ms from the grid\n", name, bpm, pingPong ? " ping-pong" : "", late);
+            if (std::abs(late) > 2.0) fail(juce::String("ECHO ") + name + " is off the tempo");
+        }
+        // Where the energy sits after each grid point (circular mean), in ms.
+        const auto centre = [](const std::vector<float>& out, double bpm, double divisionBeats, double fromSeconds) {
+            double c = 0.0, s = 0.0;
+            for (size_t i = size_t(fromSeconds * 48000.0); i < out.size(); ++i) {
+                const double phase = std::fmod(double(i) / 48000.0 * bpm / 60.0 / divisionBeats, 1.0);
+                const double e = double(out[i]) * out[i];
+                c += e * std::cos(2.0 * juce::MathConstants<double>::pi * phase), s += e * std::sin(2.0 * juce::MathConstants<double>::pi * phase);
+            }
+            double phase = std::atan2(s, c) / (2.0 * juce::MathConstants<double>::pi);
+            if (phase < -0.25) phase += 1.0;  // keep "just before the grid" negative
+            return phase * divisionBeats * 60.0 / bpm * 1000.0;
+        };
+        const auto tone = [](int64_t s) { return 0.2f * float(std::sin(2.0 * juce::MathConstants<double>::pi * 220.0 * double(s) / 48000.0)); };
+        for (const auto [env, name] : {std::pair{0, "Sine"}, std::pair{3, "Perc"}}) {
+            FakePlayHead head;
+            auto inst = makeSynced(120.0, head, [&](const auto& set) {
+                set("Grain On", 1.0f), set("Grain Algorithm", 0.0f), set("Grain Sync", 1.0f), set("Grain Division", 5.0f / 13.0f);
+                set("Grain Envelope", float(env) / 3.0f), set("Grain Size", 0.45f), set("Grain Chance", 1.0f), set("Grain Mix", 1.0f), set("Dry / Wet", 1.0f);
+            });
+            const double after = centre(render(*inst, head, 6.0, tone), 120.0, 0.5, 2.0);
+            std::printf("  GRAIN PULSE 1/8, 160 ms, %-4s: loudest %+6.1f ms after the grid\n", name, after);
+            if (std::abs(after) > 25.0) fail(juce::String("GRAIN PULSE ") + name + " grains sound off the grid");
+        }
+        {
+            FakePlayHead head;
+            auto inst = makeSynced(120.0, head, [&](const auto& set) {
+                set("Color On", 1.0f), set("Color Tremolo", 1.0f), set("Color Tremolo Sync", 1.0f), set("Color Tremolo Rate", 8.0f / 13.0f), set("Dry / Wet", 1.0f);
+            });
+            const double after = centre(render(*inst, head, 6.0, tone), 120.0, 1.0, 2.0);
+            std::printf("  TREMOLO 1/4: loudest %+6.1f ms after the beat\n", after);
+            if (std::abs(after) > 25.0) fail("the synced tremolo is off the beat");
+        }
+    }
+
     std::printf(failures == 0 ? "ALL TESTS PASSED\n" : "%d FAILURE(S)\n", failures);
     return failures == 0 ? 0 : 1;
 }

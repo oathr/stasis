@@ -127,7 +127,7 @@ Replays small slices of what was just played, under an envelope, at random momen
 | `PULSE` / `SCATTER` / `DRIFT` | Randomness: a steady clock (CHANCE skips some ticks); random gaps (Poisson); a rate that drifts slowly (×0.25 to ×4): clusters, then silences |
 | `SINE` / `TRI` / `SQUARE` / `PERC` | Envelope of each grain (SQUARE has 2 % ramps, no clicks; PERC attacks fast and decays) |
 | `−12` `−7` `−5` `−3` `0` `+3` `+5` `+7` `+12` | Allowed transpositions, in semitones, relative to the sound itself (no pitch detection needed): `0` = unison, `+7` = a fifth up, `−12` = an octave down. Default: 0, +7, +12 |
-| `FREE` / `SYNC` | FREE: `DENSITY` in grains per second (0.5 to 40). SYNC: `RATE` as a division of the host tempo (1/32 to 1/1, dotted, triplets); in PULSE the grains land on the song's grid, in SCATTER / DRIFT the randomness stays around that rate |
+| `FREE` / `SYNC` | FREE: `DENSITY` in grains per second (0.5 to 40). SYNC: `RATE` as a division of the host tempo (1/32 to 1/1, dotted, triplets); in PULSE the grains land on the song's grid (a SINE or TRIANGLE grain starts half a grain early, so its loudest point is on the beat: measured +0.2 ms, it was +79 ms for a 160 ms grain), in SCATTER / DRIFT the randomness stays around that rate |
 | `FDBK` | Feedback, 0 to 100 %: the grains go back into the cloud (512 samples later, soft-clipped), so grains are cut from grains: cascades, then a cloud that feeds itself. At 100 % it stays bounded and fades (−56 dB after 9 s of silence) |
 | `REV` | Direction: the chance that a grain plays its slice backwards. Left: all forward; middle: half and half; right: all reverse |
 | `CHANCE` | Probability that a scheduled grain actually plays |
@@ -191,7 +191,7 @@ The notes being followed light up on the module's keyboard.
 | `PRESENCE` | ±18 dB bell at 3.5 kHz: up brings the sound forward, down softens the glassy edge of shimmers and bright pads |
 | `AIR` | ±24 dB shelf at 7 kHz |
 
-| `TREMOLO` / `RATE` | Amplitude wobble (smooth sine, sample-accurate): at 100 % the dips reach silence. FREE: 0.5 to 16 Hz; SYNC: a division of the tempo (1/32 to 1/1, dotted, triplets), on the song's grid |
+| `TREMOLO` / `RATE` | Amplitude wobble (smooth sine, sample-accurate): at 100 % the dips reach silence. FREE: 0.5 to 16 Hz; SYNC: a division of the tempo (1/32 to 1/1, dotted, triplets), on the song's grid, loudest on the beat (measured −0.6 ms) |
 
 Every word is bipolar: centre = flat, up = boost, down = cut, shown in dB. Moves glide over ~20 ms and the moving bands are recomputed every sample: a knob jumping by 22 dB 47 times a second leaves no grit (−76 dB above 4 kHz, the same as the clean tone; it was −50 dB updating every 16 samples).
 | `LOW CUT` / `HIGH CUT` | High-pass 20 Hz – 5 kHz, low-pass 50 Hz – 20 kHz (12 dB/oct, *off* at the ends): from a gentle trim to a telephone or an underwater sound |
@@ -320,7 +320,11 @@ The interface and the host talk through JUCE 8's web relays: each HTML control c
 
 The host test plays 12 s of sound per configuration (44.1 / 48 / 96 kHz, buffers from 64 to 2048), with random automation, MIDI and a state save/reload, then runs the 80 presets (the tail must ring, stay finite and stay below 0 dBFS).
 
-**Updates do not break your work.** `plugin/HostTest/compat/` keeps sessions saved by each release (factory presets, and presets with knobs moved at random). Every build reloads them and must show each knob at the same value, with the same order and MOTION targets, or the test fails. When a knob's range changes (v0.1.6: LOW CUT / HIGH CUT), saved positions are converted on load so they keep the same frequency; user preset files go through the same conversion, and a knob added later starts where it changes nothing for an older session (GAIN STAGING stays off in a session saved before it existed). With each release, save new reference sessions: `stasis_hosttest STASIS.vst3 --dump-state plugin/HostTest/compat/v0.1.6`. Results on Apple Silicon:
+**Updates do not break your work.** `plugin/HostTest/compat/` keeps sessions saved by each release (factory presets, and presets with knobs moved at random). Every build reloads them and must show each knob at the same value, with the same order and MOTION targets, or the test fails. When a knob's range changes (v0.1.6: LOW CUT / HIGH CUT), saved positions are converted on load so they keep the same frequency; user preset files go through the same conversion, and a knob added later starts where it changes nothing for an older session (GAIN STAGING stays off in a session saved before it existed). With each release, save new reference sessions: `stasis_hosttest STASIS.vst3 --dump-state plugin/HostTest/compat/v0.1.6`.
+
+**Tempo sync** is checked against a DAW transport (tempo and song position, playing): ECHO's first repeat lands on the division (within 0.01 ms at 120 and 97 BPM, mono and ping-pong), GRAIN PULSE grains and the synced tremolo are loudest on the grid.
+
+Results on Apple Silicon:
 
 | Measurement | Result |
 |---|---|

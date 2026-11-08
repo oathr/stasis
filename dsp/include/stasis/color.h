@@ -177,7 +177,9 @@ public:
             if (trem > 0.0f) {
                 tremPhase_ += tremInc;
                 if (tremPhase_ >= 1.0f) tremPhase_ -= 1.0f;
-                const float g = 1.0f - trem * (0.5f + 0.5f * std::sin(kTwoPi * tremPhase_));
+                // Loudest at phase 0 (on the beat in SYNC), quietest half-way. A sine from 0
+                // put the loudest point 3/4 of a cycle after the beat: it sounded off the grid.
+                const float g = 1.0f - trem * (0.5f - 0.5f * std::cos(kTwoPi * tremPhase_));
                 out[0] *= g;
                 out[1] *= g;
             }
