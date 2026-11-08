@@ -307,7 +307,6 @@ Every `push` runs [`.github/workflows/build.yml`](.github/workflows/build.yml): 
 | [`design/mockup.html`](design/mockup.html) | The interface: an HTML page embedded in the plugin. Opened in a browser it works on its own (interactive mockup, 5 themes) |
 | [`plugin/HostTest/`](plugin/HostTest) | `stasis_hosttest`: loads the VST3 like a DAW and stresses it |
 | [`tools/render/`](tools/render) | `stasis_render`: renders test sounds through each algorithm (WAV) and runs the measurements (`--analyse`) |
-| [`PLAN.md`](PLAN.md) | The detailed plan (in French): algorithms, choices, measurements, decisions, roadmap |
 
 The interface and the host talk through JUCE 8's web relays: each HTML control carries the `id` of its parameter, and the sync goes both ways (automation, undo, presets). The plugin also sends the wet spectrum to the visualizer 30 times per second, along with its status (CPU, notes being followed).
 
@@ -341,8 +340,6 @@ Modules with long FFTs spread their work over several audio blocks: no CPU spike
 - [ ] Fonts embedded in the plugin (currently loaded from Google Fonts)
 - [ ] More experimental reverbs: Spectral, Modal, 80s
 - [ ] AU, CLAP; signing and installers
-
-Details in [PLAN.md](PLAN.md).
 
 ## Licences
 - Personal use for now; an open-source release under **GPLv3** is planned if the result is good.
