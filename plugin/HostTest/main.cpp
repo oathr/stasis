@@ -596,19 +596,24 @@ int main(int argc, char** argv) {
             std::printf("\nOFFSET at the top: right channel %+.1f ms after the left (expected +25.0)\n", offsetMs);
             if (std::abs(offsetMs - 25.0) > 0.5) fail("OFFSET does not delay the right channel by 25 ms");
 
-            setG("Stereo Offset", 0.0f), setG("Space On", 1.0f), setG("Echo On", 1.0f), setG("Bypass", 1.0f);
+            // BYPASS gives the input back, as late as the latency the plugin reports (COLOR
+            // and PITCH on here: the host compensates that delay).
+            setG("Stereo Offset", 0.0f), setG("Space On", 1.0f), setG("Echo On", 1.0f), setG("Color On", 1.0f), setG("Pitch On", 1.0f), setG("Bypass", 1.0f);
             double diff = 0.0;
+            std::vector<float> sent;
             for (int b = 0, s = 0; b < 200; ++b) {
                 for (int i = 0; i < 512; ++i, ++s) {
                     const float v = 0.2f * float(std::sin(2.0 * juce::MathConstants<double>::pi * 330.0 * s / 48000.0));
                     buffer.setSample(0, i, v), buffer.setSample(1, i, v);
+                    sent.push_back(v);
                 }
-                juce::AudioBuffer<float> input(buffer);
                 global->processBlock(buffer, midi);
+                const int latency = global->getLatencySamples();
                 if (b > 20)
-                    for (int i = 0; i < 512; ++i) diff = std::max(diff, double(std::abs(buffer.getSample(0, i) - input.getSample(0, i))));
+                    for (int i = 0; i < 512; ++i) diff = std::max(diff, double(std::abs(buffer.getSample(0, i) - sent[size_t(b * 512 + i - latency)])));
             }
-            std::printf("BYPASS: largest difference from the input %.6f\n", diff);
+            std::printf("BYPASS: largest difference from the input %.6f (reported latency %d samples)\n", diff, global->getLatencySamples());
+            if (global->getLatencySamples() != 2048 + 4096) fail("PITCH + COLOR should report 6144 samples of latency");
             if (diff > 1.0e-4) fail("BYPASS does not give the input back");
             global->releaseResources();
         }
@@ -1135,6 +1140,8 @@ int main(int argc, char** argv) {
                 for (int i = 0; i < 512; ++i) out.push_back(0.5f * (buffer.getSample(0, i) + buffer.getSample(1, i)));
                 head.samples += 512;
             }
+            // Like the host: the reported latency is taken back out, out[i] is song time i.
+            out.erase(out.begin(), out.begin() + std::min<size_t>(out.size(), size_t(inst.getLatencySamples())));
             return out;
         };
         // ECHO: a click on a beat, the first repeat's peak.
@@ -1169,14 +1176,17 @@ int main(int argc, char** argv) {
             return phase * divisionBeats * 60.0 / bpm * 1000.0;
         };
         const auto tone = [](int64_t s) { return 0.2f * float(std::sin(2.0 * juce::MathConstants<double>::pi * 220.0 * double(s) / 48000.0)); };
-        for (const auto [env, name] : {std::pair{0, "Sine"}, std::pair{3, "Perc"}}) {
+        // The same with PITCH before GRAIN and COLOR's TONAL after it: their latency is
+        // reported, compensated, and GRAIN's grid accounts for PITCH's.
+        for (const auto [env, name, latent] : {std::tuple{0, "Sine", false}, std::tuple{3, "Perc", false}, std::tuple{0, "Sine", true}}) {
             FakePlayHead head;
             auto inst = makeSynced(120.0, head, [&](const auto& set) {
                 set("Grain On", 1.0f), set("Grain Algorithm", 0.0f), set("Grain Sync", 1.0f), set("Grain Division", 5.0f / 13.0f);
                 set("Grain Envelope", float(env) / 3.0f), set("Grain Size", 0.45f), set("Grain Chance", 1.0f), set("Grain Mix", 1.0f), set("Dry / Wet", 1.0f);
+                if (latent) set("Pitch On", 1.0f), set("Color On", 1.0f), set("Tonal / Noise", 0.8f);
             });
             const double after = centre(render(*inst, head, 6.0, tone), 120.0, 0.5, 2.0);
-            std::printf("  GRAIN PULSE 1/8, 160 ms, %-4s: loudest %+6.1f ms after the grid\n", name, after);
+            std::printf("  GRAIN PULSE 1/8, 160 ms, %-4s%s: loudest %+6.1f ms after the grid (latency %d)\n", name, latent ? " + PITCH + COLOR" : "", after, inst->getLatencySamples());
             if (std::abs(after) > 25.0) fail(juce::String("GRAIN PULSE ") + name + " grains sound off the grid");
         }
         {

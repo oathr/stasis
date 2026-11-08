@@ -175,7 +175,9 @@ bool StasisProcessor::isBusesLayoutSupported(const BusesLayout& layouts) const {
 
 void StasisProcessor::prepareToPlay(double sampleRate, int) {
     engine.prepare(float(sampleRate));
-    setLatencySamples(0);  // the dry is never delayed; only the wet carries latency
+    // PITCH and TONAL (COLOR) delay the wet; the dry follows and the host compensates.
+    setLatencySamples(engine.latencyFor(apvts.getRawParameterValue("pitch_on")->load() > 0.5f,
+                                        apvts.getRawParameterValue("color_on")->load() > 0.5f));
 }
 
 void StasisProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midi) {
@@ -202,6 +204,8 @@ void StasisProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
 
     for (size_t i = 0; i < raw_.size(); ++i) values_[i] = raw_[i]->load(std::memory_order_relaxed);
     engine.process(values_.data(), bpm, ppq, playing, buffer.getWritePointer(0), buffer.getWritePointer(1), numSamples);
+    // A module with latency switched: tell the host (it re-aligns the track).
+    if (engine.latency() != getLatencySamples()) setLatencySamples(engine.latency());
 
     // The safety guard saw NaN/Inf: rebuild the engine off the audio thread.
     if (engine.needsReset() && !resetPending_.exchange(true))

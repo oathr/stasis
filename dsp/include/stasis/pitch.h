@@ -75,7 +75,8 @@ private:
 //    ~4 dB going up and halves its gain going down, a safety it needs inside SHIMMER).
 //  - While transposing, the direct part is delayed by the vocoder's latency, so MIX
 //    blends two aligned voices: at 50 % a clean interval, not a note and its echo.
-// Latency: one FFT window (2048) while transposing, on the wet path only.
+// Latency: one FFT window (2048), always, even with nothing to transpose: a delay that
+// never changes under the user, which the plugin reports to the host (tempo sync).
 class Pitch {
 public:
     struct Params {
@@ -94,6 +95,8 @@ public:
         gain_ = 1.0f;
         setParams(params_);
     }
+
+    int latencySamples() const { return shifters_[0].latencySamples(); }
 
     void setParams(const Params& p) {
         params_ = p;
@@ -122,9 +125,9 @@ public:
                     gain_ += levelCoef_ * (target - gain_);
                     direct_[0][size_t(i)] = delayedL, direct_[1][size_t(i)] = delayedR;
                     out[0][i] = l * gain_, out[1][i] = r * gain_;
-                } else {
-                    direct_[0][size_t(i)] = in[0][i], direct_[1][size_t(i)] = in[1][i];
-                    out[0][i] = in[0][i], out[1][i] = in[1][i];
+                } else {  // nothing to transpose: the same delay, so the latency stays put
+                    direct_[0][size_t(i)] = delayedL, direct_[1][size_t(i)] = delayedR;
+                    out[0][i] = delayedL, out[1][i] = delayedR;
                 }
             }
             if (std::abs(params_.shiftHz) > 1.0e-3f) frequency_.process(out[0], out[1], out[0], out[1], n);

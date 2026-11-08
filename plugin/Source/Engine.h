@@ -35,8 +35,12 @@ namespace stasis {
 // Default order: SHAPE DEREZ PITCH STRETCH ECHO SPACE FOCUS AIR COLOR. TONAL sits
 // right before SPACE (PRE) or at the very end (POST), wherever SPACE is.
 //
-// The dry path is never delayed. Modules with latency (STRETCH, TONAL) only delay the
-// wet, where it is musically invisible, so the plugin reports zero latency.
+// Latency: PITCH (one 2048 window, while it is on) and TONAL (4096, while COLOR is on)
+// delay the wet. That delay is reported to the host, which compensates it, and the dry is
+// delayed by as much, so everything after them stays on the song's grid. Both delays are
+// constant while their module is on (a delay line stands in for TONAL at its centre), so
+// turning a knob or an LFO never changes the latency. STRETCH (a smear without attacks)
+// and SHAPE / DEREZ (under 0.5 ms) are left out.
 class Engine {
 public:
     static constexpr int kMaxBlock = 512;
@@ -77,6 +81,13 @@ public:
         keys_.setParams({1.5f, 0.45f, 7});
         color_.prepare(sampleRate);
         tonal_.prepare(sampleRate);
+        for (auto& d : tonalDelay_) d.assign(size_t(tonal_.latencySamples()), 0.0f);
+        tonalDelayPos_ = 0;
+        tonalDelayGain_ = -1.0f;
+        for (auto& line : latencyLine_) line.fill(0.0f);
+        latencyPos_ = 0;
+        latencyNow_ = latencyOld_ = latencyFor(on_[kPitch], on_[kColor]);
+        latencyFade_ = 1.0f;
         for (auto& b : buffers_) b.assign(kMaxBlock, 0.0f);
         for (auto& b : preSpace_) b.assign(kMaxBlock, 0.0f);
         modulated_.assign(params::all().size(), 0.0f);
@@ -124,12 +135,22 @@ public:
         for (int start = 0; start < numSamples; start += kMaxBlock) {
             const int n = std::min(kMaxBlock, numSamples - start);
             const double at = ppq + double(start) * bpm / 60.0 / sampleRate_;
-            grain_.setTransport(bpm, at, playing);
-            update(modulate(values, n, bpm, at + double(n) * bpm / 60.0 / sampleRate_, playing), bpm);
+            // What reaches GRAIN or COLOR left the input as long ago as the latency before
+            // them: their grid is the song's, that much earlier (the host shifts it all back).
+            const double beatsPerSample = double(bpm) / 60.0 / sampleRate_;
+            grain_.setTransport(bpm, at - latencyBefore(9) * beatsPerSample, playing);
+            update(modulate(values, n, bpm, at + double(n) * beatsPerSample, playing), bpm);
             // TREMOLO SYNC: on the song's grid while playing.
-            if (tremSync_ && playing) color_.setTremoloPhase(float(std::fmod(at / double(tremBeats_), 1.0)));
+            if (tremSync_ && playing) color_.setTremoloPhase(float(std::fmod((at - latencyBefore(8) * beatsPerSample) / double(tremBeats_), 1.0)));
             processBlock(left + start, right + start, n);
         }
+    }
+
+    // The latency to report to the host, in samples (see the top of this file).
+    int latency() const { return latencyNow_; }
+    // The latency these switches give (before any block: prepareToPlay).
+    int latencyFor(bool pitchOn, bool colorOn) const {
+        return (pitchOn ? pitch_.latencySamples() : 0) + (colorOn ? tonal_.latencySamples() : 0);
     }
 
     // For the UI: the last samples of the output (mono), written by the audio thread.
@@ -564,24 +585,54 @@ private:
         if (std::abs(trimGain_ - target) < 1.0e-5f) trimGain_ = target;
     }
 
-    // TONAL ◂▸ NOISE costs nothing and adds no delay at the centre; away from it, it
-    // fades in over ~30 ms.
+    // TONAL ◂▸ NOISE: while COLOR is on, the wet always comes out TONAL's latency late, so
+    // the reported latency holds. At the centre a plain delay line does it (no FFT); away
+    // from it the separation fades in over ~30 ms, aligned with that delayed copy.
     void runTonal(float* wetL, float* wetR, int n) {
-        const bool active = on_[kColor] && std::abs(tonalBalance_) > 1.0e-3f;
+        const bool delayed = on_[kColor];
+        const bool active = delayed && std::abs(tonalBalance_) > 1.0e-3f;
         if (tonalGain_ < 0.0f) tonalGain_ = active ? 1.0f : 0.0f;
-        if (!active && tonalGain_ < 1.0e-4f) {
-            tonalGain_ = 0.0f;
+        if (tonalDelayGain_ < 0.0f) tonalDelayGain_ = delayed ? 1.0f : 0.0f;
+        if (!delayed && tonalDelayGain_ < 1.0e-4f) {
+            tonalDelayGain_ = tonalGain_ = 0.0f;
             return;
         }
         float* outL = buffers_[2].data();
         float* outR = buffers_[3].data();
-        tonal_.process(wetL, wetR, outL, outR, n);
-        const float target = active ? 1.0f : 0.0f;
+        float* lateL = tonalLate_[0].data();
+        float* lateR = tonalLate_[1].data();
+        const int size = int(tonalDelay_[0].size());
+        for (int i = 0; i < n; ++i) {
+            lateL[i] = tonalDelay_[0][size_t(tonalDelayPos_)], lateR[i] = tonalDelay_[1][size_t(tonalDelayPos_)];
+            tonalDelay_[0][size_t(tonalDelayPos_)] = wetL[i], tonalDelay_[1][size_t(tonalDelayPos_)] = wetR[i];
+            tonalDelayPos_ = (tonalDelayPos_ + 1) % size;
+        }
+        const bool separate = active || tonalGain_ > 1.0e-4f;
+        if (separate) tonal_.process(wetL, wetR, outL, outR, n);
+        const float target = active ? 1.0f : 0.0f, delayTarget = delayed ? 1.0f : 0.0f;
         for (int i = 0; i < n; ++i) {
             tonalGain_ += (target - tonalGain_) * rampCoef_;
-            wetL[i] += tonalGain_ * (outL[i] - wetL[i]);
-            wetR[i] += tonalGain_ * (outR[i] - wetR[i]);
+            tonalDelayGain_ += (delayTarget - tonalDelayGain_) * rampCoef_;
+            const float l = separate ? lateL[i] + tonalGain_ * (outL[i] - lateL[i]) : lateL[i];
+            const float r = separate ? lateR[i] + tonalGain_ * (outR[i] - lateR[i]) : lateR[i];
+            wetL[i] += tonalDelayGain_ * (l - wetL[i]);
+            wetR[i] += tonalDelayGain_ * (r - wetR[i]);
         }
+        if (!separate) tonalGain_ = 0.0f;
+    }
+
+    // The latency gathered before a module (index in params::kModules) in the current
+    // order: PITCH if it comes earlier, TONAL PRE if SPACE does (TONAL POST is at the end).
+    double latencyBefore(int module) const {
+        const uint64_t order = order_.load(std::memory_order_relaxed);
+        int total = 0;
+        for (size_t slot = 0; slot < params::kModules.size(); ++slot) {
+            const int m = int((order >> (4 * slot)) & 15);
+            if (m == module) break;
+            if (m == 2 && on_[kPitch]) total += pitch_.latencySamples();
+            if (m == 5 && tonalPre_ && on_[kColor]) total += tonal_.latencySamples();
+        }
+        return double(total);
     }
 
     void processBlock(float* left, float* right, int n) {
@@ -671,6 +722,28 @@ private:
             mixGain_ = mixTarget_;
             outGain_ = outTarget_;
         }
+        // The dry, as late as the wet (the latency reported to the host). When a module
+        // with latency is switched, the dry crossfades from the old delay to the new one.
+        const int latency = latencyFor(on_[kPitch], on_[kColor]);
+        if (latency != latencyNow_) {
+            latencyOld_ = latencyNow_;
+            latencyNow_ = latency;
+            latencyFade_ = 0.0f;
+        }
+        float* dryL = dry_[0].data();
+        float* dryR = dry_[1].data();
+        for (int i = 0; i < n; ++i) {
+            latencyLine_[0][size_t(latencyPos_)] = left[i], latencyLine_[1][size_t(latencyPos_)] = right[i];
+            const auto read = [&](int delay, int c) { return latencyLine_[size_t(c)][size_t((latencyPos_ - delay) & kLatencyMask)]; };
+            dryL[i] = read(latencyNow_, 0), dryR[i] = read(latencyNow_, 1);
+            if (latencyFade_ < 1.0f) {
+                latencyFade_ = std::min(1.0f, latencyFade_ + rampCoef_);
+                dryL[i] = read(latencyOld_, 0) + latencyFade_ * (dryL[i] - read(latencyOld_, 0));
+                dryR[i] = read(latencyOld_, 1) + latencyFade_ * (dryR[i] - read(latencyOld_, 1));
+            }
+            latencyPos_ = (latencyPos_ + 1) & kLatencyMask;
+        }
+
         int w = visualWrite_.load(std::memory_order_relaxed);
         const float trimUndo = 1.0f / std::max(trimGain_ * trimGain_, 1.0e-6f);  // GAIN taken back out of the measured wet
         for (int i = 0; i < n; ++i) {
@@ -693,7 +766,7 @@ private:
             // silent so tails fade naturally. GAIN is a level asked for: the wet is measured
             // as if it were at 0 dB, so neither the makeup nor GAIN STAGING undoes it.
             float wl = wetL[i];
-            const float dryPower = 0.5f * (left[i] * left[i] + right[i] * right[i]);
+            const float dryPower = 0.5f * (dryL[i] * dryL[i] + dryR[i] * dryR[i]);
             const float wetPower = 0.5f * (wl * wl + wr * wr) * trimUndo;
             dryLevel_ += (dryPower - dryLevel_) * levelCoef_;
             wetLevel_ += (wetPower - wetLevel_) * levelCoef_;
@@ -713,14 +786,14 @@ private:
                 hardClick_ *= -0.62f;
                 if (std::abs(hardClick_) < 1.0e-3f) hardClick_ = 0.0f;
             }
-            float l = outGain_ * (left[i] + mixGain_ * (wl - left[i]));
-            float r = outGain_ * (right[i] + mixGain_ * (wr - right[i]));
+            float l = outGain_ * (dryL[i] + mixGain_ * (wl - dryL[i]));
+            float r = outGain_ * (dryR[i] + mixGain_ * (wr - dryR[i]));
             // GLUE: the soft, slow compressor on the whole output.
             if (glue_.active()) glue_.process(l, r);
             // BYPASS: back to the untouched input (30 ms ramp); the chain keeps running.
             bypassGain_ += (bypassTarget_ - bypassGain_) * rampCoef_;
-            l += bypassGain_ * (left[i] - l);
-            r += bypassGain_ * (right[i] - r);
+            l += bypassGain_ * (dryL[i] - l);  // the input, as late as the rest (latency)
+            r += bypassGain_ * (dryR[i] - r);
             safety(l, r);
             left[i] = l;
             right[i] = r;
@@ -794,6 +867,15 @@ private:
     std::array<std::vector<float>, 4> buffers_;
     std::vector<float> last_;
     std::array<bool, kModules> on_{};
+    // Latency: the dry's delay line, and the stand-in for TONAL at its centre.
+    static constexpr int kLatencySize = 16384, kLatencyMask = kLatencySize - 1;
+    std::array<std::array<float, kLatencySize>, 2> latencyLine_{};
+    std::array<std::array<float, kMaxBlock>, 2> dry_{}, tonalLate_{};
+    int latencyPos_ = 0, latencyNow_ = 0, latencyOld_ = 0;
+    float latencyFade_ = 1.0f;
+    std::vector<float> tonalDelay_[2];
+    int tonalDelayPos_ = 0;
+    float tonalDelayGain_ = -1.0f;
     float trimTarget_ = 1.0f, trimGain_ = 1.0f;
     std::array<float, kModules> mix_{}, moduleGain_{};
     float rampCoef_ = 0.001f, mixTarget_ = 0.5f, mixGain_ = -1.0f, outTarget_ = 1.0f, outGain_ = 1.0f;

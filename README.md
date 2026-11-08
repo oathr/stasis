@@ -25,7 +25,7 @@ VST3 · Windows & macOS · JUCE 8 · v0.1 (in development)
 
 ## Principles
 - **Top DSP quality, minimal CPU.** Every algorithm is measured: echo density, resonances, tuning, tonal/noise separation, CPU cost.
-- **The dry signal is never delayed.** The latency reported to the host is **0 samples**. Modules that need time (STRETCH, TONAL, PITCH) only delay the wet signal, where an offset is musically invisible.
+- **On the grid, whatever is switched on.** PITCH (2048 samples, 43 ms at 48 kHz, while it is on) and COLOR's TONAL / NOISE (4096 samples, 85 ms, while COLOR is on) need time. STASIS reports that latency to the host, which compensates it, and delays the dry by as much, so grains, echoes and the tremolo stay on the song's grid (measured with PITCH and COLOR on: GRAIN PULSE +2.2 ms from the grid, +86.6 ms in v0.1.6). The latency only changes when one of those two modules is switched, never with a knob or an LFO. With both off it is 0. STRETCH, a smear without attacks, only delays its own wet.
 - **Few controls, each one useful.** Three to six knobs per module; every parameter can be automated.
 - **A sober design**: Swiss design, 80s print, inspired by Gattaca, *Her* and Marathon, without copying any of their visuals.
 
