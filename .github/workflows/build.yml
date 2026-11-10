@@ -41,7 +41,11 @@ jobs:
         run: cmake --build build --config Release --target Stasis_VST3 stasis_hosttest
       - name: Host stress test
         run: build/plugin/stasis_hosttest_artefacts/Release/stasis_hosttest build/plugin/Stasis_artefacts/Release/VST3/STASIS.vst3 --no-timing
+      # Zipped here with ditto: the bundle keeps its executable bit and signature
+      # (a zip made on Windows would lose them and the plugin would not load).
+      - name: Zip
+        run: ditto -c -k --keepParent build/plugin/Stasis_artefacts/Release/VST3/STASIS.vst3 STASIS-VST3-macOS.zip
       - uses: actions/upload-artifact@v4
         with:
           name: STASIS-VST3-macOS
-          path: build/plugin/Stasis_artefacts/Release/VST3/STASIS.vst3
+          path: STASIS-VST3-macOS.zip
