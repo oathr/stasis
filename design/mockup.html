@@ -200,6 +200,8 @@ header { display: grid; grid-template-columns: auto 1fr auto; align-items: cente
 .card.dark .knob, .preset .knob { --hub: var(--dark); }
 .knob svg { width: 42px; height: 42px; overflow: visible; color: inherit; }
 .knob .v { font-size: 11px; font-weight: 500; letter-spacing: .02em; white-space: nowrap; }
+/* A value being typed: the same text, on a thin rule. */
+.val-edit { font: inherit; letter-spacing: inherit; color: inherit; background: none; border: 0; border-bottom: 1px solid currentColor; padding: 0; margin: 0; outline: none; text-align: inherit; }
 .knob .l { font-size: 8.5px; font-weight: 400; color: var(--muted); letter-spacing: .14em; text-transform: uppercase; }
 .knob.small { width: auto; flex-direction: row; gap: 5px; }
 .knob.small svg { width: 20px; height: 20px; }
@@ -493,6 +495,80 @@ const live = {
 };
 
 const knobsById = {};  // id → knob element, for MOTION's markers
+
+// Typing a value: the position whose shown text matches. Words and divisions ("off",
+// "1/8.") match as they read; numbers are compared in the shown unit (a bare "5" next to
+// "4.5 kHz" means 5 kHz; "k" and "ms" are understood).
+function valueFromText(format, typed, current) {
+  // ∞ / inf, × / x and the true minus sign read the same as what can be typed.
+  const clean = s => String(s).trim().toLowerCase().replace(',', '.').replace(/\s+/g, ' ').replace(/infinity|∞/g, 'inf').replace(/×/g, 'x').replace(/−/g, '-');
+  const want = clean(typed);
+  if (!want) return null;
+  const N = 2000, at = i => i / N;
+  let best = null, bestScore = Infinity;
+  for (let i = 0; i <= N; i++) if (clean(format(at(i))) === want && Math.abs(at(i) - current) < bestScore) best = at(i), bestScore = Math.abs(at(i) - current);
+  if (best !== null) return best;
+  const num = s => {
+    const c = clean(s), m = c.match(/[-+]?\d*\.?\d+/);
+    if (!m) return null;
+    const rest = c.slice(m.index + m[0].length).trim();
+    return { v: parseFloat(m[0]) * (/^k/.test(rest) ? 1000 : /^ms/.test(rest) ? 0.001 : 1), unit: /[a-z%]/.test(rest) };
+  };
+  const t = num(typed);
+  if (!t) return null;
+  let wanted = t.v;
+  if (!t.unit) {  // no unit typed: the one on screen
+    const shown = clean(format(current)), m = shown.match(/[-+]?\d*\.?\d+/);
+    const rest = m ? shown.slice(m.index + m[0].length).trim() : '';
+    wanted *= /^k/.test(rest) ? 1000 : /^ms/.test(rest) ? 0.001 : 1;
+  }
+  for (let i = 0; i <= N; i++) {
+    const c = num(format(at(i)));
+    if (!c) continue;
+    const score = Math.abs(c.v - wanted) + 1e-6 * Math.abs(at(i) - current);
+    if (score < bestScore) best = at(i), bestScore = score;
+  }
+  return best;
+}
+// Double-click on a value: a field to type it in (Enter sets it, Escape leaves it).
+function editValue(label, format, current, commit) {
+  if (label.querySelector('input')) return;
+  const input = document.createElement('input');
+  input.className = 'val-edit';
+  input.value = label.textContent;
+  input.size = Math.max(4, input.value.length);
+  label.textContent = '';
+  label.appendChild(input);
+  input.focus();
+  input.select();
+  let done = false;
+  const finish = ok => {
+    if (done) return;
+    done = true;
+    const typed = input.value;
+    input.remove();
+    const t = ok ? valueFromText(format, typed, current()) : null;
+    if (t !== null) commit(t);
+    label.textContent = format(current());
+  };
+  input.addEventListener('keydown', e => { e.stopPropagation(); if (e.key === 'Enter') finish(true); if (e.key === 'Escape') finish(false); });
+  input.addEventListener('pointerdown', e => e.stopPropagation());
+  input.addEventListener('blur', () => finish(true));
+}
+const inside = (e, box) => { const r = box.getBoundingClientRect(); return e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom; };
+const editing = label => !!label.querySelector('input');
+// ↑ ↓ move the control under the mouse: 1 % a step, 0.1 % with Shift.
+let hovered = null;
+const hoverable = (el, nudge) => {
+  el.addEventListener('pointerenter', () => { hovered = nudge; });
+  el.addEventListener('pointerleave', () => { if (hovered === nudge) hovered = null; });
+};
+document.addEventListener('keydown', e => {
+  if (!hovered || (e.key !== 'ArrowUp' && e.key !== 'ArrowDown')) return;
+  e.preventDefault();
+  hovered((e.key === 'ArrowUp' ? 1 : -1) * (e.shiftKey ? 0.001 : 0.01));
+});
+
 function knob(k, opts = {}) {
   const small = !!opts.small;
   const el = document.createElement('div');
@@ -513,17 +589,28 @@ function knob(k, opts = {}) {
     const [x0, y0] = polar(small ? 8 : 6.5, A0 + ARC * t), [x1, y1] = polar(r - 1, A0 + ARC * t);
     const idx = el.querySelector('.idx');
     idx.setAttribute('x1', x0); idx.setAttribute('y1', y0); idx.setAttribute('x2', x1); idx.setAttribute('y2', y1);
-    el.querySelector('.v').textContent = k.f(t);
+    const label = el.querySelector('.v');
+    if (!editing(label)) label.textContent = k.f(t);
   };
-  let startY = 0, startT = 0;
+  // Drag up / down; Shift is 10× finer and can be pressed or let go mid-drag (each move
+  // counts from the last one, so the knob never jumps).
+  let lastY = 0;
   const change = v => { t = v; draw(); k.on && k.on(t); if (k.id) bridge.send(k.id, t); };
-  el.addEventListener('pointerdown', e => { startY = e.clientY; startT = t; el.setPointerCapture(e.pointerId); if (k.id) bridge.drag(k.id, true); });
+  el.addEventListener('pointerdown', e => { lastY = e.clientY; el.setPointerCapture(e.pointerId); if (k.id) bridge.drag(k.id, true); });
   el.addEventListener('pointermove', e => {
     if (!el.hasPointerCapture(e.pointerId)) return;
-    change(Math.min(1, Math.max(0, startT + (startY - e.clientY) / (e.shiftKey ? 600 : 150))));
+    const dy = lastY - e.clientY;
+    lastY = e.clientY;
+    change(Math.min(1, Math.max(0, t + dy / (e.shiftKey ? 1500 : 150))));
   });
   el.addEventListener('pointerup', () => { if (k.id) bridge.drag(k.id, false); });
-  el.addEventListener('dblclick', () => change(k.t));
+  // Double-click the value to type it, anywhere else for the starting point.
+  el.addEventListener('dblclick', e => {
+    const label = el.querySelector('.v');
+    if (inside(e, label)) editValue(label, k.f, () => t, v => { if (k.id) bridge.drag(k.id, true); change(v); if (k.id) bridge.drag(k.id, false); });
+    else change(k.t);
+  });
+  hoverable(el, d => { if (k.id) bridge.drag(k.id, true); change(Math.min(1, Math.max(0, t + d))); if (k.id) bridge.drag(k.id, false); });
   if (k.id) { t = bridge.value(k.id, k.t); bridge.register(k.id, 'slider', v => { t = v; draw(); k.on && k.on(t); }); }
   // MOTION: an arc from where the knob is set to where the LFO has moved it, and a dot.
   const ring = r + 4.5, arc = el.querySelector('.modarc'), dot = el.querySelector('.moddot');
@@ -573,15 +660,33 @@ function cursor(left, right, value, id, opts = {}) {
     el.querySelector('.thumb').style.left = x + '%';
     const fill = el.querySelector('.fill');
     fill.style.left = Math.min(x, 50) + '%'; fill.style.width = Math.abs(x - 50) + '%';
-    el.querySelector('.val').textContent = opts.format ? opts.format(v) : (v >= 0 ? '+' : '') + v.toFixed(2);
+    const label = el.querySelector('.val');
+    if (!editing(label)) label.textContent = shown(v);
   };
+  const shown = x => opts.format ? opts.format(x) : (x >= 0 ? '+' : '') + x.toFixed(2);
   const send = () => { if (id) bridge.send(id, (v + 1) / 2); };
   const snap = x => opts.steps ? Math.round(x * opts.steps) / opts.steps : x;
-  const set = e => { const r = track.getBoundingClientRect(); v = snap(Math.max(-1, Math.min(1, ((e.clientX - r.left) / r.width) * 2 - 1))); draw(); send(); };
-  track.addEventListener('pointerdown', e => { track.setPointerCapture(e.pointerId); if (id) bridge.drag(id, true); set(e); });
+  // A click puts the thumb there; with Shift it moves from where it is, 10× finer.
+  let lastX = 0, fine = 0;
+  const set = e => {
+    const r = track.getBoundingClientRect();
+    if (e.shiftKey) {
+      fine = Math.max(-1, Math.min(1, fine + (e.clientX - lastX) / r.width * 0.2));
+      v = snap(fine);
+    } else {
+      v = fine = snap(Math.max(-1, Math.min(1, ((e.clientX - r.left) / r.width) * 2 - 1)));
+    }
+    lastX = e.clientX;
+    draw(); send();
+  };
+  track.addEventListener('pointerdown', e => { track.setPointerCapture(e.pointerId); if (id) bridge.drag(id, true); lastX = e.clientX; fine = v; set(e); });
   track.addEventListener('pointermove', e => { if (track.hasPointerCapture(e.pointerId)) set(e); });
   track.addEventListener('pointerup', () => { if (id) bridge.drag(id, false); });
   track.addEventListener('dblclick', () => { v = 0; draw(); send(); });
+  // ↑ ↓: a step (a semitone where it has steps), Shift finer; double-click the value to type it.
+  const moveTo = x => { if (id) bridge.drag(id, true); v = snap(Math.max(-1, Math.min(1, x))); draw(); send(); if (id) bridge.drag(id, false); };
+  hoverable(el, d => moveTo(v + (opts.steps ? Math.sign(d) * 2 / opts.steps : 2 * d)));
+  el.querySelector('.val').addEventListener('dblclick', () => editValue(el.querySelector('.val'), x => shown(x * 2 - 1), () => (v + 1) / 2, x => moveTo(x * 2 - 1)));
   if (id) bridge.register(id, 'slider', t => { v = t * 2 - 1; draw(); });
   // MOTION: a ghost thumb where the LFO has moved the cursor.
   const ghost = document.createElement('div'); ghost.className = 'ghost'; track.append(ghost);
@@ -603,12 +708,23 @@ function vslider(id, range) {
     el.querySelector('.thumb').style.top = y + '%';
     const fill = el.querySelector('.fill');
     fill.style.top = Math.min(y, 50) + '%'; fill.style.height = Math.abs(y - 50) + '%';
-    const db = (v * 2 - 1) * range;
-    el.querySelector('.val').textContent = (db > 0.05 ? '+' : '') + db.toFixed(1) + ' dB';
+    const label = el.querySelector('.val');
+    if (!editing(label)) label.textContent = shown(v);
   };
+  const shown = x => { const db = (x * 2 - 1) * range; return (db > 0.05 ? '+' : '') + db.toFixed(1) + ' dB'; };
   const send = () => bridge.send(id, v);
-  const set = e => { const r = track.getBoundingClientRect(); v = Math.max(0, Math.min(1, 1 - (e.clientY - r.top) / r.height)); draw(); send(); };
-  track.addEventListener('pointerdown', e => { track.setPointerCapture(e.pointerId); bridge.drag(id, true); set(e); });
+  // A click puts the thumb there; with Shift it moves from where it is, 10× finer.
+  let lastY = 0;
+  const set = e => {
+    const r = track.getBoundingClientRect();
+    v = e.shiftKey ? Math.max(0, Math.min(1, v - (e.clientY - lastY) / r.height * 0.1)) : Math.max(0, Math.min(1, 1 - (e.clientY - r.top) / r.height));
+    lastY = e.clientY;
+    draw(); send();
+  };
+  const moveTo = x => { bridge.drag(id, true); v = Math.max(0, Math.min(1, x)); draw(); send(); bridge.drag(id, false); };
+  hoverable(el, d => moveTo(v + d));
+  el.querySelector('.val').addEventListener('dblclick', () => editValue(el.querySelector('.val'), shown, () => v, moveTo));
+  track.addEventListener('pointerdown', e => { track.setPointerCapture(e.pointerId); bridge.drag(id, true); lastY = e.clientY; set(e); });
   track.addEventListener('pointermove', e => { if (track.hasPointerCapture(e.pointerId)) set(e); });
   track.addEventListener('pointerup', () => bridge.drag(id, false));
   track.addEventListener('dblclick', () => { v = .5; draw(); send(); });
