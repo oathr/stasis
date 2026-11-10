@@ -84,7 +84,7 @@ private:
             const long j = target(k);
             peakPhase_[k] = j > 0 && j < long(bins) ? sumPhase_[size_t(j)] + trueBin_[k] * ratio_ * expected : 0.0f;
         }
-        // Peaks: local maxima over Â±2 bins. Every bin belongs to the nearest one.
+        // Peaks: local maxima over ±2 bins. Every bin belongs to the nearest one.
         peaks_.clear();
         for (size_t k = 2; k + 2 < bins; ++k)
             if (mag_[k] > 1.0e-9f && mag_[k] >= mag_[k - 1] && mag_[k] > mag_[k + 1] && mag_[k] >= mag_[k - 2] && mag_[k] > mag_[k + 2])
