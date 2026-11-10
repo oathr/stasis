@@ -886,6 +886,147 @@ int main(int argc, char** argv) {
             if (shut.first > held.first - 30.0) fail("80s: the gate does not shut the tail");
         }
 
+        // What MOD does: 1 s of 440 Hz, then in the tail (1.5-3 s) the energy beside the note
+        // (±6 and ±12 Hz) against on it, at MOD 0 and 100 %: the wider the gap
+        // between the two, the more MOD is heard. And what the type does: a click in, the
+        // centre time of the energy (ms) and the share above 4 kHz in the first 300 ms.
+        {
+            const auto run = [&](float type, int lab, float mod, bool click) {
+                auto inst = formats.createPluginInstance(*found[0], 48000.0, 512, error);
+                inst->setPlayConfigDetails(2, 2, 48000.0, 512);
+                inst->prepareToPlay(48000.0, 512);
+                for (auto* p : inst->getParameters()) p->setValueNotifyingHost(p->getDefaultValue());
+                const auto setC = [&](const juce::String& name, float value) {
+                    for (auto* p : inst->getParameters())
+                        if (p->getName(64) == name) return p->setValueNotifyingHost(value);
+                    fail("no parameter " + name);
+                };
+                setC("Echo On", 0.0f), setC("Color On", 0.0f), setC("Space Mix", 1.0f), setC("Glue", 0.0f), setC("Gain Staging", 0.0f), setC("Motion On", 0.0f);
+                setC("Space Type", type), setC("Space Experimental", float(lab) / 3.0f), setC("Space Decay", 0.58f), setC("Space Mod", mod), setC("Space Predelay", 0.0f);
+                juce::AudioBuffer<float> buffer(2, 512);
+                juce::MidiBuffer midi;
+                std::vector<float> out;
+                for (int b = 0, s = 0; b < int(3.0 * 48000 / 512); ++b) {
+                    for (int i = 0; i < 512; ++i) {
+                        const int at = s + i;
+                        const float v = click ? (at == 0 ? 0.5f : 0.0f) : (at < 48000 ? 0.1f * float(std::sin(2.0 * juce::MathConstants<double>::pi * 440.0 * at / 48000.0)) : 0.0f);
+                        buffer.setSample(0, i, v), buffer.setSample(1, i, v);
+                    }
+                    inst->processBlock(buffer, midi);
+                    for (int i = 0; i < 512; ++i, ++s) out.push_back(buffer.getSample(0, i));
+                }
+                inst->releaseResources();
+                return out;
+            };
+            const auto power = [](const std::vector<float>& x, size_t from, size_t to, double hz) {
+                const double w = 2.0 * juce::MathConstants<double>::pi * hz / 48000.0, k = 2.0 * std::cos(w);
+                double s1 = 0.0, s2 = 0.0;
+                for (size_t i = from; i < to && i < x.size(); ++i) {
+                    const double s = x[i] + k * s1 - s2;
+                    s2 = s1, s1 = s;
+                }
+                return s1 * s1 + s2 * s2 - k * s1 * s2;
+            };
+            const auto beside = [&](const std::vector<float>& x) {
+                const double on = power(x, 72000, 144000, 440.0);
+                const double off = power(x, 72000, 144000, 428.0) + power(x, 72000, 144000, 434.0) + power(x, 72000, 144000, 446.0) + power(x, 72000, 144000, 452.0);
+                return 10.0 * std::log10((off / 4.0 + 1e-30) / (on + 1e-30));
+            };
+            std::printf("\nWhat MOD does (beside the note vs on it, tail of a 440 Hz tone) and what the type does (a click):\n");
+            for (const auto [name, type, lab] : {std::tuple{"Room", 0.0f, 0}, std::tuple{"Hall", 0.4f, 0}, std::tuple{"Cathedral", 0.6f, 0}, std::tuple{"Plate", 0.2f, 0},
+                                                 std::tuple{"Spectral", 0.4f, 1}, std::tuple{"Modal", 0.4f, 2}}) {
+                const double still = beside(run(type, lab, 0.0f, false)), moving = beside(run(type, lab, 1.0f, false));
+                const auto clickOut = run(type, lab, 0.5f, true);
+                double e = 0.0, et = 0.0, hi = 0.0, early = 0.0;
+                juce::IIRFilter h1, h2;
+                h1.setCoefficients(juce::IIRCoefficients::makeHighPass(48000.0, 4000.0)), h2.setCoefficients(juce::IIRCoefficients::makeHighPass(48000.0, 4000.0));
+                for (size_t i = 0; i < clickOut.size(); ++i) {
+                    const double y = clickOut[i], hy = h2.processSingleSampleRaw(h1.processSingleSampleRaw(float(y)));
+                    e += y * y, et += y * y * double(i) / 48.0;
+                    if (i < 14400) early += y * y, hi += hy * hy;
+                }
+                std::printf("  %-9s MOD 0 %+6.1f dB  MOD 100 %% %+6.1f dB  (%+5.1f)   click: centre %4.0f ms, above 4 kHz %+5.1f dB\n", name, still, moving, moving - still,
+                            et / (e + 1e-30), 10.0 * std::log10((hi + 1e-30) / (early + 1e-30)));
+            }
+        }
+
+        // SPECTRAL's dispersion and MODAL's tension, after a click (DECAY 5 s, 100 % wet).
+        {
+            const auto clickRun = [&](int lab, float size, float mod, float amp) {
+                auto inst = formats.createPluginInstance(*found[0], 48000.0, 512, error);
+                inst->setPlayConfigDetails(2, 2, 48000.0, 512);
+                inst->prepareToPlay(48000.0, 512);
+                for (auto* p : inst->getParameters()) p->setValueNotifyingHost(p->getDefaultValue());
+                const auto setD = [&](const juce::String& name, float value) {
+                    for (auto* p : inst->getParameters())
+                        if (p->getName(64) == name) return p->setValueNotifyingHost(value);
+                    fail("no parameter " + name);
+                };
+                setD("Echo On", 0.0f), setD("Color On", 0.0f), setD("Space Mix", 1.0f), setD("Glue", 0.0f), setD("Gain Staging", 0.0f), setD("Motion On", 0.0f);
+                setD("Space Experimental", float(lab) / 3.0f), setD("Space Decay", 0.48f), setD("Space Size", size), setD("Space Mod", mod), setD("Space Predelay", 0.0f);
+                juce::AudioBuffer<float> buffer(2, 512);
+                juce::MidiBuffer midi;
+                std::vector<float> out;
+                for (int b = 0, s = 0; b < int(2.5 * 48000 / 512); ++b) {
+                    buffer.clear();
+                    if (b == 0) for (int i = 0; i < 8; ++i) buffer.setSample(0, i, amp), buffer.setSample(1, i, amp);
+                    inst->processBlock(buffer, midi);
+                    for (int i = 0; i < 512; ++i, ++s) out.push_back(buffer.getSample(0, i));
+                }
+                inst->releaseResources();
+                return out;
+            };
+            // Centre time (ms) of a band's energy.
+            const auto centre = [](const std::vector<float>& x, double lo, double hi) {
+                juce::IIRFilter a, b;
+                a.setCoefficients(juce::IIRCoefficients::makeHighPass(48000.0, lo)), b.setCoefficients(juce::IIRCoefficients::makeLowPass(48000.0, hi));
+                double e = 0.0, et = 0.0;
+                for (size_t i = 0; i < x.size(); ++i) {
+                    const double y = b.processSingleSampleRaw(a.processSingleSampleRaw(x[i]));
+                    e += y * y, et += y * y * double(i) / 48.0;
+                }
+                return et / (e + 1e-30);
+            };
+            // When a band is loudest (20 ms windows), in ms.
+            const auto loudest = [](const std::vector<float>& x, double lo, double hi) {
+                juce::IIRFilter a, b;
+                a.setCoefficients(juce::IIRCoefficients::makeHighPass(48000.0, lo)), b.setCoefficients(juce::IIRCoefficients::makeLowPass(48000.0, hi));
+                double best = 0.0, at = 0.0, e = 0.0;
+                for (size_t i = 0; i < x.size(); ++i) {
+                    const double y = b.processSingleSampleRaw(a.processSingleSampleRaw(x[i]));
+                    e += y * y;
+                    if ((i + 1) % 960 == 0) {
+                        if (e > best && i > 2400) best = e, at = double(i) / 48.0;  // past the 30 ms switch-on crossfade
+                        e = 0.0;
+                    }
+                }
+                return at;
+            };
+            (void)centre;
+            const auto lag = [&](float size) { const auto x = clickRun(1, size, 0.3f, 0.5f); return loudest(x, 4000.0, 8000.0) - loudest(x, 200.0, 400.0); };
+            const double still = lag(0.0f), spread = lag(1.0f);
+            std::printf("\nSPECTRAL dispersion: highs (4-8 kHz) after the lows (200-400 Hz) by %+5.0f ms at SIZE 0, %+5.0f ms at SIZE 100 %%\n", still, spread);
+            if (spread < still + 150.0) fail("SPECTRAL SIZE does not spread the highs later");
+            // MODAL tension: crossings per second of the low end (under 300 Hz), 50-250 ms
+            // against 1-1.3 s after a loud strike: a falling pitch, at MOD 100 %.
+            const auto pitchDrop = [&](float mod) {
+                const auto x = clickRun(2, 0.6f, mod, 0.9f);
+                juce::IIRFilter l1, l2;
+                l1.setCoefficients(juce::IIRCoefficients::makeLowPass(48000.0, 300.0)), l2.setCoefficients(juce::IIRCoefficients::makeLowPass(48000.0, 300.0));
+                std::vector<float> y(x.size());
+                for (size_t i = 0; i < x.size(); ++i) y[i] = l2.processSingleSampleRaw(l1.processSingleSampleRaw(x[i]));
+                const auto rate = [&](double a, double b) {
+                    int n = 0;
+                    for (size_t i = size_t(a * 48000) + 1; i < size_t(b * 48000); ++i) n += (y[i - 1] < 0.0f) != (y[i] < 0.0f);
+                    return n / (b - a);
+                };
+                return 1200.0 * std::log2(rate(0.05, 0.25) / std::max(1.0, rate(1.0, 1.3)));
+            };
+            const double flat = pitchDrop(0.0f), bent = pitchDrop(1.0f);
+            std::printf("MODAL tension: after a loud strike the low end falls %+4.0f cents more at MOD 100 %% than at MOD 0\n", bent - flat);
+            if (bent < flat + 100.0) fail("MODAL MOD does not bend the pitch");
+        }
+
         // SPECTRAL keeps the note: 1 s of 440 Hz, then in the tail (1.5-3 s) the energy on
         // 440 Hz against 410, 470 and 500 Hz. Random phases every frame smeared it into breath.
         {
@@ -899,7 +1040,7 @@ int main(int argc, char** argv) {
                 fail("no parameter " + name);
             };
             setP("Echo On", 0.0f), setP("Color On", 0.0f), setP("Space Mix", 1.0f), setP("Glue", 0.0f), setP("Gain Staging", 0.0f), setP("Motion On", 0.0f);
-            setP("Space Experimental", 1.0f / 3.0f), setP("Space Decay", 0.58f), setP("Space Size", 0.0f), setP("Space Mod", 0.2f);
+            setP("Space Experimental", 1.0f / 3.0f), setP("Space Decay", 0.58f), setP("Space Size", 0.0f), setP("Space Mod", 0.2f), setP("Space Tone", 0.5f), setP("Space Predelay", 0.0f);
             juce::AudioBuffer<float> buffer(2, 512);
             juce::MidiBuffer midi;
             std::vector<float> tail;

@@ -51,6 +51,7 @@ public:
         float predelayMs = 20.0f;
         float inputHighpassHz = 60.0f;
         float width = 1.0f;            // 0 mono .. 1 natural .. 1.5 extra wide
+        float scale = 1.0f;            // the room itself: line and diffuser lengths x this (ROOM 0.6, HALL 1, CATHEDRAL 1.8)
         float tilt = 0.0f;             // TONE on the input: -1 dark and warm .. 1 bright and lean
         float shimmer = 0.0f;          // DEPTH 0..1: share of the feedback that gets re-pitched
         float shimmerSemitones = 12.0f;  // PITCH -24..+24
@@ -65,7 +66,7 @@ public:
         // gets a random delay inside its own slice of that span (stratified).
         for (int s = 0; s < kStages; ++s) {
             for (int c = 0; c < kDiffChannels; ++c) {
-                diffusers_[size_t(s)][size_t(c)].prepare(int(kStageMs[size_t(s)] * 1.5f * 0.001f * sampleRate) + 8);
+                diffusers_[size_t(s)][size_t(c)].prepare(int(kStageMs[size_t(s)] * 1.5f * 1.3f * 0.001f * sampleRate) + 8);
                 diffuserSlot_[size_t(s)][size_t(c)] = (float(c) + rng.uniform()) / float(kDiffChannels);
                 diffuserFlip_[size_t(s)][size_t(c)] = (rng.next() & 1) ? 1.0f : -1.0f;
             }
@@ -101,8 +102,9 @@ public:
 
     void setParams(const Params& p) {
         params_ = p;
-        const float minMs = 10.0f + 50.0f * p.size;
-        const float maxMs = 30.0f + 170.0f * p.size;
+        const float scale = std::clamp(p.scale, 0.3f, 1.9f);
+        const float minMs = (10.0f + 50.0f * p.size) * scale;
+        const float maxMs = (30.0f + 170.0f * p.size) * scale;
         for (int i = 0; i < kLines; ++i) {
             const size_t k = size_t(i);
             const float x = std::clamp((float(kOrder[k]) + lengthJitter_[k]) / float(kLines - 1), 0.0f, 1.0f);
@@ -115,7 +117,7 @@ public:
             lowSplit_[k].setCutoff(p.lowCrossoverHz, sampleRate_);
             highSplit_[k].setCutoff(p.hfCrossoverHz, sampleRate_);
         }
-        const float stageScale = 0.5f + p.size;
+        const float stageScale = (0.5f + p.size) * std::min(scale, 1.3f);
         for (int s = 0; s < kStages; ++s)
             for (int c = 0; c < kDiffChannels; ++c)
                 diffuserTarget_[size_t(s)][size_t(c)] = float(std::max(
@@ -123,8 +125,8 @@ public:
         for (auto& hp : inputHighpass_) hp.setCutoff(p.inputHighpassHz, sampleRate_);
         const float tilt = std::clamp(p.tilt, -1.0f, 1.0f);
         for (int c = 0; c < 2; ++c) {
-            inputLow_[c].set(SvfEq::Type::LowShelf, 250.0f, 0.5f, -3.0f * tilt, sampleRate_);
-            inputHigh_[c].set(SvfEq::Type::HighShelf, 3000.0f, 0.5f, tilt < 0.0f ? 9.0f * tilt : 5.0f * tilt, sampleRate_);
+            inputLow_[c].set(SvfEq::Type::LowShelf, 250.0f, 0.5f, -5.0f * tilt, sampleRate_);
+            inputHigh_[c].set(SvfEq::Type::HighShelf, 3000.0f, 0.5f, tilt < 0.0f ? 14.0f * tilt : 8.0f * tilt, sampleRate_);
         }
         const float semitones = std::clamp(p.shimmerSemitones, -24.0f, 24.0f);
         shifter_.setSemitones(semitones);
@@ -280,9 +282,9 @@ private:
     static constexpr int kDiffChannels = 8;
     static constexpr int kStages = 4;
     static constexpr int kControlInterval = 32;
-    static constexpr float kMaxLineMs = 210.0f;
+    static constexpr float kMaxLineMs = 400.0f;  // CATHEDRAL at full SIZE: 200 ms x 1.8
     static constexpr float kMaxAllpassMs = 20.0f;
-    static constexpr float kMaxModMs = 1.0f;
+    static constexpr float kMaxModMs = 3.0f;
     // The whole modulation now rides the line, at the depth the line had alone: the old
     // extra 2x in the allpass only reached part of the sound. More would smear SHIMMER,
     // which recirculates every swing (+12: octaves 51 dB above the gaps at 1x, 44 at 3x).
@@ -326,7 +328,9 @@ private:
             // per-pass detune by sqrt(loop / RT60) keeps the *total* drift the same for a
             // small room and an endless cathedral: about kDriftCents * modDepth.
             const float tailSeconds = std::min(params_.freeze ? kMaxDriftRt60 : params_.decaySeconds, kMaxDriftRt60);
-            const float centsPerPass = kDriftCents * params_.modDepth * std::sqrt(loop / sampleRate_ / std::max(tailSeconds, 0.1f));
+            // MOD: 6 cents at 50 % as before, x/÷8 at the ends (0.75 .. 48 cents): still, or a chorus.
+            const float cents = params_.modDepth > 0.0f ? kDriftCents * std::pow(8.0f, 2.0f * params_.modDepth - 1.0f) : 0.0f;
+            const float centsPerPass = cents * std::sqrt(loop / sampleRate_ / std::max(tailSeconds, 0.1f));
             const float rate = std::max(params_.modRate * modRateJitter_[k], 0.01f);
             // Doppler of a delay swinging by ±A at `rate`: ≈ 1200/ln2 * 2π * rate * A / fs cents.
             modDepth_[k] = std::min(centsPerPass * 0.6931472f / 1200.0f * sampleRate_ / (kTwoPi * rate),

@@ -63,8 +63,8 @@ public:
         allpassR_.delay = std::round(2656 * scale_);
         for (int i = 0; i < 4; ++i) lengths_[size_t(i)] = int(std::lround(kTankLength[size_t(i)] * scale_));
         const float tilt = std::clamp(p.tilt, -1.0f, 1.0f);
-        lowShelf_.set(SvfEq::Type::LowShelf, 250.0f, 0.5f, -3.0f * tilt, sampleRate_);
-        highShelf_.set(SvfEq::Type::HighShelf, 3000.0f, 0.5f, tilt < 0.0f ? 9.0f * tilt : 5.0f * tilt, sampleRate_);
+        lowShelf_.set(SvfEq::Type::LowShelf, 250.0f, 0.5f, -5.0f * tilt, sampleRate_);
+        highShelf_.set(SvfEq::Type::HighShelf, 3000.0f, 0.5f, tilt < 0.0f ? 14.0f * tilt : 8.0f * tilt, sampleRate_);
         allpassL_.gain = allpassR_.gain = std::clamp(decay + 0.15f, 0.25f, 0.5f);  // decay diffusion 2
         decay_ = decay;
         damping_ = p.freeze || p.dampingHz <= 0.0f ? 1.0f : 1.0f - std::exp(-kTwoPi * std::min(p.dampingHz, 0.45f * sampleRate_) / sampleRate_);

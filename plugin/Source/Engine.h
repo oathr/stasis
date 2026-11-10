@@ -490,6 +490,7 @@ private:
                     p.diffusion = 0.62f;
                     p.bassMultiplier = 0.75f;
                     p.modRate = 1.1f;
+                    p.scale = 0.6f;  // a room: lines and diffuser 0.6x a hall's
                 } else if (type == 4) {
                     p.earlyLevel = 0.0f;  // BLOOM: nothing at the attack, the feeder brings it in
                 } else if (type == 3) {
@@ -498,17 +499,18 @@ private:
                     p.diffusion = 0.92f;
                     p.bassMultiplier = 1.1f;
                     p.modRate = 0.45f;
+                    p.scale = 1.8f;  // stone and height: lines 1.8x a hall's, a slower build, the tail starts later
                     p.earlyLevel = 0.15f;
                 } else if (type == 2) {
                     p.bassMultiplier = 0.95f;
                 }
                 p.size = v(values, iSize);
                 p.decaySeconds = decaySeconds(v(values, iDecay));
-                // In the loop: the treble's decay x/÷4 and its crossover x/÷3 around the type's
+                // In the loop: the treble's decay x/÷8 and its crossover x/÷4 around the type's
                 // own, the bass a little longer when dark, shorter when bright.
-                p.hfRatio = std::clamp(hfRatio * std::pow(4.0f, tilt), 0.05f, 1.0f);
-                p.hfCrossoverHz *= std::pow(3.0f, tilt);
-                p.bassMultiplier *= 1.0f - 0.35f * tilt;
+                p.hfRatio = std::clamp(hfRatio * std::pow(8.0f, tilt), 0.03f, 1.0f);
+                p.hfCrossoverHz *= std::pow(4.0f, tilt);
+                p.bassMultiplier *= 1.0f - 0.45f * tilt;
                 p.tilt = tilt;
                 p.modDepth = v(values, iMod);
                 p.predelayMs = predelayMs(v(values, iPre));

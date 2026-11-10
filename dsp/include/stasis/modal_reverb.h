@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <array>
 
+#include "color.h"
 #include "common.h"
 #include "lfo.h"
 
@@ -16,8 +17,12 @@ namespace stasis {
 // side) blooms the strike into a resonance: with 64 bare modes it rang as a few notes.
 //  SIZE   0..1: the plate, small (f0 240 Hz, bright and close) .. huge (f0 30 Hz, deep)
 //  DECAY  RT60 of the lowest mode; higher modes shorter, by TONE
-//  TONE   -1..1: dark (the highest modes ring ~5x shorter than the lowest) .. bright (all alike)
-//  MOD    0..1: the modes drift slowly (up to ±0.4 %), the ring shimmers instead of standing
+//  TONE   -1..1: dark (a muffled strike, the high modes die up to 80x sooner than the
+//         lowest) .. bright (a hard strike, all modes ring alike)
+//  MOD    0..1: TENSION, the gong's pitch bend: struck hard, a plate rings higher, and
+//         falls back as it decays (the "whoosh" down of a tam-tam or a tom). The modes
+//         follow the ring's energy, up to +25 % (four semitones) on a loud strike; they
+//         also drift slowly (up to ±1 %), so the ring moves instead of standing
 class ModalReverb {
 public:
     static constexpr int kModes = 160;
@@ -53,6 +58,9 @@ public:
             mode.y1 = mode.y2 = 0.0f;
         }
         predelay_.prepare(int(0.5f * sampleRate) + 8);
+        ring_ = 0.0f;
+        ringUp_ = smoothingCoef(0.005f, sampleRate);
+        ringDown_ = smoothingCoef(0.05f, sampleRate);
         // The bloom: 4 allpasses per side, 3 to 17 ms, different for left and right.
         static constexpr float kDiffuseMs[2][4] = {{3.1f, 5.3f, 9.7f, 16.1f}, {3.7f, 6.1f, 11.3f, 17.3f}};
         for (int c = 0; c < 2; ++c)
@@ -70,10 +78,12 @@ public:
         params_ = p;
         f0_ = 240.0f * std::pow(0.125f, std::clamp(p.size, 0.0f, 1.0f));
         // Per mode: RT60 shortened above the lowest by TONE (exponent 0 .. 1 per ratio).
-        const float damp = 0.5f * (1.0f - std::clamp(p.tone, -1.0f, 1.0f));
+        const float damp = 0.75f * (1.0f - std::clamp(p.tone, -1.0f, 1.0f));  // 0 .. 1.5
+        // The strike itself: a hard mallet (bright) or a felt one (dark).
+        strike_.set(SvfEq::Type::HighShelf, 1500.0f, 0.5f, 10.0f * std::clamp(p.tone, -1.0f, 1.0f), sampleRate_);
         for (auto& mode : modes_) {
             const float rt = p.freeze || !std::isfinite(p.decaySeconds) ? 1.0e4f
-                                                                         : p.decaySeconds * std::pow(mode.ratio, -damp * 0.5f);
+                                                                         : p.decaySeconds * std::pow(mode.ratio, -damp);
             mode.r = std::exp(-6.9078f / (std::max(rt, 0.05f) * sampleRate_));
         }
         update(0.0f);
@@ -84,7 +94,7 @@ public:
         const float inputGain = params_.freeze ? 0.0f : 1.0f;
         for (int n = 0; n < numSamples; ++n) {
             if ((counter_++ % kControl) == 0) update(std::clamp(params_.mod, 0.0f, 1.0f));
-            float x = 0.5f * (inL[n] + inR[n]) * inputGain;
+            float x = strike_.process(0.5f * (inL[n] + inR[n]) * inputGain);
             if (predelay >= 2.0f) {
                 const float d = predelay_.read(predelay);
                 predelay_.write(x);
@@ -99,6 +109,9 @@ public:
                 l += mode.gainL * y;
                 r += mode.gainR * y;
             }
+            // TENSION follows the ring's energy: fast up, then down with the ring itself.
+            const float energy = l * l + r * r;
+            ring_ += (energy > ring_ ? ringUp_ : ringDown_) * (energy - ring_);
             l *= kOut, r *= kOut;
             for (auto& ap : diffuse_[0]) l = ap.process(l);
             for (auto& ap : diffuse_[1]) r = ap.process(r);
@@ -121,8 +134,10 @@ private:
     // Coefficients from each mode's frequency (drifting by MOD) and decay. b sets each mode's
     // energy: a steady noise comes out of every mode at its own level, whatever the decay.
     void update(float mod) {
+        // How hard the plate rings now (0 .. 1 at about -10 dBFS out), as a pitch factor.
+        const float bend = 1.0f + 0.25f * mod * std::min(1.0f, std::sqrt(ring_) * kOut * 3.0f);
         for (auto& mode : modes_) {
-            const float drift = 1.0f + 0.004f * mod * mode.drift.advance(kControl);
+            const float drift = (1.0f + 0.01f * mod * mode.drift.advance(kControl)) * bend;
             const float hz = f0_ * mode.ratio * drift;
             mode.audible = hz < 0.45f * sampleRate_;
             if (!mode.audible) continue;
@@ -133,7 +148,8 @@ private:
         }
     }
 
-    float sampleRate_ = 48000.0f, f0_ = 120.0f;
+    float sampleRate_ = 48000.0f, f0_ = 120.0f, ring_ = 0.0f, ringUp_ = 0.01f, ringDown_ = 0.001f;
+    SvfEq strike_;
     Params params_;
     std::array<Mode, kModes> modes_{};
     DelayLine predelay_;

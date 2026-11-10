@@ -16,9 +16,11 @@ namespace stasis {
 // breath noise.) SIZE and MOD bring the diffusion back, as much as asked.
 //  DECAY  RT60 of the energy (1 kHz), INFINITY = endless; FREEZE stops the input too
 //  TONE   -1..1: which end lasts: dark (lows ring on, highs fade fast) .. bright
-//  SIZE   0..1: smear across neighbouring bins: exact partials .. a cloud
-//  MOD    0..1: the phases wander (up to a quarter turn a frame) and the levels flicker:
-//         from a still, glassy ring to a moving shimmer
+//  SIZE   0..1: DISPERSION, what no room does: each frequency reaches the pool late in
+//         proportion to its height (up to 0.85 s at the top), so every sound blooms
+//         upwards, its lows first and its highs rising after them
+//  MOD    0..1: each bin detunes slowly (up to ±1 %, a chorus), its phase wanders and its
+//         level flickers: from a still, glassy ring to a moving shimmer
 // Energy in = energy out: a steady sound comes out at its own level, whatever DECAY.
 // Left and right start a quarter turn apart in a random pattern: wide, yet each in tune.
 // Latency 4096 samples: it reads as pre-delay (the plugin does not report it).
@@ -49,6 +51,9 @@ public:
             c.lastPhase.assign(kBins, 0.0f);
             c.freq.assign(kBins, 0.0f);
             c.phase.assign(kBins, 0.0f);
+            c.vibrato.assign(kBins, 0.0f);
+            for (auto& frame : c.late) frame.assign(size_t(kBins) * 2, 0.0f);
+            c.latePos = 0;
             c.spectrum.resize(kSize);
             c.rng = Rng(ch == 0 ? 0x5EC7u : 0xA11CEu);
             for (int k = 0; k < kBins; ++k) {
@@ -59,6 +64,7 @@ public:
         fill_ = kSize - kHop;
         read_ = 0;
         smeared_.assign(kBins, 0.0f);
+        lag_.assign(kBins, 0);
         decay_.assign(kBins, 0.0f);
         keep_.assign(kBins, 0.0f);
         predelay_[0].prepare(int(0.5f * sampleRate) + 8);
@@ -69,7 +75,7 @@ public:
     void setParams(const Params& p) {
         params_ = p;
         // Per bin: the RT60 tilted by TONE around 1 kHz (x/÷ 3 per decade at the ends).
-        const float tilt = std::clamp(p.tone, -1.0f, 1.0f) * 0.48f;
+        const float tilt = std::clamp(p.tone, -1.0f, 1.0f);  // x/÷10 per decade at the ends
         for (int k = 0; k < kBins; ++k) {
             const float hz = std::max(20.0f, float(k) * sampleRate_ / float(kSize));
             const float rt = p.freeze || !std::isfinite(p.decaySeconds) ? INFINITY
@@ -79,6 +85,8 @@ public:
             const float g = std::isfinite(rt) ? std::pow(10.0f, -6.0f * float(kHop) / (std::max(rt, 0.05f) * sampleRate_)) : 1.0f;
             decay_[size_t(k)] = g;
             keep_[size_t(k)] = 1.0f - g;
+            // DISPERSION: frames of delay for this bin, growing with its height.
+            lag_[size_t(k)] = int(std::round(std::clamp(p.size, 0.0f, 1.0f) * float(kLate - 1) * std::pow(float(k) / float(kBins - 1), 0.6f)));
         }
     }
 
@@ -103,10 +111,12 @@ public:
     }
 
 private:
-    static constexpr int kSize = 4096, kHop = kSize / 4, kBins = kSize / 2 + 1;
+    static constexpr int kSize = 4096, kHop = kSize / 4, kBins = kSize / 2 + 1, kLate = 40;
 
     struct Channel {
-        std::vector<float> input, accum, output, power, flicker, lastPhase, freq, phase;
+        std::vector<float> input, accum, output, power, flicker, lastPhase, freq, phase, vibrato;
+        std::array<std::vector<float>, 40> late;  // the last frames (energy, frequency per bin), for DISPERSION
+        int latePos = 0;
         std::vector<Fft::Complex> spectrum;
         Rng rng{1};
     };
@@ -120,21 +130,30 @@ private:
         for (auto& c : channels_) {
             for (int i = 0; i < kSize; ++i) c.spectrum[size_t(i)] = c.input[size_t(i)] * window_[size_t(i)];
             fft_.forward(c.spectrum);
+            auto& now = c.late[size_t(c.latePos)];
             for (int k = 0; k < kBins; ++k) {
                 const auto z = c.spectrum[size_t(k)];
-                const float m = std::norm(z);
-                // Where this bin's energy really sits (phase vocoder), kept while the new
-                // frame brings a good share of the bin's energy: the tail keeps the note.
+                // Where this bin's energy really sits (phase vocoder): stored with it.
                 const float phase = std::arg(z);
                 float delta = phase - c.lastPhase[size_t(k)] - float(k) * expected;
                 c.lastPhase[size_t(k)] = phase;
                 delta -= kTwoPi * std::round(delta / kTwoPi);
-                if (m > 0.25f * c.power[size_t(k)] && m > 1.0e-12f) c.freq[size_t(k)] = float(k) + delta / expected;
+                now[size_t(2 * k)] = std::norm(z);
+                now[size_t(2 * k + 1)] = float(k) + delta / expected;
+            }
+            for (int k = 0; k < kBins; ++k) {
+                // DISPERSION: this bin takes in the frame from lag_ frames ago.
+                const auto& then = c.late[size_t((c.latePos - lag_[size_t(k)] + kLate) % kLate)];
+                const float m = then[size_t(2 * k)];
+                // Its frequency is kept while the frame brings a good share of the bin's
+                // energy: the tail keeps the note.
+                if (m > 0.25f * c.power[size_t(k)] && m > 1.0e-12f) c.freq[size_t(k)] = then[size_t(2 * k + 1)];
                 // The pool: each bin's energy decays and takes in the new frame's.
                 c.power[size_t(k)] = c.power[size_t(k)] * decay_[size_t(k)] + m * keep_[size_t(k)];
             }
-            // SIZE: the energy spreads to the neighbours (a 3-tap blur, run up to 8 times).
-            const int passes = int(std::round(smear * 8.0f));
+            c.latePos = (c.latePos + 1) % kLate;
+            // A light blur across neighbours with SIZE (none at 0: the note stays a note).
+            const int passes = int(std::round(smear * 2.0f));
             std::copy(c.power.begin(), c.power.end(), smeared_.begin());
             for (int p = 0; p < passes; ++p) {
                 float prev = smeared_[0];
@@ -147,7 +166,9 @@ private:
             // Each bin turns at its frequency; MOD lets the phase wander and the level flicker.
             for (int k = 0; k < kBins; ++k) {
                 float& ph = c.phase[size_t(k)];
-                ph += c.freq[size_t(k)] * expected + 0.5f * kPi * mod * c.rng.bipolar();
+                float& vib = c.vibrato[size_t(k)];
+                vib += 0.05f * (c.rng.bipolar() - vib);  // a slow random per bin
+                ph += c.freq[size_t(k)] * (1.0f + 0.01f * mod * vib) * expected + 0.25f * kPi * mod * c.rng.bipolar();
                 ph -= kTwoPi * std::floor(ph / kTwoPi);
                 float& f = c.flicker[size_t(k)];
                 f += 0.15f * ((1.0f + 0.5f * mod * c.rng.bipolar()) - f);
@@ -171,6 +192,7 @@ private:
     Params params_;
     Fft fft_;
     std::vector<float> window_, smeared_, decay_, keep_;
+    std::vector<int> lag_;
     std::array<Channel, 2> channels_;
     DelayLine predelay_[2];
     int fill_ = 0, read_ = 0;
