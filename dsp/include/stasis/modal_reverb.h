@@ -8,17 +8,19 @@
 
 namespace stasis {
 
-// MODAL: not a room but a struck object. 64 resonant modes laid out like a rectangular
+// MODAL: not a room but a struck object. 160 resonant modes laid out like a rectangular
 // plate's, f(m, n) = f0 · (m² + (n / 1.37)²): inharmonic, the ring of a gong, a bell, a
 // sheet of metal. The sound going in excites them all; left and right listen at two
-// different points of the plate (each mode with its own sign and weight per side).
+// different points of the plate (each mode with its own sign and weight per side). The
+// highs are a little softer (weight ratio^-1/4), and a short diffusion (4 allpasses per
+// side) blooms the strike into a resonance: with 64 bare modes it rang as a few notes.
 //  SIZE   0..1: the plate, small (f0 240 Hz, bright and close) .. huge (f0 30 Hz, deep)
 //  DECAY  RT60 of the lowest mode; higher modes shorter, by TONE
 //  TONE   -1..1: dark (the highest modes ring ~5x shorter than the lowest) .. bright (all alike)
 //  MOD    0..1: the modes drift slowly (up to ±0.4 %), the ring shimmers instead of standing
 class ModalReverb {
 public:
-    static constexpr int kModes = 64;
+    static constexpr int kModes = 160;
 
     struct Params {
         float size = 0.5f;
@@ -32,24 +34,34 @@ public:
     void prepare(float sampleRate) {
         sampleRate_ = sampleRate;
         // The plate's lowest 64 modes, in ratios to f0 (sorted), and how each side hears them.
-        std::array<float, 400> ratios{};
+        std::array<float, 1600> ratios{};
         int count = 0;
-        for (int m = 1; m <= 20; ++m)
-            for (int n = 1; n <= 20; ++n) ratios[size_t(count++)] = float(m * m) + float(n * n) / (1.37f * 1.37f);
+        for (int m = 1; m <= 40; ++m)
+            for (int n = 1; n <= 40; ++n) ratios[size_t(count++)] = float(m * m) + float(n * n) / (1.37f * 1.37f);
         std::sort(ratios.begin(), ratios.begin() + count);
         Rng rng(0x60D);
         for (int k = 0; k < kModes; ++k) {
             auto& mode = modes_[size_t(k)];
             mode.ratio = ratios[size_t(k)] / ratios[0];
             // A mode's shape: louder at some points of the plate than at others.
-            mode.gainL = rng.bipolar();
-            mode.gainR = rng.bipolar();
+            const float weight = std::pow(mode.ratio, -0.25f);
+            mode.gainL = weight * rng.bipolar();
+            mode.gainR = weight * rng.bipolar();
             mode.drift.prepare(sampleRate, 211 + uint32_t(k));
             mode.drift.setShape(LfoShape::RandomSmooth);
             mode.drift.setRate(0.05f + 0.25f * rng.uniform());
             mode.y1 = mode.y2 = 0.0f;
         }
         predelay_.prepare(int(0.5f * sampleRate) + 8);
+        // The bloom: 4 allpasses per side, 3 to 17 ms, different for left and right.
+        static constexpr float kDiffuseMs[2][4] = {{3.1f, 5.3f, 9.7f, 16.1f}, {3.7f, 6.1f, 11.3f, 17.3f}};
+        for (int c = 0; c < 2; ++c)
+            for (int i = 0; i < 4; ++i) {
+                auto& ap = diffuse_[c][i];
+                ap.prepare(int(0.02f * sampleRate) + 8);
+                ap.delay = std::round(kDiffuseMs[c][i] * 0.001f * sampleRate);
+                ap.gain = 0.6f;
+            }
         counter_ = 0;
         setParams(params_);
     }
@@ -87,14 +99,17 @@ public:
                 l += mode.gainL * y;
                 r += mode.gainR * y;
             }
-            outL[n] = l * kOut;
-            outR[n] = r * kOut;
+            l *= kOut, r *= kOut;
+            for (auto& ap : diffuse_[0]) l = ap.process(l);
+            for (auto& ap : diffuse_[1]) r = ap.process(r);
+            outL[n] = l;
+            outR[n] = r;
         }
     }
 
 private:
     static constexpr int kControl = 32;
-    static constexpr float kOut = 0.18f;  // 64 modes of random sign (1/8) and their weights: the input's level
+    static constexpr float kOut = 0.14f;  // 160 modes of random sign and their weights: the input's level
 
     struct Mode {
         float ratio = 1.0f, gainL = 0.0f, gainR = 0.0f, r = 0.99f;
@@ -122,6 +137,7 @@ private:
     Params params_;
     std::array<Mode, kModes> modes_{};
     DelayLine predelay_;
+    Allpass diffuse_[2][4];
     uint32_t counter_ = 0;
 };
 

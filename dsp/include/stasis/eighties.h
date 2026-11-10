@@ -8,9 +8,9 @@ namespace stasis {
 // 80s: what goes around the HALL engine to make it a digital reverb of the eighties.
 //  before  the input band-limited, 120 Hz .. 8 kHz (the converters and the sample rates
 //          of the time)
-//  after   the tail rounded to 12 bits (the grain of those machines in the quiet end of
-//          a tail), then the GATE: open while the sound plays, held, then shut in 60 ms.
-//          The gated drum reverb; SIZE sets the hold, 50 ms .. 1.5 s (long: an 80s hall)
+//  after   the GATE: open while the sound plays, held, then shut in 60 ms. The gated
+//          drum reverb; SIZE sets the hold, 50 ms .. 1.5 s (long: an 80s hall). No bit
+//          reduction: 12-bit rounding added 15 dB of grit above 2 kHz (measured), heard as noise.
 class Eighties {
 public:
     void prepare(float sampleRate) {
@@ -42,7 +42,6 @@ public:
 
     // `inL / inR`: what came into SPACE (the gate listens to it); the tail in place.
     void after(const float* inL, const float* inR, float* tailL, float* tailR, int n) {
-        constexpr float kSteps = 2048.0f;  // 12 bits
         for (int i = 0; i < n; ++i) {
             const float level = std::max(std::abs(inL[i]), std::abs(inR[i]));
             env_ += (level > env_ ? attack_ : release_) * (level - env_);
@@ -52,8 +51,8 @@ public:
             else if (held_ > 0) --held_;
             const float target = held_ > 0 ? 1.0f : 0.0f;
             gate_ += (target > gate_ ? openCoef_ : closeCoef_) * (target - gate_);
-            tailL[i] = std::round(tailL[i] * kSteps) / kSteps * gate_;
-            tailR[i] = std::round(tailR[i] * kSteps) / kSteps * gate_;
+            tailL[i] *= gate_;
+            tailR[i] *= gate_;
         }
     }
 

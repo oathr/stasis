@@ -886,6 +886,94 @@ int main(int argc, char** argv) {
             if (shut.first > held.first - 30.0) fail("80s: the gate does not shut the tail");
         }
 
+        // SPECTRAL keeps the note: 1 s of 440 Hz, then in the tail (1.5-3 s) the energy on
+        // 440 Hz against 410, 470 and 500 Hz. Random phases every frame smeared it into breath.
+        {
+            auto inst = formats.createPluginInstance(*found[0], 48000.0, 512, error);
+            inst->setPlayConfigDetails(2, 2, 48000.0, 512);
+            inst->prepareToPlay(48000.0, 512);
+            for (auto* p : inst->getParameters()) p->setValueNotifyingHost(p->getDefaultValue());
+            const auto setP = [&](const juce::String& name, float value) {
+                for (auto* p : inst->getParameters())
+                    if (p->getName(64) == name) return p->setValueNotifyingHost(value);
+                fail("no parameter " + name);
+            };
+            setP("Echo On", 0.0f), setP("Color On", 0.0f), setP("Space Mix", 1.0f), setP("Glue", 0.0f), setP("Gain Staging", 0.0f), setP("Motion On", 0.0f);
+            setP("Space Experimental", 1.0f / 3.0f), setP("Space Decay", 0.58f), setP("Space Size", 0.0f), setP("Space Mod", 0.2f);
+            juce::AudioBuffer<float> buffer(2, 512);
+            juce::MidiBuffer midi;
+            std::vector<float> tail;
+            for (int b = 0, s = 0; b < int(3.0 * 48000 / 512); ++b) {
+                for (int i = 0; i < 512; ++i) {
+                    const float v = (s + i) < 48000 ? 0.1f * float(std::sin(2.0 * juce::MathConstants<double>::pi * 440.0 * (s + i) / 48000.0)) : 0.0f;
+                    buffer.setSample(0, i, v), buffer.setSample(1, i, v);
+                }
+                inst->processBlock(buffer, midi);
+                for (int i = 0; i < 512; ++i, ++s)
+                    if (s >= 72000 && s < 144000) tail.push_back(buffer.getSample(0, i));
+            }
+            inst->releaseResources();
+            const auto at = [&](double hz) {
+                const double w = 2.0 * juce::MathConstants<double>::pi * hz / 48000.0, k = 2.0 * std::cos(w);
+                double s1 = 0.0, s2 = 0.0;
+                for (const float x : tail) {
+                    const double s = x + k * s1 - s2;
+                    s2 = s1, s1 = s;
+                }
+                return s1 * s1 + s2 * s2 - k * s1 * s2;
+            };
+            const double sings = 10.0 * std::log10((at(440.0) + 1e-30) / ((at(410.0) + at(470.0) + at(500.0)) / 3.0 + 1e-30));
+            std::printf("\nSPECTRAL keeps the note: in the tail, 440 Hz %+5.1f dB above 410 / 470 / 500 Hz\n", sings);
+            if (sings < 20.0) fail("SPECTRAL smears a note into noise");
+        }
+
+        // Noise: a clean 440 Hz tone (-20 dBFS, 1 s) into each reverb, 100 % wet, gate held
+        // open. In the tail (1.2-2.2 s) a clean reverb keeps its energy around 440 Hz; what
+        // lands elsewhere (above 1 kHz) is noise or grit. Then silence in: what comes out.
+        {
+            std::printf("\nReverb noise (440 Hz tone, then its tail): energy above 2 kHz vs the tail, and output with silence in\n");
+            const auto noiseOf = [&](float type, int lab) {
+                auto inst = formats.createPluginInstance(*found[0], 48000.0, 512, error);
+                inst->setPlayConfigDetails(2, 2, 48000.0, 512);
+                inst->prepareToPlay(48000.0, 512);
+                for (auto* p : inst->getParameters()) p->setValueNotifyingHost(p->getDefaultValue());
+                const auto setN = [&](const juce::String& name, float value) {
+                    for (auto* p : inst->getParameters())
+                        if (p->getName(64) == name) return p->setValueNotifyingHost(value);
+                    fail("no parameter " + name);
+                };
+                setN("Echo On", 0.0f), setN("Color On", 0.0f), setN("Space Mix", 1.0f), setN("Glue", 0.0f), setN("Gain Staging", 0.0f), setN("Motion On", 0.0f);
+                if (type < 0) setN("Space On", 0.0f);
+                else setN("Space Type", type), setN("Space Experimental", float(lab) / 3.0f), setN("Space Decay", 0.48f), setN("Space Size", 1.0f);
+                juce::AudioBuffer<float> buffer(2, 512);
+                juce::MidiBuffer midi;
+                juce::IIRFilter h1, h2, h3, h4;
+                for (auto* h : {&h1, &h2, &h3, &h4}) h->setCoefficients(juce::IIRCoefficients::makeHighPass(48000.0, 2000.0));  // 48 dB/oct: the tone itself is -105 dB
+                double all = 0.0, high = 0.0, silent = 0.0;
+                for (int b = 0, s = 0; b < int(12.0 * 48000 / 512); ++b) {
+                    for (int i = 0; i < 512; ++i) {
+                        const float v = (s + i) < 48000 ? 0.1f * float(std::sin(2.0 * juce::MathConstants<double>::pi * 440.0 * (s + i) / 48000.0)) : 0.0f;
+                        buffer.setSample(0, i, v), buffer.setSample(1, i, v);
+                    }
+                    inst->processBlock(buffer, midi);
+                    for (int i = 0; i < 512; ++i, ++s) {
+                        const double y = buffer.getSample(0, i), hy = h4.processSingleSampleRaw(h3.processSingleSampleRaw(h2.processSingleSampleRaw(h1.processSingleSampleRaw(float(y)))));
+                        const double t = s / 48000.0;
+                        if (t >= (type < 0 ? 0.2 : 1.2) && t < (type < 0 ? 0.9 : 2.2)) all += y * y, high += hy * hy;
+                        if (t >= 11.0) silent = std::max(silent, std::abs(y));
+                    }
+                }
+                inst->releaseResources();
+                return std::pair{10.0 * std::log10((high + 1e-30) / (all + 1e-30)), 20.0 * std::log10(silent + 1e-12)};
+            };
+            for (const auto [name, type, lab] : {std::tuple{"Hall", 0.4f, 0}, std::tuple{"Spectral", 0.4f, 1}, std::tuple{"Modal", 0.4f, 2}, std::tuple{"80s", 0.4f, 3}, std::tuple{"(no SPACE)", -1.0f, 0}}) {
+                const auto [noise, silent] = noiseOf(type, lab);
+                std::printf("  %-10s above 2 kHz %+6.1f dB   10 s after: peak %+7.1f dBFS\n", name, noise, silent);
+                if (lab == 3 && noise > -52.0) fail("80s adds noise");  // -46 dB with 12-bit rounding (HALL: -61)
+                if (silent > -100.0) fail(juce::String(name) + " makes noise on its own");
+            }
+        }
+
         // SPACE alone at 100 % wet, one type (index of 6). Feeds `input(sample)` for `seconds`,
         // MIDI `note` held from the start (-1: none); returns the left output.
         const auto spaceRun = [&](int type, double seconds, const std::function<float(int)>& input, int note = -1, float tone = -1.0f) {
