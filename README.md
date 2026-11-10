@@ -346,11 +346,12 @@ Modules with long FFTs spread their work over several audio blocks: no CPU spike
 - [x] Free module order, 80 presets, MOTION, 5-band COLOR + filters
 - [x] SHAPE, PITCH, AIR; safety limiter
 - [x] BLOOM and RESONATOR reverbs
-- [ ] Fonts embedded in the plugin (currently loaded from Google Fonts)
-- [ ] More experimental reverbs: Spectral, Modal, 80s
+- [x] Fonts embedded in the plugin (no network needed)
+- [x] Experimental reverbs: Spectral, Modal, 80s
 - [ ] AU, CLAP; signing and installers
 
 ## Licences
 - Personal use for now; an open-source release under **GPLv3** is planned if the result is good.
+- Fonts: Archivo and IBM Plex Mono, embedded under the SIL Open Font License 1.1 (see [`design/fonts/OFL.txt`](design/fonts/OFL.txt)).
 - JUCE 8 is used under its **AGPLv3** licence (or commercial).
 - The moodboard that inspired the design is licensed: none of its visuals are reproduced.

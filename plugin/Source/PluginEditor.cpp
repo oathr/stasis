@@ -21,6 +21,16 @@ std::optional<juce::WebBrowserComponent::Resource> getResource(const juce::Strin
     if (path == "/juce/index.js") return make(BinaryData::index_js, BinaryData::index_jsSize, "text/javascript");
     if (path == "/juce/check_native_interop.js")
         return make(BinaryData::check_native_interop_js, BinaryData::check_native_interop_jsSize, "text/javascript");
+    // The fonts (design/fonts, OFL), embedded: the interface needs no network.
+    if (path.startsWith("/fonts/")) {
+        const auto file = path.fromLastOccurrenceOf("/", false, false);
+        for (int i = 0; i < BinaryData::namedResourceListSize; ++i)
+            if (file == BinaryData::getNamedResourceOriginalFilename(BinaryData::namedResourceList[i])) {
+                int size = 0;
+                const char* data = BinaryData::getNamedResource(BinaryData::namedResourceList[i], size);
+                return make(data, size, "font/woff2");
+            }
+    }
     return std::nullopt;
 }
 

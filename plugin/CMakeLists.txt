@@ -27,6 +27,10 @@ juce_add_plugin(Stasis
 # The UI: the mockup page and JUCE's JavaScript bridge, embedded in the binary.
 juce_add_binary_data(StasisUI SOURCES
   ${PROJECT_SOURCE_DIR}/design/mockup.html
+  ${PROJECT_SOURCE_DIR}/design/fonts/Archivo.woff2
+  ${PROJECT_SOURCE_DIR}/design/fonts/IBMPlexMono-400.woff2
+  ${PROJECT_SOURCE_DIR}/design/fonts/IBMPlexMono-500.woff2
+  ${PROJECT_SOURCE_DIR}/design/fonts/IBMPlexMono-600.woff2
   ${juce_SOURCE_DIR}/modules/juce_gui_extra/native/javascript/index.js
   ${juce_SOURCE_DIR}/modules/juce_gui_extra/native/javascript/check_native_interop.js)
 
