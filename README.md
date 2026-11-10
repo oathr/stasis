@@ -153,6 +153,11 @@ Saturation (anti-aliased tanh) and tape filters in the loop, no hiss, no wow or 
 | `PLATE` | Dattorro plate; its DECAY is a real RT60, like the others (it was a raw tank gain: "8 s" lasted 4.8 s; older sessions keep their real length) |
 | `BLOOM` | Two 8-line networks in series ahead of the FDN: the reverb **swells** after the attack instead of starting at full level. The larger `DECAY` and `SIZE`, the longer the swell |
 | `RESONATOR` | 24 tuned combs (12 notes × 2 octaves, damped like strings) ahead of a shorter reverb: the tail **sings notes**. It follows the MIDI notes held, otherwise what FOCUS AUTO hears, and keeps the last chord (C + G at start). `SIZE` picks the register (C4, C3 or C2), `TONE` the damping. The notes played are shown in SPACE's header |
+| `EXP` · `SPECTRAL` | Experimental row (its own parameter, *Space Experimental*: SPACE TYPE keeps its six choices, so sessions and automation are untouched). A reverb in the frequency domain: each frequency of a 2048-point FFT keeps its energy and lets it go at DECAY, with new random phases every frame: any sound becomes a smooth, attack-free wash of its own spectrum. `SIZE` smears it across neighbouring frequencies (clean partials → a cloud), `TONE` chooses which end lasts, `MOD` makes the frequencies flicker |
+| `EXP` · `MODAL` | Not a room but a struck object: 64 modes laid out like a rectangular metal plate's (inharmonic: gong, bell, sheet metal), heard at two points of the plate for left and right. `SIZE` from a small bright plate (240 Hz) to a huge gong (30 Hz), `DECAY` the ring of the lowest mode, `TONE` how much sooner the high modes die, `MOD` a slow drift of the modes |
+| `EXP` · `80s` | The gated digital reverb of the eighties: the hall band-limited to 120 Hz – 8 kHz, a wide chorus, the tail rounded to 12 bits, and a gate that shuts it 60 ms after a hold once the sound stops. `SIZE` sets the hold, 50 ms (gated drums) to 1.5 s (an 80s hall) |
+
+Measured (100 ms of noise, DECAY 5 s, 100 % wet): the three come out at the input's level (±0.2 dB); SPECTRAL's tail 2–3 s later is −25 dB, MODAL's −35 dB; 80s at SIZE 0 is down to −70 dB half a second after the sound, at SIZE 100 % still −5 dB.
 
 | Control | What it does |
 |---|---|

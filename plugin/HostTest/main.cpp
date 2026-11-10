@@ -828,6 +828,63 @@ int main(int argc, char** argv) {
             const double wet = moduleLevel("Space", [&](const auto& set) { set("Space Type", float(t) / 5.0f), set("Space Mix", 1.0f); });
             std::printf("  Space %-10s %+5.1f dB  (100 %% wet %+5.1f dB)\n", types[t], atMix, wet);
         }
+        const char* labs[] = {"Spectral", "Modal", "80s"};
+        for (int x = 1; x <= 3; ++x) {
+            const double atMix = moduleLevel("Space", [&](const auto& set) { set("Space Experimental", float(x) / 3.0f); });
+            const double wet = moduleLevel("Space", [&](const auto& set) { set("Space Experimental", float(x) / 3.0f), set("Space Mix", 1.0f); });
+            std::printf("  Space %-10s %+5.1f dB  (100 %% wet %+5.1f dB)\n", labs[x - 1], atMix, wet);
+            if (!std::isfinite(wet) || wet < -18.0 || wet > 9.0) fail(juce::String("SPACE ") + labs[x - 1] + " level out of range");
+        }
+
+        // The experimental reverbs on a 100 ms noise burst (DECAY 5 s, 100 % wet): energy
+        // of the tail 0.5-1 s and 2-3 s after the burst (it rings on), and 80s's gate: SIZE 0
+        // shuts the tail 50 ms after the sound, SIZE 1 holds it 1.5 s.
+        {
+            const auto burstTail = [&](int lab, float size) {
+                auto inst = formats.createPluginInstance(*found[0], 48000.0, 512, error);
+                inst->setPlayConfigDetails(2, 2, 48000.0, 512);
+                inst->prepareToPlay(48000.0, 512);
+                for (auto* p : inst->getParameters()) p->setValueNotifyingHost(p->getDefaultValue());
+                const auto setX = [&](const juce::String& name, float value) {
+                    for (auto* p : inst->getParameters())
+                        if (p->getName(64) == name) return p->setValueNotifyingHost(value);
+                    fail("no parameter " + name);
+                };
+                setX("Echo On", 0.0f), setX("Color On", 0.0f), setX("Space Mix", 1.0f), setX("Glue", 0.0f), setX("Gain Staging", 0.0f), setX("Motion On", 0.0f);
+                setX("Space Experimental", float(lab) / 3.0f), setX("Space Decay", 0.48f), setX("Space Size", size), setX("Space Predelay", 0.0f);
+                juce::AudioBuffer<float> buffer(2, 512);
+                juce::MidiBuffer midi;
+                juce::Random noise(3);
+                double burst = 0.0, early = 0.0, late = 0.0;
+                bool finite = true;
+                for (int b = 0, s = 0; b < int(3.2 * 48000 / 512); ++b) {
+                    for (int i = 0; i < 512; ++i) {
+                        const float v = (s + i) < 4800 ? 0.3f * (noise.nextFloat() * 2.0f - 1.0f) : 0.0f;
+                        buffer.setSample(0, i, v), buffer.setSample(1, i, v);
+                    }
+                    inst->processBlock(buffer, midi);
+                    for (int i = 0; i < 512; ++i, ++s) {
+                        const double y = buffer.getSample(0, i), t = s / 48000.0 - 0.1;
+                        finite = finite && std::isfinite(y);
+                        if (t < 0.1) burst += y * y;
+                        if (t >= 0.5 && t < 1.0) early += y * y;
+                        if (t >= 2.0 && t < 3.0) late += y * y;
+                    }
+                }
+                inst->releaseResources();
+                if (!finite) fail(juce::String("SPACE ") + labs[lab - 1] + " gives non-finite samples");
+                return std::pair{10.0 * std::log10((early + 1e-20) / (burst + 1e-20)), 10.0 * std::log10((late + 1e-20) / (burst + 1e-20))};
+            };
+            std::printf("\nExperimental reverbs (100 ms of noise, DECAY 5 s): tail vs the burst's own output\n");
+            for (int lab = 1; lab <= 3; ++lab) {
+                const auto [early, late] = burstTail(lab, 0.5f);
+                std::printf("  %-9s 0.5-1 s %+6.1f dB   2-3 s %+6.1f dB\n", labs[lab - 1], early, late);
+                if (lab < 3 && late < -60.0) fail(juce::String("SPACE ") + labs[lab - 1] + " does not ring");
+            }
+            const auto shut = burstTail(3, 0.0f), held = burstTail(3, 1.0f);
+            std::printf("  80s gate  SIZE 0: 0.5-1 s %+6.1f dB   SIZE 100 %%: 0.5-1 s %+6.1f dB\n", shut.first, held.first);
+            if (shut.first > held.first - 30.0) fail("80s: the gate does not shut the tail");
+        }
 
         // SPACE alone at 100 % wet, one type (index of 6). Feeds `input(sample)` for `seconds`,
         // MIDI `note` held from the start (-1: none); returns the left output.

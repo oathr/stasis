@@ -172,6 +172,9 @@ inline const std::vector<Spec>& all() {
         // SPACE
         {"space_on", "Space On", Kind::Bool, 1.0f},
         {"space_type", "Space Type", Kind::Choice, 2.0f, {"Room", "Plate", "Hall", "Cathedral", "Bloom", "Resonator"}},
+        // The experimental reverbs, apart from SPACE TYPE so that its six choices (and any
+        // automation of them in a session) stay as they were. Off = SPACE TYPE decides.
+        {"space_lab", "Space Experimental", Kind::Choice, 0.0f, {"Off", "Spectral", "Modal", "80s"}},
         {"space_size", "Space Size", Kind::Float, 0.6f, {}, [](float t) { return fmt("%.2f", t); }},
         {"space_decay", "Space Decay", Kind::Float, 0.5f, {}, [](float t) { return t > 0.98f ? std::string("inf") : fmt("%.1f s", decaySeconds(t)); }},
         {"space_tone", "Space Tone", Kind::Float, 0.45f, {}, pct},

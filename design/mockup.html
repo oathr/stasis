@@ -263,6 +263,10 @@ header { display: grid; grid-template-columns: auto 1fr auto; align-items: cente
 .tonal-row .seg button { padding: 3px 5px; font-size: 8.5px; }
 .seg.types { flex-wrap: nowrap; gap: 2px; }
 .seg.types button { flex: 1; padding: 4px 3px; font-size: 8.5px; letter-spacing: .06em; }
+.seg.types.lab { margin-top: -8px; align-items: center; }
+.seg.types.lab button { padding: 2px 3px; }
+.seg.types.lab span { font-size: 8px; letter-spacing: .16em; color: var(--muted); padding: 0 6px 0 2px; flex: none; }
+.seg.types.muted button[aria-pressed="true"] { background: none; color: inherit; border-color: var(--line); }  /* an experimental reverb has the floor */
 .cursor { display: grid; grid-template-columns: auto 1fr auto 44px; align-items: center; gap: 8px; font-size: 8.5px; letter-spacing: .14em; color: var(--muted); user-select: none; }
 .cursor .track { position: relative; height: 18px; cursor: ew-resize; touch-action: none; }
 .cursor .track::before { content: ""; position: absolute; left: 0; right: 0; top: 50%; border-top: 1px solid var(--line); }
@@ -873,7 +877,28 @@ const MODS = {
             tremRow.append(label('TREMOLO'), trem, tremRate, tremMode);
             b.append(filters, tremRow, tonalRow()); } },
   space:  { n: '06', name: 'SPACE',   units: 2, code: 'FDN-16 · Dattorro plate', build: b => {
-            { const types = seg(['Room', 'Plate', 'Hall', 'Cathedral', 'Bloom', 'Resonator'], 2, null, 'space_type'); types.classList.add('types'); b.append(types); }
+            {
+              const types = seg(['Room', 'Plate', 'Hall', 'Cathedral', 'Bloom', 'Resonator'], 2, null, 'space_type'); types.classList.add('types');
+              // EXPERIMENTAL (its own parameter, SPACE TYPE keeps its six choices): one of
+              // them on overrides the type above; a click on a type, or on the lit one, turns it off.
+              const lab = document.createElement('div'); lab.className = 'seg types lab';
+              lab.innerHTML = '<span>EXP</span>';
+              let labNow = 0;
+              const showLab = i => {
+                labNow = Math.round(i);
+                lab.querySelectorAll('button').forEach((x, j) => x.setAttribute('aria-pressed', j + 1 === labNow));
+                types.classList.toggle('muted', labNow > 0);
+              };
+              ['Spectral', 'Modal', '80s'].forEach((name, j) => {
+                const btn = document.createElement('button'); btn.textContent = name;
+                btn.onclick = () => { const next = labNow === j + 1 ? 0 : j + 1; showLab(next); bridge.send('space_lab', next); };
+                lab.append(btn);
+              });
+              types.querySelectorAll('button').forEach(btn => btn.addEventListener('click', () => { if (labNow) { showLab(0); bridge.send('space_lab', 0); } }));
+              bridge.register('space_lab', 'choice', showLab);
+              showLab(0);
+              b.append(types, lab);
+            }
             b.append(knobRow([{ id: 'space_size', l: 'Size', t: state.size, f: t => t.toFixed(2), on: v => state.size = v },
                        { id: 'space_decay', l: 'Decay', t: state.decay, f: t => t > .98 ? '∞' : (0.5 * Math.pow(120, t)).toFixed(1) + ' s', on: v => state.decay = v },
                        { id: 'space_tone', l: 'Tone', t: state.tone, f: pct, on: v => state.tone = v },

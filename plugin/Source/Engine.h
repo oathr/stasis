@@ -15,7 +15,10 @@
 #include <stasis/resonant_focus.h>
 #include <stasis/resonator.h>
 #include <stasis/shape.h>
+#include <stasis/eighties.h>
+#include <stasis/modal_reverb.h>
 #include <stasis/space_reverb.h>
+#include <stasis/spectral_reverb.h>
 #include <stasis/tape_echo.h>
 #include <stasis/tonal_noise.h>
 
@@ -75,6 +78,9 @@ public:
         plate_.prepare(sampleRate);
         glue_.prepare(sampleRate);
         bloom_.prepare(sampleRate);
+        spectral_.prepare(sampleRate);
+        modal_.prepare(sampleRate);
+        eighties_.prepare(sampleRate);
         resonator_.prepare(sampleRate);
         focus_.prepare(sampleRate);
         keys_.prepare(sampleRate);
@@ -432,15 +438,36 @@ private:
             lastBpm_ = bpm;
         }
 
-        spaceType_ = int(v(values, iType));
+        // 0..5: SPACE TYPE; 6 SPECTRAL, 7 MODAL, 8 80s when SPACE EXPERIMENTAL is on.
+        static const int iLab = indexOf("space_lab");
+        const int lab = int(v(values, iLab));
+        spaceType_ = lab > 0 ? 5 + lab : int(v(values, iType));
         plateSelected_ = spaceType_ == 1;
-        if (changed({iType, iSize, iDecay, iTone, iMod, iPre, iShimmer, iShimmerPitch, iWidth, iFreeze})) {
-            const int type = int(v(values, iType));
+        if (changed({iType, iLab, iSize, iDecay, iTone, iMod, iPre, iShimmer, iShimmerPitch, iWidth, iFreeze})) {
+            const int type = spaceType_;
             const float tone = v(values, iTone);
             // TONE, centred: -1 dark and warm .. 0 as before .. 1 bright and lean. It tilts
             // the sound going in (heard at once) and shapes how the tail decays.
             const float tilt = 2.0f * tone - 1.0f;
-            if (plateSelected_) {
+            if (type == 6) {
+                SpectralReverb::Params p;
+                p.decaySeconds = decaySeconds(v(values, iDecay));
+                p.tone = tilt;
+                p.size = v(values, iSize);
+                p.mod = v(values, iMod);
+                p.predelayMs = predelayMs(v(values, iPre));
+                p.freeze = freeze_;
+                spectral_.setParams(p);
+            } else if (type == 7) {
+                ModalReverb::Params p;
+                p.size = v(values, iSize);
+                p.decaySeconds = decaySeconds(v(values, iDecay));
+                p.tone = tilt;
+                p.mod = v(values, iMod);
+                p.predelayMs = predelayMs(v(values, iPre));
+                p.freeze = freeze_;
+                modal_.setParams(p);
+            } else if (plateSelected_) {
                 PlateReverb::Params p;
                 p.decaySeconds = decaySeconds(v(values, iDecay));
                 p.dampingHz = tone >= 0.99f ? 0.0f : 2500.0f * std::pow(6.4f, tone);  // 2.5 kHz .. 16 kHz, then none
@@ -495,6 +522,14 @@ private:
                     b.size = p.size;
                     b.swellSeconds = std::clamp(0.3f * p.decaySeconds, 1.0f, 4.0f) * (0.6f + 0.8f * p.size);
                     bloom_.setParams(b);
+                } else if (type == 8) {
+                    // 80s: a bright, very diffuse hall with a wide chorus; SIZE sets the gate.
+                    eighties_.setHold(p.size);
+                    p.size = 0.65f;
+                    p.diffusion = 0.95f;
+                    p.earlyLevel = 0.4f;
+                    p.modRate = 1.6f;
+                    p.hfRatio = std::clamp(0.8f * std::pow(4.0f, tilt), 0.05f, 1.0f);
                 } else if (type == 5) {
                     // RESONATOR: the combs ring for DECAY, the reverb behind them is shorter.
                     resonatorParams_.size = p.size;
@@ -678,9 +713,17 @@ private:
                     if (tonalPre_) runTonal(wetL, wetR, n);
                     runModule(kSpace, wetL, wetR, n, [&](const float* inL, const float* inR, float* outL, float* outR, int count) {
                         if (plateSelected_) return plate_.process(inL, inR, outL, outR, count);
-                        if (spaceType_ != 4 && spaceType_ != 5) return space_.process(inL, inR, outL, outR, count);
+                        if (spaceType_ == 6) return spectral_.process(inL, inR, outL, outR, count);
+                        if (spaceType_ == 7) return modal_.process(inL, inR, outL, outR, count);
+                        if (spaceType_ != 4 && spaceType_ != 5 && spaceType_ != 8) return space_.process(inL, inR, outL, outR, count);
                         float* preL = preSpace_[0].data();
                         float* preR = preSpace_[1].data();
+                        if (spaceType_ == 8) {  // 80s: band-limited in, the hall, 12 bits and the gate out
+                            eighties_.before(inL, inR, preL, preR, count);
+                            space_.process(preL, preR, outL, outR, count);
+                            eighties_.after(inL, inR, outL, outR, count);
+                            return;
+                        }
                         if (spaceType_ == 4) {
                             bloom_.process(inL, inR, preL, preR, count);
                             space_.process(preL, preR, outL, outR, count);
@@ -854,6 +897,9 @@ private:
     Glue glue_;
     float makeupFloor_ = 1.0f;
     BloomFeeder bloom_;
+    SpectralReverb spectral_;
+    ModalReverb modal_;
+    Eighties eighties_;
     Resonator resonator_;
     Resonator::Params resonatorParams_;
     std::array<std::vector<float>, 2> preSpace_;  // BLOOM / RESONATOR output, into the reverb
