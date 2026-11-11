@@ -5,7 +5,11 @@
 //
 //   stasis_hosttest path/to/STASIS.vst3 [--no-timing] [--checks]
 //   stasis_hosttest path/to/STASIS.vst3 --dump-state <folder>
+//   stasis_hosttest path/to/STASIS.vst3 --cpu | --cpu-presets | --fingerprint
 //
+// --cpu prints what each module, each reverb and every module together cost (share of
+// real time), --cpu-presets the 80 presets too. --fingerprint prints one number per preset
+// (the sum of its output): run it before and after an optimisation, the lists must match.
 // --dump-state saves a few sessions of this build (state + every knob as the host shows
 // it) into <folder>. Kept in HostTest/compat/<version>, they are reloaded by every later
 // build, which must show the same values: an update must not change a saved session.
@@ -115,10 +119,14 @@ int main(int argc, char** argv) {
 
     bool timing = true, checksOnly = false;
     juce::File dumpFolder;
+    bool cpuMode = false, cpuPresets = false, fingerprintMode = false;
     for (int a = 2; a < argc; ++a) {
         timing = timing && juce::String(argv[a]) != "--no-timing";
         checksOnly = checksOnly || juce::String(argv[a]) == "--checks";
         if (juce::String(argv[a]) == "--dump-state" && a + 1 < argc) dumpFolder = juce::File::getCurrentWorkingDirectory().getChildFile(argv[++a]);
+        cpuPresets = cpuPresets || juce::String(argv[a]) == "--cpu-presets";
+        cpuMode = cpuMode || cpuPresets || juce::String(argv[a]) == "--cpu";
+        fingerprintMode = fingerprintMode || juce::String(argv[a]) == "--fingerprint";
     }
     juce::AudioPluginFormatManager formats;
     formats.addFormat(new juce::VST3PluginFormat());
@@ -131,6 +139,144 @@ int main(int argc, char** argv) {
     }
     std::printf("%s by %s, VST3 %s\n", found[0]->name.toRawUTF8(), found[0]->manufacturerName.toRawUTF8(),
                 found[0]->isInstrument ? "instrument" : "effect");
+
+    // --cpu: what each part costs (share of real time at 48 kHz, block 512: noise and a
+    // chord in, 6 s, the first second left out). --fingerprint: the sum of |output| of
+    // every preset, to nine digits: an optimisation that changes nothing prints the same.
+    if (cpuMode || fingerprintMode) {
+        juce::Process::setPriority(juce::Process::RealtimePriority);
+        int blockSize = 512;
+        const auto measure = [&](const std::function<void(juce::AudioPluginInstance&, const std::function<void(const juce::String&, float)>&)>& setup, double seconds,
+                                 double& average, double& worst, double& sum) {
+            juce::String error;
+            auto inst = formats.createPluginInstance(*found[0], 48000.0, blockSize, error);
+            inst->setPlayConfigDetails(2, 2, 48000.0, blockSize);
+            inst->prepareToPlay(48000.0, blockSize);
+            const std::function<void(const juce::String&, float)> set = [&inst](const juce::String& name, float value) {
+                for (auto* p : inst->getParameters())
+                    if (p->getName(64) == name) return p->setValueNotifyingHost(value);
+                fail("no parameter " + name);
+            };
+            setup(*inst, set);
+            juce::AudioBuffer<float> buffer(2, blockSize);
+            juce::MidiBuffer midi;
+            juce::Random noise(42);
+            double total = 0.0;
+            worst = sum = 0.0;
+            int counted = 0;
+            const int blocks = int(seconds * 48000 / blockSize);
+            for (int b = 0, s = 0; b < blocks; ++b) {
+                for (int i = 0; i < blockSize; ++i, ++s) {
+                    float v = 0.03f * (noise.nextFloat() * 2.0f - 1.0f);
+                    for (const double f : {220.0, 261.63, 329.63}) v += 0.08f * float(std::sin(2.0 * juce::MathConstants<double>::pi * f * s / 48000.0));
+                    buffer.setSample(0, i, v), buffer.setSample(1, i, v);
+                }
+                midi.clear();
+                if (b == 0) midi.addEvent(juce::MidiMessage::noteOn(1, 57, 0.8f), 0);
+                const auto start = juce::Time::getHighResolutionTicks();
+                inst->processBlock(buffer, midi);
+                const double elapsed = juce::Time::highResolutionTicksToSeconds(juce::Time::getHighResolutionTicks() - start);
+                if (b >= int(48000 / blockSize)) total += elapsed, worst = std::max(worst, elapsed), ++counted;
+                for (int c = 0; c < 2; ++c)
+                    for (int i = 0; i < blockSize; ++i) sum += std::abs(double(buffer.getSample(c, i)));
+            }
+            inst->releaseResources();
+            const double budget = double(blockSize) / 48000.0;
+            average = 100.0 * total / (counted * budget);
+            worst = 100.0 * worst / budget;
+        };
+        const auto defaults = [](juce::AudioPluginInstance& inst) {
+            for (auto* p : inst.getParameters())
+                if (!p->getName(64).startsWith("MIDI CC")) p->setValueNotifyingHost(p->getDefaultValue());
+        };
+        if (fingerprintMode) {
+            juce::String error;
+            auto probe = formats.createPluginInstance(*found[0], 48000.0, 512, error);
+            for (int p = 0; p < probe->getNumPrograms(); ++p) {
+                double average, worst, sum;
+                measure([&](juce::AudioPluginInstance& inst, const auto&) { inst.setCurrentProgram(p); }, 3.0, average, worst, sum);
+                std::printf("%3d %-28s %.9g\n", p + 1, probe->getProgramName(p).toRawUTF8(), sum);
+            }
+            return 0;
+        }
+        const char* modules[] = {"Shape", "Derez", "Pitch", "Stretch", "Grain", "Echo", "Space", "Focus", "Air", "Color"};
+        const auto only = [&](const char* module) {
+            return [&, module](juce::AudioPluginInstance& inst, const std::function<void(const juce::String&, float)>& set) {
+                defaults(inst);
+                for (const char* m : modules) set(juce::String(m) + " On", module != nullptr && juce::String(m) == module ? 1.0f : 0.0f);
+                set("Motion On", 0.0f), set("Glue", 0.0f);
+            };
+        };
+        std::printf("\nCPU (share of real time, 48 kHz, block 512), average and worst block:\n");
+        const auto row = [&](const juce::String& name, const std::function<void(juce::AudioPluginInstance&, const std::function<void(const juce::String&, float)>&)>& setup) {
+            double average, worst, sum;
+            // The machine is never quiet, and it slows down as it warms up: the best of three
+            // runs, each scaled by a fixed piece of arithmetic timed right before it (so
+            // every row reads as if the processor ran at the speed it had for the first).
+            average = worst = 1.0e9;
+            for (int attempt = 0; attempt < 3; ++attempt) {
+                const auto yardstick = [] {
+                    const auto start = juce::Time::getHighResolutionTicks();
+                    volatile double acc = 0.0;
+                    for (int i = 0; i < 3000000; ++i) acc = acc + std::sqrt(double(i) * 1.0001 + acc * 1.0e-9);
+                    return juce::Time::highResolutionTicksToSeconds(juce::Time::getHighResolutionTicks() - start);
+                };
+                const double speed = std::min({yardstick(), yardstick(), yardstick()});
+                static const double reference = speed;
+                double a, w;
+                measure(setup, 3.0, a, w, sum);
+                average = std::min(average, a * reference / speed), worst = std::min(worst, w * reference / speed);
+            }
+            std::printf("  %-26s %5.2f %%   worst %5.1f %%\n", name.toRawUTF8(), average, worst);
+            return average;
+        };
+        row("nothing on", only(nullptr));
+        for (const char* m : modules) row(juce::String(m) + " alone", only(m));
+        const char* types[] = {"Room", "Plate", "Hall", "Cathedral", "Bloom", "Resonator"};
+        for (int t = 0; t < 6; ++t)
+            row(juce::String("Space ") + types[t], [&, t](auto& inst, const auto& set) { only("Space")(inst, set); set("Space Type", float(t) / 5.0f); });
+        const char* labs[] = {"Spectral", "Modal", "80s"};
+        for (int x = 1; x <= 3; ++x)
+            row(juce::String("Space ") + labs[x - 1], [&, x](auto& inst, const auto& set) { only("Space")(inst, set); set("Space Experimental", float(x) / 3.0f); });
+        row("Space Hall + shimmer", [&](auto& inst, const auto& set) { only("Space")(inst, set); set("Shimmer Depth", 0.5f); });
+        row("Color + TONAL", [&](auto& inst, const auto& set) { only("Color")(inst, set); set("Tonal / Noise", 0.8f); });
+        row("MOTION alone, 12 lanes", [&](auto& inst, const auto& set) {
+            only(nullptr)(inst, set);
+            set("Motion On", 1.0f);
+            for (int l = 1; l <= 12; ++l) set("Motion " + juce::String(l) + " Depth", 0.3f);
+        });
+        row("GLUE alone", [&](auto& inst, const auto& set) { only(nullptr)(inst, set); set("Glue", 0.5f); });
+        row("every module on", [&](auto& inst, const auto& set) {
+            defaults(inst);
+            for (const char* m : modules) set(juce::String(m) + " On", 1.0f);
+        });
+        // The same at a 64-sample buffer: what is computed once per block weighs 8x more.
+        blockSize = 64;
+        row("nothing on, block 64", only(nullptr));
+        row("Space Hall, block 64", only("Space"));
+        row("MOTION 12 lanes, block 64", [&](auto& inst, const auto& set) {
+            only(nullptr)(inst, set);
+            set("Motion On", 1.0f);
+            for (int l = 1; l <= 12; ++l) set("Motion " + juce::String(l) + " Depth", 0.3f);
+        });
+        row("every module on, block 64", [&](auto& inst, const auto& set) {
+            defaults(inst);
+            for (const char* m : modules) set(juce::String(m) + " On", 1.0f);
+        });
+        row("Tape Memory, block 64", [&](auto& inst, const auto&) { inst.setCurrentProgram(0); });
+        blockSize = 512;
+        if (!cpuPresets) return 0;  // --cpu-presets: the 80 presets as well (several minutes)
+        std::printf("\nPresets:\n");
+        juce::String error;
+        auto probe = formats.createPluginInstance(*found[0], 48000.0, 512, error);
+        double heaviest = 0.0, totalCost = 0.0;
+        for (int p = 0; p < probe->getNumPrograms(); ++p) {
+            const double cost = row(probe->getProgramName(p), [&, p](auto& inst, const auto&) { inst.setCurrentProgram(p); });
+            heaviest = std::max(heaviest, cost), totalCost += cost;
+        }
+        std::printf("\n  presets: mean %.2f %%, heaviest %.2f %%\n", totalCost / probe->getNumPrograms(), heaviest);
+        return 0;
+    }
 
     if (dumpFolder != juce::File()) {
         // A few sessions: factory presets as they are, and presets with every knob moved

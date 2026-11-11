@@ -330,6 +330,11 @@ The host test plays 12 s of sound per configuration (44.1 / 48 / 96 kHz, buffers
 
 **Tempo sync** is checked against a DAW transport (tempo and song position, playing): ECHO's first repeat lands on the division (within 0.01 ms at 120 and 97 BPM, mono and ping-pong), GRAIN PULSE grains and the synced tremolo are loudest on the grid.
 
+**CPU.** `stasis_hosttest STASIS.vst3 --cpu` prints what each module, each reverb and all of them together cost (share of real time at 48 kHz; best of three runs, each scaled by a fixed computation timed beside it, because a warm processor slows down by a good half), `--cpu-presets` the 80 presets too, and `--fingerprint` one number per preset to compare before and after an optimisation. Measured on the Windows machine:
+
+- **The interface was the cost**: with its window open, the page and its compositing took **110 % of a core** (Standalone, all WebView2 processes), against a few percent for the sound. Now about **30 %**: it draws 30 times a second (the plugin sends its data 30 times a second: 60 showed every frame twice), MOTION's ball on a knob is a small layer moved by a transform (as a circle inside the knob's drawing, three moving knobs re-rendered part of the page every frame: a third of a core), the sliders' markers likewise, text is written only when it changes, a lane at rest is not redrawn. With the window closed, nothing is drawn.
+- **The engine**: SHAPE 3.8 % → 1.5 % (its oversampler in polyphase form: 16 products instead of 62 going up, 17 instead of 31 coming down; the same output to −129 dB), the reverbs about 15 % lighter (whole-sample allpass reads skip the interpolation that returned the sample itself), every module on 9 % → 6.3 %. The 80 presets print the same fingerprint to 7 digits (largest difference −148 dB).
+
 Results on Apple Silicon:
 
 | Measurement | Result |

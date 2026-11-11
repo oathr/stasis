@@ -9,42 +9,52 @@ namespace stasis {
 
 // 2× oversampler: zero-stuffing and decimation through the same 31-tap halfband
 // (windowed sinc, Blackman). Lets the curves below fold harmonics above Nyquist far less.
+//
+// Computed in its polyphase form: the same output as convolving the zero-stuffed stream
+// with the 31 taps, without the work that adds nothing. A halfband's taps are zero at
+// every even distance from its centre, and half of a zero-stuffed stream is zeros, so
+//   up:    a = 2 · Σ h[2j] · x[n-j]  (16 taps)      b = x[n-7]  (the centre tap alone)
+//   down:  y = Σ h[2j] · b[n-j]  (16 taps)  +  0.5 · a[n-7]
+// 16 products instead of 62 going up, 17 instead of 31 coming down, on rings read in one
+// run (each sample is written twice, 16 apart: no index wraps inside the sum).
 class Oversampler2x {
 public:
     Oversampler2x() {
-        for (int i = 0; i < kTaps; ++i) {
+        for (int j = 0; j < kHalf; ++j) {
+            const int i = 2 * j;
             const double n = i - (kTaps - 1) / 2.0;
-            const double sinc = n == 0.0 ? 0.5 : std::sin(0.5 * kPi * n) / (kPi * n);
+            const double sinc = std::sin(0.5 * kPi * n) / (kPi * n);
             const double w = 0.42 - 0.5 * std::cos(2.0 * kPi * i / (kTaps - 1)) + 0.08 * std::cos(4.0 * kPi * i / (kTaps - 1));
-            h_[size_t(i)] = float(sinc * w);
+            taps_[size_t(j)] = float(sinc * w);  // symmetric: taps_[j] == taps_[15 - j]
         }
     }
     void up(float x, float& a, float& b) {
-        push(upHistory_, upPos_, 2.0f * x);
-        a = convolve(upHistory_, upPos_);
-        push(upHistory_, upPos_, 0.0f);
-        b = convolve(upHistory_, upPos_);
+        push(upRing_, upPos_, x);
+        a = 2.0f * dot(upRing_, upPos_);
+        b = upRing_[size_t(upPos_ + kHalf - kCentre)];
     }
     float down(float a, float b) {
-        push(downHistory_, downPos_, a);
-        push(downHistory_, downPos_, b);
-        return convolve(downHistory_, downPos_);
+        push(downA_, downPos_, a);
+        downB_[size_t(downPos_)] = downB_[size_t(downPos_ + kHalf)] = b;
+        return dot(downB_, downPos_) + 0.5f * downA_[size_t(downPos_ + kHalf - kCentre)];
     }
 
 private:
-    static constexpr int kTaps = 31;
-    using History = std::array<float, kTaps>;
-    static void push(History& h, int& pos, float x) {
-        pos = (pos + 1) % kTaps;
-        h[size_t(pos)] = x;
+    static constexpr int kTaps = 31, kHalf = 16, kCentre = 7;
+    using Ring = std::array<float, 2 * kHalf>;
+    static void push(Ring& ring, int& pos, float x) {
+        pos = (pos + 1) & (kHalf - 1);
+        ring[size_t(pos)] = ring[size_t(pos + kHalf)] = x;
     }
-    float convolve(const History& h, int pos) const {
+    // The 16 latest samples (ring[pos + 1 .. pos + 16], the newest last) against the taps.
+    float dot(const Ring& ring, int pos) const {
+        const float* x = ring.data() + pos + 1;
         float sum = 0.0f;
-        for (int i = 0; i < kTaps; ++i) sum += h_[size_t(i)] * h[size_t((pos - i + kTaps) % kTaps)];
+        for (int j = 0; j < kHalf; ++j) sum += taps_[size_t(j)] * x[j];
         return sum;
     }
-    std::array<float, kTaps> h_{};
-    History upHistory_{}, downHistory_{};
+    std::array<float, kHalf> taps_{};
+    Ring upRing_{}, downA_{}, downB_{};
     int upPos_ = 0, downPos_ = 0;
 };
 

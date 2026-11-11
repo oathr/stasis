@@ -113,7 +113,10 @@ struct Allpass {
     void prepare(int maxDelaySamples) { line.prepare(maxDelaySamples); }
     float process(float x) { return processAt(x, delay); }
     float processAt(float x, float delaySamples) {
-        const float d = line.read(delaySamples);
+        // A whole delay: the sample itself (what the cubic read returns there, without its sums).
+        const float d = delaySamples >= 2.0f && delaySamples == std::floor(delaySamples) && delaySamples <= float(line.maxDelay())
+                            ? line.readInt(int(delaySamples))
+                            : line.read(delaySamples);
         const float v = x - gain * d;
         line.write(v);
         return d + gain * v;

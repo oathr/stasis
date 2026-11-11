@@ -200,7 +200,10 @@ header { display: grid; grid-template-columns: auto 1fr auto; align-items: cente
 .knobs { display: flex; flex-wrap: wrap; gap: 8px 2px; justify-content: space-between; }
 .knobs.two { display: grid; grid-template-columns: 1fr 1fr; justify-items: center; }  /* four knobs: a 2 x 2 square */
 .knobs.three { display: grid; grid-template-columns: repeat(3, 1fr); justify-items: center; row-gap: 6px; }  /* six knobs: 3 x 2 */
-.knob { --hub: var(--bg-hi); width: 44px; display: flex; flex-direction: column; align-items: center; gap: 3px; cursor: ns-resize; user-select: none; touch-action: none; }
+.knob { --hub: var(--bg-hi); width: 44px; display: flex; flex-direction: column; align-items: center; gap: 3px; cursor: ns-resize; user-select: none; touch-action: none; position: relative; }
+/* MOTION's ball on a knob: its own layer, moved by a transform. As a circle inside the
+   knob's drawing, each move re-rendered part of the page (a third of a core for 3 knobs). */
+.knob .modball { position: absolute; left: 0; top: 0; border-radius: 50%; background: var(--spark); pointer-events: none; display: none; will-change: transform; }
 .card.dark .knob, .preset .knob { --hub: var(--dark); }
 .knob svg { width: 42px; height: 42px; overflow: visible; color: inherit; }
 .knob .v { font-size: 11px; font-weight: 500; letter-spacing: .02em; white-space: nowrap; }
@@ -492,13 +495,17 @@ const live = {
     const midi = s.midi ?? s.classes, on = names.filter((_, i) => midi & (1 << i));
     const fk = document.getElementById('focusKeys');
     if (fk) for (let i = 0; i < 12; i++) fk.light(i, (s.classes | midi) & (1 << i));
+    // Written only when it changes: rewriting the same text still redraws its block.
     const st = document.getElementById('status');
-    if (st) st.innerHTML = `CPU <b>${s.cpu.toFixed(1)}%</b><br>LATENCY <b>0 SMP</b><br>MIDI <b>${on.join(' ') || '—'}</b>`;
+    const status = `CPU <b>${s.cpu.toFixed(1)}%</b><br>LATENCY <b>0 SMP</b><br>MIDI <b>${on.join(' ') || '—'}</b>`;
+    if (st && status !== this.statusShown) { st.innerHTML = status; this.statusShown = status; }
     // SPACE › RESONATOR: the notes the combs ring on.
     const sc = document.querySelector('[data-mod="space"] .top .code');
-    if (sc) sc.textContent = s.res ? 'Resonator · ' + names.filter((_, i) => s.res & (1 << i)).join(' ') : MODS.space.code;
+    const code = s.res ? 'Resonator · ' + names.filter((_, i) => s.res & (1 << i)).join(' ') : MODS.space.code;
+    if (sc && sc.textContent !== code) sc.textContent = code;
     const sr = document.getElementById('srate');
-    if (sr && s.sampleRate) sr.textContent = (s.sampleRate / 1000).toFixed(1).replace('.0', '') + ' KHZ';
+    const rate = s.sampleRate ? (s.sampleRate / 1000).toFixed(1).replace('.0', '') + ' KHZ' : '';
+    if (sr && rate && sr.textContent !== rate) sr.textContent = rate;
   },
 };
 
@@ -625,13 +632,35 @@ function knob(k, opts = {}) {
   el.value = () => t;
   el.redraw = draw;
   // MOTION: the arc is the whole swing (lo .. hi, always shown), the dot where the LFO is now.
+  // Called every frame for every knob: the SVG is touched only when something changed
+  // (rewriting the same attributes still costs a style pass per knob, 100 times a frame).
+  // The arc (the swing) is part of the drawing: it changes only when a setting does. The
+  // ball moves every frame: it is a small element of its own, placed over the drawing.
+  let shown = false, lastArc = '', lastBall = '', unit = 0, left = 0, top = 0;
+  const svg = el.querySelector('svg');
+  const ball = document.createElement('i'); ball.className = 'modball'; el.append(ball);
+  dot.setAttribute('display', 'none');
   el.showMod = (m, lo = Math.min(t, m), hi = Math.max(t, m)) => {
-    if (m === null) { arc.setAttribute('display', 'none'); dot.setAttribute('display', 'none'); return; }
+    if (m === null) {
+      if (shown) { arc.setAttribute('display', 'none'); ball.style.display = 'none'; shown = false; }
+      return;
+    }
     const a = A0 + ARC * lo, b = A0 + ARC * Math.max(hi, lo + .002);
     const [x0, y0] = polar(ring, a), [x1, y1] = polar(ring, b), [dx, dy] = polar(ring, A0 + ARC * m);
-    arc.setAttribute('d', `M${x0.toFixed(2)} ${y0.toFixed(2)}A${ring} ${ring} 0 ${b - a > 180 ? 1 : 0} 1 ${x1.toFixed(2)} ${y1.toFixed(2)}`);
-    dot.setAttribute('cx', dx.toFixed(2)); dot.setAttribute('cy', dy.toFixed(2));
-    arc.setAttribute('display', ''); dot.setAttribute('display', '');
+    const d = `M${x0.toFixed(2)} ${y0.toFixed(2)}A${ring} ${ring} 0 ${b - a > 180 ? 1 : 0} 1 ${x1.toFixed(2)} ${y1.toFixed(2)}`;
+    if (d !== lastArc) { arc.setAttribute('d', d); lastArc = d; }
+    if (!shown) {
+      // Where the drawing sits in the knob, and its scale (44 units across): read once.
+      // (From the rectangles, taken back out of the interface's zoom: an SVG has no offsetLeft.)
+      const outer = el.getBoundingClientRect(), inner = svg.getBoundingClientRect(), zoom = outer.width / el.offsetWidth || 1;
+      unit = inner.width / zoom / 44; left = (inner.left - outer.left) / zoom; top = (inner.top - outer.top) / zoom;
+      const size = 4.8 * unit;
+      ball.style.width = ball.style.height = size + 'px';
+      ball.style.margin = (-size / 2) + 'px 0 0 ' + (-size / 2) + 'px';
+      arc.setAttribute('display', ''); ball.style.display = 'block'; shown = true;
+    }
+    const at = `translate(${(left + dx * unit).toFixed(2)}px,${(top + dy * unit).toFixed(2)}px)`;
+    if (at !== lastBall) { ball.style.transform = at; lastBall = at; }
   };
   if (k.id) { knobsById[k.id] = el; el.dataset.mapid = k.id; }
   draw();
@@ -699,7 +728,14 @@ function cursor(left, right, value, id, opts = {}) {
   // MOTION: a ghost thumb where the LFO has moved the cursor.
   const ghost = document.createElement('div'); ghost.className = 'ghost'; track.append(ghost);
   el.value = () => (v + 1) / 2;
-  el.showMod = m => { ghost.style.display = m === null ? 'none' : 'block'; if (m !== null) ghost.style.left = (m * 100) + '%'; };
+  // Moved by a transform (its own layer): a `left` in % re-laid the row out every frame.
+  let ghostOn = false, ghostAt = '', ghostSpan = 0;
+  el.showMod = m => {
+    if (m === null) { if (ghostOn) { ghost.style.display = 'none'; ghostOn = false; } return; }
+    if (!ghostOn) { ghostSpan = track.offsetWidth; ghost.style.left = '0'; ghost.style.willChange = 'transform'; ghost.style.display = 'block'; ghostOn = true; }
+    const at = `translateX(${(m * ghostSpan).toFixed(2)}px)`;
+    if (at !== ghostAt) { ghost.style.transform = at; ghostAt = at; }
+  };
   if (id) { knobsById[id] = el; el.dataset.mapid = id; }
   draw();
   return el;
@@ -739,7 +775,13 @@ function vslider(id, range) {
   bridge.register(id, 'slider', t => { v = t; draw(); });
   const ghost = document.createElement('div'); ghost.className = 'ghost'; track.append(ghost);
   el.value = () => v;
-  el.showMod = m => { ghost.style.display = m === null ? 'none' : 'block'; if (m !== null) ghost.style.top = ((1 - m) * 100) + '%'; };
+  let ghostOn = false, ghostAt = '', ghostSpan = 0;
+  el.showMod = m => {
+    if (m === null) { if (ghostOn) { ghost.style.display = 'none'; ghostOn = false; } return; }
+    if (!ghostOn) { ghostSpan = track.offsetHeight; ghost.style.top = '0'; ghost.style.willChange = 'transform'; ghost.style.display = 'block'; ghostOn = true; }
+    const at = `translateY(${((1 - m) * ghostSpan).toFixed(2)}px)`;
+    if (at !== ghostAt) { ghost.style.transform = at; ghostAt = at; }
+  };
   knobsById[id] = el; el.dataset.mapid = id;
   draw();
   return el;
@@ -1483,11 +1525,44 @@ function column(t) {
 // Smoothness: speed follows real time (not the frame rate), x and age are continuous,
 // dots grow from nothing instead of popping at a threshold, and new columns fade in at
 // the right edge and old ones out at the left.
+// The theme's colours, read from the styles twice a second at most (reading them every
+// frame forced a style pass per frame; a theme change shows within half a second).
+let themeInk = null, themeInkAt = -1e9;
+function themeColours() {
+  const now = performance.now();
+  if (!themeInk || now - themeInkAt > 500) {
+    const css = getComputedStyle(document.documentElement), get = name => css.getPropertyValue(name).trim();
+    themeInk = { dot: get('--on-dark'), acc: get('--accent'), spark: get('--spark'), line: get('--dark-line') };
+    themeInkAt = now;
+  }
+  return themeInk;
+}
+// The halftone's dots, gathered by colour and opacity (32 steps: under 2 % apart, unseen)
+// and filled one group at a time: a few dozen fills a frame instead of several thousand.
+const dotBatches = new Map();
+function halftoneDot(colour, alpha, x, y, r) {
+  const step = Math.max(1, Math.min(32, Math.round(alpha * 32)));
+  const key = colour + '|' + step;
+  let batch = dotBatches.get(key);
+  if (!batch) { batch = { colour, alpha: step / 32, list: [] }; dotBatches.set(key, batch); }
+  batch.list.push(x, y, r);
+}
+function flushDots() {
+  for (const batch of dotBatches.values()) {
+    const list = batch.list;
+    if (!list.length) continue;
+    vctx.fillStyle = batch.colour; vctx.globalAlpha = batch.alpha;
+    vctx.beginPath();
+    for (let i = 0; i < list.length; i += 3) { vctx.moveTo(list[i] + list[i + 2], list[i + 1]); vctx.arc(list[i], list[i + 1], list[i + 2], 0, Math.PI * 2); }
+    vctx.fill();
+    list.length = 0;
+  }
+}
+const setText = (id, text) => { const el = document.getElementById(id); if (el.textContent !== text) el.textContent = text; };
 function drawViz(now) {
   const dt = lastT && now ? Math.min(50, now - lastT) / (1000 / 60) : 1;
   if (now) lastT = now;
-  const css = getComputedStyle(document.documentElement);
-  const dotColor = css.getPropertyValue('--on-dark').trim(), acc = css.getPropertyValue('--accent').trim(), spark = css.getPropertyValue('--spark').trim();
+  const { dot: dotColor, acc, spark } = themeColours();
   const nCols = Math.ceil(VW / STEP) + 2;
   if (!state.freeze) {
     scroll += (.45 + state.stretch * .9) * dt;
@@ -1508,9 +1583,7 @@ function drawViz(now) {
       // never faint (a floor on size and opacity), so it reads at a glance.
       const g = col.grain ? col.grain[y] * (.25 + .75 * fade) * edge : 0;
       if (g > .015) {
-        vctx.fillStyle = acc;
-        vctx.globalAlpha = .7 + .3 * fade;
-        vctx.beginPath(); vctx.arc(x, y * STEP + (col.odd ? STEP * .5 : 0), Math.min(STEP * .66, STEP * (.36 + .3 * Math.sqrt(g))), 0, Math.PI * 2); vctx.fill();
+        halftoneDot(acc, .7 + .3 * fade, x, y * STEP + (col.odd ? STEP * .5 : 0), Math.min(STEP * .66, STEP * (.36 + .3 * Math.sqrt(g))));
         continue;
       }
       const e = col[y] * (.25 + .75 * fade) * edge;
@@ -1519,14 +1592,13 @@ function drawViz(now) {
       if (r < .2) continue;
       const yy = y * STEP + (col.odd ? STEP * .5 : 0);         // staggered: round, organic halftone
       // Blue belongs to the grains; the spectrum stays paper (peach for shimmer at the top).
-      vctx.fillStyle = y < rows * .28 && state.shimmer > .3 && e > .55 ? spark : dotColor;
-      vctx.globalAlpha = (.35 + .65 * fade) * Math.min(1, e / .12);
-      vctx.beginPath(); vctx.arc(x, yy, r, 0, Math.PI * 2); vctx.fill();
+      halftoneDot(y < rows * .28 && state.shimmer > .3 && e > .55 ? spark : dotColor, (.35 + .65 * fade) * Math.min(1, e / .12), x, yy, r);
     }
   }
+  flushDots();
   vctx.globalAlpha = 1;
   // FREEZE: slit-scan smear, bands of the frozen paper dragged sideways
-  smear += ((state.freeze ? 1 : 0) - smear) * .07;
+  smear += ((state.freeze ? 1 : 0) - smear) * .135;  // .07 a frame at 60 Hz, two frames in one at 30
   if (smear > .01) {
     const dpr = devicePixelRatio || 1, W = viz.width, H = viz.height, band = Math.round(5 * dpr);
     vctx.save(); vctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -1539,20 +1611,34 @@ function drawViz(now) {
     }
     vctx.restore();
   }
-  document.getElementById('hudState').textContent = state.freeze ? 'FROZEN' : 'LIVE';
-  document.getElementById('hudRt').textContent = 'RT60 ' + (state.decay > .98 ? '∞' : (0.5 * Math.pow(120, state.decay)).toFixed(1) + ' S');
+  setText('hudState', state.freeze ? 'FROZEN' : 'LIVE');
+  setText('hudRt', 'RT60 ' + (state.decay > .98 ? '∞' : (0.5 * Math.pow(120, state.decay)).toFixed(1) + ' S'));
 }
 
+let laneSizesAt = -1e9;
 function drawLanes() {
-  const css = getComputedStyle(document.documentElement);
-  const ink = css.getPropertyValue('--on-dark').trim(), acc = css.getPropertyValue('--accent').trim(), line = css.getPropertyValue('--dark-line').trim();
-  lanes.forEach(l => {
-    const cv = l.canvas, w = cv.offsetWidth, h = cv.offsetHeight;
-    if (cv.width !== w * 2) { cv.width = w * 2; cv.height = h * 2; }
+  const { dot: ink, acc, line } = themeColours();
+  // The canvases' sizes are read twice a second (a read forces a layout pass), not per frame.
+  const measure = performance.now() - laneSizesAt > 500;
+  if (measure) laneSizesAt = performance.now();
+  lanes.forEach((l, index) => {
+    const cv = l.canvas;
+    if (measure || !l.w) { l.w = cv.offsetWidth; l.h = cv.offsetHeight; }
+    const w = l.w, h = l.h;
+    if (!w) return;  // MOTION folded away: nothing to draw
+    let resized = false;
+    if (cv.width !== w * 2) { cv.width = w * 2; cv.height = h * 2; resized = true; }
     // Plugin: the engine's own LFO values; browser: a local simulation.
-    const v = (live.lanes ? live.lanes[lanes.indexOf(l)] : l.f(l.shape, l.rate * state.drift * (1 / 60) * 8)) * l.depth * (.3 + .7 * state.motion);
-    l.hist.push(v); l.hist.shift();
-    const ctx = cv.getContext('2d'); ctx.setTransform(2, 0, 0, 2, 0, 0); ctx.clearRect(0, 0, w, h);
+    if (!live.lanes) l.f(l.shape, l.rate * state.drift * (1 / 60) * 8);  // the browser's own LFO: two 60 Hz steps a frame
+    const v = (live.lanes ? live.lanes[index] : l.f(l.shape, l.rate * state.drift * (1 / 60) * 8)) * l.depth * (.3 + .7 * state.motion);
+    l.hist.push(v, v); l.hist.shift(); l.hist.shift();  // one frame in two is drawn: two steps, the trace keeps its speed
+    // A lane at rest (a flat trace, already drawn in these colours) stays as it is.
+    l.moving = v !== 0 ? l.hist.length : Math.max(0, (l.moving || 0) - 1);
+    const look = ink + acc + line;
+    if (!l.moving && !resized && l.look === look && l.flat) return;
+    l.flat = !l.moving;
+    l.look = look;
+    const ctx = l.ctx || (l.ctx = cv.getContext('2d')); ctx.setTransform(2, 0, 0, 2, 0, 0); ctx.clearRect(0, 0, w, h);
     ctx.strokeStyle = line; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(0, h / 2); ctx.lineTo(w, h / 2); ctx.stroke();
     ctx.strokeStyle = ink; ctx.globalAlpha = .9; ctx.lineWidth = 1.2; ctx.beginPath();
     l.hist.forEach((y, i) => { const px = i / (l.hist.length - 1) * w, py = h / 2 - y * (h / 2 - 2); i ? ctx.lineTo(px, py) : ctx.moveTo(px, py); });
@@ -1627,7 +1713,7 @@ function grainCells(col, now) {
 }
 function grainHud() {
   const off = cards.grain?.classList.contains('off');
-  document.getElementById('hudGrain').textContent = off ? '' : 'GRAIN ' + grainCount.reduce((a, c) => a + c.n, 0) + ' /S';
+  setText('hudGrain', off ? '' : 'GRAIN ' + grainCount.reduce((a, c) => a + c.n, 0) + ' /S');
 }
 
 function fit() { const [w, h] = STAGE[layout]; document.getElementById('stage').style.transform = `scale(${Math.min(innerWidth / w, innerHeight / h)})`; }
@@ -1649,7 +1735,17 @@ function setLayout(name, fromHost) {
 document.getElementById('layoutBtn').onclick = () => setLayout(layout === 'side' ? 'top' : 'side');
 setLayout(layout, true);
 for (let k = 0; k < 1800; k++) drawViz();  // start with a tail already on the paper
-(function loop(now) { simulateGrains(now || 0); drawViz(now); drawLanes(); grainHud(); requestAnimationFrame(loop); })();
+// The plugin sends its data 30 times a second: drawing 60 times showed every frame twice
+// and cost twice the work (the page and its compositing took a whole core). One frame
+// in two is skipped when the display runs at 60 Hz or more.
+let lastDraw = 0;
+(function loop(now) {
+  requestAnimationFrame(loop);
+  now = now || 0;
+  if (now - lastDraw < 30) return;
+  lastDraw = now;
+  simulateGrains(now); drawViz(now); drawLanes(); grainHud();
+})();
 </script>
 <script type="module">
 // In the plugin only: load JUCE's bridge (served by the plugin) and bind the controls.
