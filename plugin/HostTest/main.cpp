@@ -1518,6 +1518,22 @@ int main(int argc, char** argv) {
                     }
                     continue;
                 }
+                // Since state 5 GRAIN's envelope menu is two knobs: the same envelope must show
+                // as SHAPE and SKEW (SINE: sine, even; TRIANGLE: triangle, even; SQUARE:
+                // square, even; PERC: sine, perc).
+                if (p == nullptr && fields[1] == "Grain Envelope") {
+                    const auto shownBy = [&](const char* name) {
+                        for (auto* q : plugin->getParameters()) if (q->getName(64) == name) return q->getCurrentValueAsText();
+                        return juce::String("(missing)");
+                    };
+                    const auto env = fields[2];
+                    const juce::String shape = env == "Triangle" ? "triangle" : env == "Square" ? "square" : "sine", skew = env == "Perc" ? "perc" : "even";
+                    if (shownBy("Grain Shape") != shape || shownBy("Grain Skew") != skew) {
+                        fail(where + ": Grain Envelope " + env + " became " + shownBy("Grain Shape") + " / " + shownBy("Grain Skew") + " (expected " + shape + " / " + skew + ")");
+                        ++wrong;
+                    }
+                    continue;
+                }
                 if (p != nullptr && factor != 1.0) {
                     const double expected = fields[2].getDoubleValue() * factor, now = p->getCurrentValueAsText().getDoubleValue();
                     if (std::abs(now - expected) > 1.01) {
@@ -1610,15 +1626,15 @@ int main(int argc, char** argv) {
         const auto tone = [](int64_t s) { return 0.2f * float(std::sin(2.0 * juce::MathConstants<double>::pi * 220.0 * double(s) / 48000.0)); };
         // The same with PITCH before GRAIN and COLOR's TONAL after it: their latency is
         // reported, compensated, and GRAIN's grid accounts for PITCH's.
-        for (const auto [env, name, latent] : {std::tuple{0, "Sine", false}, std::tuple{3, "Perc", false}, std::tuple{0, "Sine", true}}) {
+        for (const auto [skew, name, latent] : {std::tuple{0.5f, "Sine", false}, std::tuple{0.0f, "Perc", false}, std::tuple{1.0f, "Swell", false}, std::tuple{0.5f, "Sine", true}}) {
             FakePlayHead head;
             auto inst = makeSynced(120.0, head, [&](const auto& set) {
                 set("Grain On", 1.0f), set("Grain Algorithm", 0.0f), set("Grain Sync", 1.0f), set("Grain Division", 5.0f / 13.0f);
-                set("Grain Envelope", float(env) / 3.0f), set("Grain Size", 0.45f), set("Grain Chance", 1.0f), set("Grain Mix", 1.0f), set("Dry / Wet", 1.0f);
+                set("Grain Skew", skew), set("Grain Size", 0.45f), set("Grain Chance", 1.0f), set("Grain Mix", 1.0f), set("Dry / Wet", 1.0f);
                 if (latent) set("Pitch On", 1.0f), set("Color On", 1.0f), set("Tonal / Noise", 0.8f);
             });
             const double after = centre(render(*inst, head, 6.0, tone), 120.0, 0.5, 2.0);
-            std::printf("  GRAIN PULSE 1/8, 160 ms, %-4s%s: loudest %+6.1f ms after the grid (latency %d)\n", name, latent ? " + PITCH + COLOR" : "", after, inst->getLatencySamples());
+            std::printf("  GRAIN PULSE 1/8, 160 ms, %-5s%s: loudest %+6.1f ms after the grid (latency %d)\n", name, latent ? " + PITCH + COLOR" : "", after, inst->getLatencySamples());
             if (std::abs(after) > 25.0) fail(juce::String("GRAIN PULSE ") + name + " grains sound off the grid");
         }
         {

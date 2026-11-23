@@ -6,9 +6,12 @@
 
 namespace {
 
-constexpr int kWidth = 1251, kHeight = 934;  // the page (1500 x 1120) scaled: same proportions, no side bands
-constexpr int kSideWidth = 1455, kSideHeight = 814;  // the same, visualizer on the right (page 1744 x 976)
-constexpr int kMotionFold = 228;  // page px MOTION gives back when its lanes are closed (272 -> 44)
+// The page's size in each state (design/mockup.html, STAGE), and the window's scale for it.
+constexpr double kPageScale = 1251.0 / 1500.0;  // a 1500 px wide page in a 1251 px window
+constexpr int kPageWidth = 1500, kPageHeight = 938;     // visualizer on top
+constexpr int kSidePageWidth = 1744, kSidePageHeight = 794;  // visualizer on the right
+constexpr int kMotionFold = 96;  // page px MOTION gives back when its lanes are closed (140 -> 44)
+constexpr int kVizBand = 144;    // page px of the visualizer on top (130 + its gap)
 constexpr int kBands = 96;                     // spectrum rows sent to the visual (MIDI 30 .. 118)
 
 std::optional<juce::WebBrowserComponent::Resource> getResource(const juce::String& url) {
@@ -138,6 +141,12 @@ juce::WebBrowserComponent::Options StasisEditor::createOptions(Relays& relays) {
                            processor_.resetAll();
                            complete(juce::var());
                        })
+                       .withNativeFunction("getVizOpen", [this](const juce::Array<juce::var>&, auto complete) { complete(processor_.vizOpen); })
+                       .withNativeFunction("setVizOpen", [this](const juce::Array<juce::var>& args, auto complete) {
+                           processor_.vizOpen = args.isEmpty() || bool(args[0]);
+                           applyLayout(true);
+                           complete(juce::var());
+                       })
                        .withNativeFunction("getMotionOpen", [this](const juce::Array<juce::var>&, auto complete) { complete(processor_.motionOpen); })
                        .withNativeFunction("setMotionOpen", [this](const juce::Array<juce::var>& args, auto complete) {
                            processor_.motionOpen = args.isEmpty() || bool(args[0]);
@@ -221,9 +230,12 @@ StasisEditor::~StasisEditor() {
 
 // Window limits and proportions for the current layout. keepScale: same zoom as now.
 void StasisEditor::applyLayout(bool keepScale) {
-    const bool side = processor_.layout == "side";
-    const int w = side ? kSideWidth : kWidth;
-    const int h = (side ? kSideHeight : kHeight) - (processor_.motionOpen ? 0 : kMotionFold * kHeight / 1120);
+    // Hidden, the visualizer takes no room on top nor on the side: the page is the top
+    // layout without its band.
+    const bool side = processor_.layout == "side" && processor_.vizOpen;
+    const int pageW = side ? kSidePageWidth : kPageWidth;
+    const int pageH = (side ? kSidePageHeight : kPageHeight) - (processor_.vizOpen ? 0 : kVizBand) - (processor_.motionOpen ? 0 : kMotionFold);
+    const int w = int(std::lround(pageW * kPageScale)), h = int(std::lround(pageH * kPageScale));
     // Same zoom as now when switching layout; on opening, the zoom it was left at (this
     // project's, else the last one used anywhere), else 80 %.
     double scale = keepScale && layoutWidth_ > 0 ? double(getWidth()) / layoutWidth_ : processor_.editorScale;
@@ -294,7 +306,8 @@ void StasisEditor::timerCallback() {
             g->setProperty("st", events[i].semitones);
             g->setProperty("len", events[i].seconds);
             g->setProperty("pan", events[i].pan);
-            g->setProperty("env", events[i].envelope);
+            g->setProperty("shape", events[i].shape);
+            g->setProperty("skew", events[i].skew);
             g->setProperty("level", events[i].level);
             grains.add(juce::var(g));
         }

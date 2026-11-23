@@ -85,7 +85,7 @@ void migrateGrainNotes(juce::ValueTree& state) {
     add("grain_p12", float(find("grain_octaves").getProperty("value", 1.0f)) >= 0.5f);
 }
 
-constexpr int kStateVersion = 4;
+constexpr int kStateVersion = 5;
 
 // State version 2 (v0.1.3): DEREZ RATE and BITS knobs are reversed (up = clean) and the
 // COLOR bands reach twice as far. Older sessions are moved so they sound the same.
@@ -375,6 +375,7 @@ juce::ValueTree StasisProcessor::stateTree(bool forPreset) {
         state.setProperty("userPreset", userPresetName, nullptr);
         state.setProperty("layout", layout, nullptr);
         state.setProperty("motionOpen", motionOpen, nullptr);
+        state.setProperty("vizOpen", vizOpen, nullptr);
         state.setProperty("editorScale", editorScale, nullptr);
     }
     return state;
@@ -389,12 +390,32 @@ void StasisProcessor::setStateInformation(const void* data, int sizeInBytes) {
         if (xml->hasTagName(apvts.state.getType())) applyStateTree(juce::ValueTree::fromXml(*xml), false);
 }
 
+// State version 5 (v0.2.0): GRAIN's envelope menu (SINE / TRIANGLE / SQUARE / PERC) became
+// two knobs, SHAPE and SKEW, and the grains got a STEREO mode and a WIDTH (it was 80 %, fixed).
+// The same envelope as SHAPE / SKEW positions; RANDOM at 80 % is what the grains did.
+void migrateToVersion5(juce::ValueTree& state) {
+    const auto add = [&](const char* id, float value) {
+        if (state.getChildWithProperty("id", id).isValid()) return;
+        juce::ValueTree param("PARAM");
+        param.setProperty("id", id, nullptr).setProperty("value", value, nullptr);
+        state.appendChild(param, nullptr);
+    };
+    const auto env = state.getChildWithProperty("id", "grain_env");
+    const int e = env.isValid() ? int(std::lround(float(env.getProperty("value", 0.0f)))) : 0;
+    add("grain_shape", e == 1 ? 1.0f : e == 2 ? 0.0f : 0.5f);  // TRIANGLE 1, SQUARE 0, SINE / PERC the sine
+    add("grain_skew", e == 3 ? 0.0f : 0.5f);                     // PERC: percussive, the others even
+    add("grain_stereo", 0.0f);
+    add("grain_width", 0.8f);
+    if (env.isValid()) state.removeChild(env, nullptr);
+}
+
 void StasisProcessor::applyStateTree(juce::ValueTree state, bool fromPreset) {
     migrateGrainNotes(state);
     const int version = int(state.getProperty("version", 1));
     if (version < 2) migrateToVersion2(state);
     if (version < 3) migrateToVersion3(state);
     if (version < 4) migrateToVersion4(state);
+    if (version < 5) migrateToVersion5(state);
     apvts.replaceState(state);
     setModuleOrder(juce::StringArray::fromTokens(state.getProperty("order").toString(), ",", ""));
     if (!fromPreset) {
@@ -402,6 +423,7 @@ void StasisProcessor::applyStateTree(juce::ValueTree state, bool fromPreset) {
         userPresetName = state.getProperty("userPreset", "").toString();
         layout = state.getProperty("layout", "top").toString() == "side" ? "side" : "top";
         motionOpen = bool(state.getProperty("motionOpen", true));
+        vizOpen = bool(state.getProperty("vizOpen", true));
         editorScale = double(state.getProperty("editorScale", editorScale));
     }
     if (state.hasProperty("targets")) {

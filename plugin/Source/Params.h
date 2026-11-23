@@ -121,7 +121,7 @@ inline const std::vector<Spec>& all() {
         {"shape_harm", "Shape Harmonics", Kind::Float, 0.0f, {}, pct},
         // PITCH
         {"pitch_on", "Pitch On", Kind::Bool, 0.0f},
-        {"pitch_semi", "Pitch Semitones", Kind::Float, 0.75f, {}, [](float t) { return fmt("%+.0f st", double(pitchSemitones(t))); }},
+        {"pitch_semi", "Pitch Semitones", Kind::Float, 0.5f, {}, [](float t) { return fmt("%+.0f st", double(pitchSemitones(t))); }},
         {"pitch_shift", "Pitch Shift", Kind::Float, 0.5f, {}, [](float t) { return fmt("%+.1f Hz", double(shiftHz(t))); }},
         {"pitch_mix", "Pitch Mix", Kind::Float, 0.25f, {}, pct},
         // AIR
@@ -134,7 +134,11 @@ inline const std::vector<Spec>& all() {
         // GRAIN
         {"grain_on", "Grain On", Kind::Bool, 0.0f},
         {"grain_algo", "Grain Algorithm", Kind::Choice, 1.0f, {"Pulse", "Scatter", "Drift"}},
-        {"grain_env", "Grain Envelope", Kind::Choice, 0.0f, {"Sine", "Triangle", "Square", "Perc"}},
+        // The envelope: SHAPE square → sine → triangle, SKEW percussive ← even → swell.
+        {"grain_shape", "Grain Shape", Kind::Float, 0.5f, {}, [](float t) { return t < 0.12f ? std::string("square") : t < 0.4f ? std::string("soft") : t < 0.6f ? std::string("sine") : t < 0.88f ? std::string("pointed") : std::string("triangle"); }},
+        {"grain_skew", "Grain Skew", Kind::Float, 0.5f, {}, [](float t) { const double v = 200.0 * t - 100.0; return v <= -95.0 ? std::string("perc") : v >= 95.0 ? std::string("swell") : std::abs(v) < 0.5 ? std::string("even") : fmt("%+.0f %%", v); }},
+        {"grain_stereo", "Grain Stereo", Kind::Choice, 0.0f, {"Random", "L / R", "Pitch", "Orbit"}},
+        {"grain_width", "Grain Width", Kind::Float, 0.8f, {}, pct},
         {"grain_sync", "Grain Sync", Kind::Choice, 0.0f, {"Free", "Sync"}},
         {"grain_density", "Grain Density", Kind::Float, 0.45f, {}, [](float t) { return fmt("%.1f /s", double(grainDensity(t))); }},
         {"grain_div", "Grain Division", Kind::Float, 5.0f / 13.0f, {}, [](float t) { return std::string(kDivisionNames[size_t(echoDivision(t))]); }},
@@ -144,18 +148,21 @@ inline const std::vector<Spec>& all() {
         {"grain_fdbk", "Grain Feedback", Kind::Float, 0.0f, {}, pct},
         {"grain_reverse", "Grain Reverse", Kind::Float, 0.0f, {}, [](float t) { return t <= 0.0f ? std::string("forward") : t >= 1.0f ? std::string("reverse") : fmt("%.0f %% rev", 100.0 * t); }},
         // Allowed transpositions, in semitones from the sound (GrainCloud::kIntervals, in order).
-        {"grain_m12", "Grain -12", Kind::Bool, 0.0f}, {"grain_m7", "Grain -7", Kind::Bool, 0.0f},
-        {"grain_m5", "Grain -5", Kind::Bool, 0.0f},   {"grain_m3", "Grain -3", Kind::Bool, 0.0f},
-        {"grain_0", "Grain 0", Kind::Bool, 1.0f},
-        {"grain_p3", "Grain +3", Kind::Bool, 0.0f},   {"grain_p5", "Grain +5", Kind::Bool, 0.0f},
-        {"grain_p7", "Grain +7", Kind::Bool, 1.0f},   {"grain_p12", "Grain +12", Kind::Bool, 1.0f},
+        {"grain_m12", "Grain -12", Kind::Bool, 0.0f}, {"grain_m9", "Grain -9", Kind::Bool, 0.0f},
+        {"grain_m7", "Grain -7", Kind::Bool, 0.0f},   {"grain_m5", "Grain -5", Kind::Bool, 0.0f},
+        {"grain_m4", "Grain -4", Kind::Bool, 0.0f},   {"grain_m3", "Grain -3", Kind::Bool, 0.0f},
+        {"grain_m2", "Grain -2", Kind::Bool, 0.0f},   {"grain_0", "Grain 0", Kind::Bool, 1.0f},
+        {"grain_p2", "Grain +2", Kind::Bool, 0.0f},   {"grain_p3", "Grain +3", Kind::Bool, 0.0f},
+        {"grain_p4", "Grain +4", Kind::Bool, 0.0f},   {"grain_p5", "Grain +5", Kind::Bool, 0.0f},
+        {"grain_p7", "Grain +7", Kind::Bool, 1.0f},   {"grain_p9", "Grain +9", Kind::Bool, 0.0f},
+        {"grain_p12", "Grain +12", Kind::Bool, 1.0f},
         // DEREZ (before SPACE)
         {"derez_on", "Derez On", Kind::Bool, 0.0f},
         {"derez_interval", "Derez Interval", Kind::Float, 0.5f, {}, [](float t) { return fmt("%+.0f st", double(derezSemitones(t))); }},
-        {"derez_crush", "Derez Rate", Kind::Float, 0.6f, {}, [](float t) { return "n=" + std::to_string(derezMultiple(t)); }},
-        {"derez_bits", "Derez Bits", Kind::Float, 0.7f, {}, [](float t) { return fmt("%.1f", derezBits(t)); }},
-        {"derez_smooth", "Derez Smooth", Kind::Float, 0.7f, {}, pct},
-        {"derez_mix", "Derez Mix", Kind::Float, 0.35f, {}, pct},
+        {"derez_crush", "Derez Rate", Kind::Float, 1.0f, {}, [](float t) { return "n=" + std::to_string(derezMultiple(t)); }},
+        {"derez_bits", "Derez Bits", Kind::Float, 1.0f, {}, [](float t) { return fmt("%.1f", derezBits(t)); }},
+        {"derez_smooth", "Derez Smooth", Kind::Float, 0.5f, {}, pct},
+        {"derez_mix", "Derez Mix", Kind::Float, 0.5f, {}, pct},
         // STRETCH
         {"stretch_on", "Stretch On", Kind::Bool, 0.0f},
         // STRETCH is BLUR only: MEMORY = how long the pad remembers what was played.

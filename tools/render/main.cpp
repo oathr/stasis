@@ -12,6 +12,7 @@
 
 #include <stasis/capture_stretch.h>
 #include <stasis/color.h>
+#include <stasis/grain.h>
 #include <stasis/harmonic_focus.h>
 #include <stasis/key_detector.h>
 #include <stasis/lfo.h>
@@ -827,6 +828,83 @@ void analyseKeys(float fs) {
 
 }  // namespace
 
+// GRAIN: the envelope (SHAPE x SKEW) starts and ends at zero (no click) and peaks at 1;
+// each STEREO mode puts the grains where it says; the cost per second of audio.
+void analyseGrain(float fs) {
+    std::printf("\n== GRAIN ==\n");
+    float worstEdge = 0.0f, lowestPeak = 1.0f, highestPeak = 0.0f;
+    for (float shape = 0.0f; shape <= 1.0001f; shape += 0.125f)
+        for (float skew = -1.0f; skew <= 1.0001f; skew += 0.25f) {
+            worstEdge = std::max({worstEdge, GrainCloud::envelopeAt(0.0f, shape, skew), GrainCloud::envelopeAt(1.0f, shape, skew)});
+            float peak = 0.0f;
+            for (int i = 0; i <= 2000; ++i) peak = std::max(peak, GrainCloud::envelopeAt(float(i) / 2000.0f, shape, skew));
+            lowestPeak = std::min(lowestPeak, peak), highestPeak = std::max(highestPeak, peak);
+        }
+    std::printf("  envelope over 9 shapes x 9 skews: starts / ends at %.4f at most, peaks between %.3f and %.3f\n", worstEdge, lowestPeak, highestPeak);
+
+    const char* names[] = {"RANDOM", "L / R", "PITCH", "ORBIT"};
+    Stereo in;
+    in.sampleRate = fs;
+    in.resize(size_t(8.0f * fs));
+    for (size_t i = 0; i < in.size(); ++i) in.left[i] = in.right[i] = 0.3f * std::sin(kTwoPi * 220.0f * float(i) / fs);
+    for (int mode = 0; mode < 4; ++mode) {
+        GrainCloud g;
+        g.prepare(fs);
+        GrainCloud::Params p;
+        p.stereo = GrainCloud::Stereo(mode);
+        p.spread = 0.8f;
+        p.density = 8.0f;
+        p.intervals = uint16_t((1u << 0) | (1u << 7) | (1u << 14));  // -12, 0, +12
+        g.setParams(p);
+        std::vector<float> l(in.size()), r(in.size());
+        const auto t0 = std::chrono::steady_clock::now();
+        for (size_t at = 0; at < in.size(); at += 256) g.process(in.left.data() + at, in.right.data() + at, l.data() + at, r.data() + at, 256);
+        const double cpu = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count() / 8.0 * 100.0;
+        GrainCloud::Event ev[GrainCloud::kEvents];
+        uint32_t cursor = 0;
+        const int n = g.readEvents(ev, GrainCloud::kEvents, cursor);
+        int flips = 0, lowLeft = 0, lows = 0, highRight = 0, highs = 0;
+        float minPan = 1.0f, maxPan = -1.0f;
+        for (int i = 0; i < n; ++i) {
+            if (i > 0 && (ev[i].pan > 0.0f) != (ev[i - 1].pan > 0.0f)) ++flips;
+            if (ev[i].semitones < 0) { ++lows; lowLeft += ev[i].pan < 0.0f; }
+            if (ev[i].semitones > 0) { ++highs; highRight += ev[i].pan > 0.0f; }
+            minPan = std::min(minPan, ev[i].pan), maxPan = std::max(maxPan, ev[i].pan);
+        }
+        if (mode == 0) {  // the worst block at 96 kHz / 64 samples, SHAPE and SKEW moving every block (the table redrawn each time)
+            GrainCloud h;
+            h.prepare(96000.0f);
+            GrainCloud::Params q = p;
+            q.density = 40.0f;
+            q.sizeMs = 2000.0f;  // a dense cloud: many voices at once
+            std::vector<float> a(64), b(64), x(64), y(64);
+            // Median and worst over the run, the table redraw and the voices apart (the first
+            // blocks touch cold memory: left out).
+            std::vector<double> redraw, voices;
+            for (int blk = 0; blk < int(8.0f * 96000.0f / 64.0f); ++blk) {
+                for (int i = 0; i < 64; ++i) a[size_t(i)] = b[size_t(i)] = 0.3f * std::sin(kTwoPi * 220.0f * float(blk * 64 + i) / 96000.0f);
+                q.shape = 0.5f + 0.5f * std::sin(float(blk) * 0.01f);
+                q.skew = std::sin(float(blk) * 0.013f);
+                const auto t1 = std::chrono::steady_clock::now();
+                h.setParams(q);
+                const auto t2 = std::chrono::steady_clock::now();
+                h.process(a.data(), b.data(), x.data(), y.data(), 64);
+                const auto t3 = std::chrono::steady_clock::now();
+                if (blk < 16) continue;
+                redraw.push_back(std::chrono::duration<double>(t2 - t1).count());
+                voices.push_back(std::chrono::duration<double>(t3 - t2).count());
+            }
+            const double budget = 64.0 / 96000.0;
+            const auto pctOf = [&](std::vector<double>& v, double q) { std::sort(v.begin(), v.end()); return 100.0 * v[size_t(q * double(v.size() - 1))] / budget; };
+            std::printf("  96 kHz / 64 samples, 40 grains/s of 2 s, SHAPE and SKEW moving every block (%% of a block's budget):\n");
+            std::printf("    table redraw: median %.1f %%, worst %.1f %%;  voices: median %.1f %%, 99.9th %.1f %%, worst %.1f %%\n", pctOf(redraw, .5), pctOf(redraw, 1.0),
+                        pctOf(voices, .5), pctOf(voices, .999), pctOf(voices, 1.0));
+        }
+        std::printf("  %-7s %3d grains, pan %+.2f .. %+.2f, side changes %3d%%, low grains left %3d%%, high right %3d%%, CPU %.2f %% of a core\n", names[mode], n, minPan, maxPan,
+                    n > 1 ? 100 * flips / (n - 1) : 0, lows ? 100 * lowLeft / lows : 0, highs ? 100 * highRight / highs : 0, cpu);
+    }
+}
+
 int main(int argc, char** argv) {
     enableFlushToZero();
 
@@ -840,6 +918,7 @@ int main(int argc, char** argv) {
             analyseTuning(48000.0f);
             analyseTonal(48000.0f);
             analyseStretch(48000.0f);
+            analyseGrain(48000.0f);
             return 0;
         }
         if (i + 1 < argc && arg == "--input") inputPath = argv[++i];

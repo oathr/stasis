@@ -56,21 +56,31 @@ body::after { content: ""; position: fixed; inset: 0; pointer-events: none; z-in
 .stage { width: 1500px; height: 1120px; position: relative; padding: 22px 24px; transform-origin: center; flex: none; }
 .stage::before { content: ""; position: absolute; inset: 0; pointer-events: none; opacity: .3;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='64' height='64'%3E%3Cpath d='M32 28v8M28 32h8' stroke='%23000' stroke-width='1'/%3E%3C/svg%3E"); }
-.grid { display: grid; grid-template-rows: 130px 584px 272px; gap: 14px; position: relative; }
+.grid { display: grid; grid-template-rows: 130px 534px 140px; gap: 14px; position: relative; }
 /* SIDE layout (short screens): the visualizer becomes a column on the right, 144 px less
    height; the chain and MOTION keep their exact size. Time flows down in it. */
 html.side .stage { width: 1744px; height: 976px; }
 /* MOTION closed: only its header stays; the page (and the plugin window) lose 228 px. */
-html.motion-closed .stage { height: 892px; }
-html.motion-closed .grid { grid-template-rows: 130px 584px 44px; }
-html.side.motion-closed .stage { height: 748px; }
-html.side.motion-closed .grid { grid-template-rows: 584px 44px; }
+html.motion-closed .stage { height: 842px; }
+/* MOTION in two tabs (168 px instead of 272), the visualizer can be hidden */
+.stage { height: 938px; }
+html.side .stage { height: 794px; }
+html.side .grid { grid-template-rows: 534px 140px !important; }
+html.viz-hidden .vizrow { display: none; }
+html.viz-hidden .grid { grid-template-rows: 534px 140px !important; grid-template-columns: 1fr !important; }
+html.viz-hidden.motion-closed .grid { grid-template-rows: 534px 44px !important; }
+html.viz-hidden .stage, html.viz-hidden.side .stage { width: 1500px; height: 794px; }
+html.viz-hidden.motion-closed .stage { height: 698px; }
+html.viz-hidden.side .chain, html.viz-hidden.side .grid > [data-mod="motion"] { grid-column: 1; }
+html.motion-closed .grid { grid-template-rows: 130px 534px 44px; }
+html.side.motion-closed .stage { height: 698px; }
+html.side.motion-closed .grid { grid-template-rows: 534px 44px; }
 html.motion-closed [data-mod="motion"] .body > :not(.top) { display: none; }
 html.motion-closed [data-mod="motion"] .spine .label { display: none; }
 .fold { width: 24px; height: 22px; border: 1px solid var(--line); background: none; color: inherit; cursor: pointer; padding: 0; display: grid; place-items: center; margin-right: 6px; }
 .fold svg { width: 9px; height: 9px; transition: transform .15s; }
 html.motion-closed .fold svg { transform: rotate(-90deg); }
-html.side .grid { grid-template-columns: 1452px 230px; grid-template-rows: 584px 272px; }
+html.side .grid { grid-template-columns: 1452px 230px; grid-template-rows: 534px 272px; }
 html.side .vizrow { grid-column: 2; grid-row: 1 / span 2; }
 html.side .chain { grid-column: 1; grid-row: 1; }
 html.side .grid > [data-mod="motion"] { grid-column: 1; grid-row: 2; }
@@ -168,6 +178,13 @@ header { display: grid; grid-template-columns: auto 1fr auto; align-items: cente
 .card { background: var(--paper); position: relative; display: grid; grid-template-columns: 30px 1fr; min-height: 0; }
 .card .spine { background: var(--dark); color: var(--on-dark); display: flex; flex-direction: column; align-items: center; justify-content: space-between; padding: 9px 0 7px; }
 .chain .card .spine { cursor: grab; touch-action: none; }
+/* the modules have no header line (their description is the spine's tooltip);
+   what is worth reading live sits on the spine, under the name, in the accent colour. */
+.chain .card .top { display: none; }
+.card .spine .info { writing-mode: vertical-rl; transform: rotate(180deg); font-size: 9px; font-weight: 500; letter-spacing: .14em; color: var(--accent);
+  margin-top: 8px; white-space: nowrap; max-height: 120px; overflow: hidden; }
+.card .spine .info:empty { display: none; }
+.card .spine .stack { display: flex; flex-direction: column; align-items: center; }
 .card .spine .num { font-size: 9.5px; font-weight: 500; color: var(--accent); letter-spacing: .04em; }
 .card .spine .label { writing-mode: vertical-rl; transform: rotate(180deg); font-family: Archivo, sans-serif; font-weight: 600; font-stretch: 100%;
   font-size: 11px; letter-spacing: .28em; line-height: 1; }
@@ -198,7 +215,10 @@ header { display: grid; grid-template-columns: auto 1fr auto; align-items: cente
 
 /* printed dials: ink disc, value sector in the second colour, printed graduations */
 .knobs { display: flex; flex-wrap: wrap; gap: 8px 2px; justify-content: space-between; }
-.knobs.two { display: grid; grid-template-columns: 1fr 1fr; justify-items: center; }  /* four knobs: a 2 x 2 square */
+/* one knob under the other, whatever the card width (STRETCH) */
+.knobs.column { flex-direction: column; flex-wrap: nowrap; align-items: center; gap: 4px; }
+.knobs.two { display: grid; grid-template-columns: 1fr 1fr; justify-items: center; }
+[data-mod="air"] .knobs.two { row-gap: 2px; }  /* four knobs: a 2 x 2 square */
 .knobs.three { display: grid; grid-template-columns: repeat(3, 1fr); justify-items: center; row-gap: 6px; }  /* six knobs: 3 x 2 */
 .knob { --hub: var(--bg-hi); width: 44px; display: flex; flex-direction: column; align-items: center; gap: 3px; cursor: ns-resize; user-select: none; touch-action: none; position: relative; }
 /* MOTION's ball on a knob: its own layer, moved by a transform. As a circle inside the
@@ -230,6 +250,9 @@ header { display: grid; grid-template-columns: auto 1fr auto; align-items: cente
 .shimmer-row .title { font-size: 9px; letter-spacing: .14em; color: var(--muted); line-height: 1.6; }
 .filters { display: flex; gap: 18px; align-items: center; font-size: 8.5px; letter-spacing: .14em; color: var(--muted); }
 .filters .knob.small .v { color: var(--ink); }
+/* COLOR's four rows apart, a hairline above each one after the first */
+[data-mod="color"] .body { justify-content: space-between; }
+.ruled { border-top: 1px solid var(--line); padding-top: 9px; }
 .trem-row .seg { flex-wrap: nowrap; gap: 2px; margin-left: auto; }
 .trem-row .seg button { padding: 3px 5px; font-size: 8.5px; }
 .viz { position: relative; background: var(--dark); overflow: hidden; }
@@ -240,6 +263,24 @@ header { display: grid; grid-template-columns: auto 1fr auto; align-items: cente
 .grain-notes { display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: center; }
 .piano-caption { font-size: 7.5px; letter-spacing: .12em; color: var(--muted); }
 .grain-notes { grid-template-columns: auto 1fr auto !important; }
+/* GRAIN in two columns; ENVELOPE and STEREO blocks on the right */
+.grain-left .knobs.three { row-gap: 4px; }
+.grain-left .knobs.three .knob svg { width: 36px; height: 36px; }
+.grain-cols { display: grid; grid-template-columns: 1fr 200px; gap: 16px; flex: 1; min-height: 0; }
+.grain-left { display: flex; flex-direction: column; justify-content: space-between; gap: 10px; min-width: 0; }
+.grain-right { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.grain-intervals { display: grid !important; grid-template-columns: repeat(8, 1fr); gap: 3px !important; }
+.grain-intervals button { padding: 4px 0 !important; min-width: 0; }
+.grain-intervals .unison { grid-column: 1; grid-row: 1 / span 2; }
+.gblock { border: 1px solid var(--line); padding: 6px 8px 7px; display: grid; gap: 6px; }
+.gtitle { display: flex; justify-content: space-between; font-size: 8.5px; letter-spacing: .14em; color: var(--muted); }
+.gtitle b { color: var(--ink); font-weight: 500; }
+.grow { display: grid; grid-template-columns: 1fr auto auto; align-items: center; gap: 6px; }
+.grow .knob { width: 46px; }
+.grow .knob svg { width: 34px; height: 34px; }
+.gdraw { width: 100%; height: 46px; display: block; color: var(--ink); }
+.gseg { flex-wrap: nowrap !important; gap: 2px !important; }
+.gseg button { flex: 1; padding: 4px 0 !important; font-size: 8.5px !important; }
 .viz canvas { width: 100%; height: 100%; display: block; }
 .viz .hud { position: absolute; inset: 0; pointer-events: none; padding: 8px 10px; display: flex; flex-direction: column; justify-content: space-between; color: var(--on-dark); }
 .viz .hud div { display: flex; justify-content: space-between; font-size: 9px; font-weight: 400; letter-spacing: .12em; }
@@ -250,7 +291,7 @@ header { display: grid; grid-template-columns: auto 1fr auto; align-items: cente
 
 /* FOCUS keys */
 /* Piano octave: 7 white keys, 5 black keys on top. .on = lit (accent). */
-.piano { position: relative; height: 20px; width: 140px; flex: none; display: flex; gap: 1px; }
+.piano { position: relative; height: 22px; width: 100%; min-width: 112px; flex: none; display: flex; gap: 1px; }
 .piano .w { flex: 1; background: color-mix(in srgb, var(--on-dark) 12%, transparent); border: 0; padding: 0; font-size: 0; }  /* grey, like the page */
 .piano .b { position: absolute; top: 0; height: 60%; width: calc(100% / 7 * .58); background: #000; border: 0; padding: 0; font-size: 0; z-index: 1; }
 .piano .w.on, .piano .b.on { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
@@ -289,13 +330,30 @@ header { display: grid; grid-template-columns: auto 1fr auto; align-items: cente
 .vslider .thumb { position: absolute; left: 3px; width: 16px; height: 6px; margin-top: -3px; background: var(--ink); }
 .vslider .ghost { display: none; position: absolute; left: 6px; width: 10px; height: 4px; margin-top: -2px; background: var(--spark); }
 .vslider .val { font-size: 9.5px; font-weight: 500; color: var(--ink); white-space: nowrap; font-variant-numeric: tabular-nums; }
+/* MOTION on a slider: the whole swing drawn on the slider's own line, in the LFO colour (a knob's arc) */
+.cursor .mrange { display: none; position: absolute; top: calc(50% - 1px); height: 3px; background: var(--spark); pointer-events: none; z-index: 1; }
+.vslider .mrange { display: none; position: absolute; left: calc(50% - 1px); width: 3px; background: var(--spark); pointer-events: none; z-index: 1; }
+.cursor .thumb, .vslider .thumb, .cursor .ghost, .vslider .ghost { z-index: 2; }
 .cursor .ghost { display: none; position: absolute; top: 5px; width: 4px; height: 8px; margin-left: -2px; background: var(--spark); }
 .knob.mod-focus svg, .cursor.mod-focus { outline: 1px dashed var(--spark); outline-offset: 3px; }
 .pitch-cursor { grid-template-columns: auto 1fr auto 40px; }
+/* DEREZ's interval across the whole card, its value above, centred */
+.cursor.full { grid-template-columns: auto 1fr auto; grid-template-areas: "l v r" "t t t"; row-gap: 2px; }
+.cursor.full > span:nth-child(1) { grid-area: l; }
+.cursor.full > .track { grid-area: t; height: 26px; }
+.cursor.full > span:nth-child(3) { grid-area: r; }
+.cursor.full > .val { grid-area: v; text-align: center; font-size: 13px; font-weight: 600; }
+.cursor.full .thumb { top: 4px; width: 8px; height: 18px; margin-left: -4px; }
 .pitch-cursor .track { background: repeating-linear-gradient(90deg, var(--line) 0 1px, transparent 1px calc(100% / 4)) center / 100% 7px no-repeat; }  /* ticks every octave */
 
 /* ---------- MOTION ---------- */
-.motion-body { display: grid; grid-template-columns: 1fr 1fr 130px; gap: 0 22px; }
+.motion-body { display: grid; grid-template-columns: 1fr 150px; gap: 0 22px; }
+.motion-page { display: grid; grid-template-columns: 1fr 1fr; gap: 0 22px; }
+.motion-page[hidden] { display: none; }
+.lfo-tabs { flex-wrap: nowrap; gap: 2px; flex: none; margin-right: 8px; }
+.lfo-tabs button { padding: 4px 10px; position: relative; }
+.lfo-tabs button i { display: none; position: absolute; top: 2px; right: 2px; width: 4px; height: 4px; background: var(--spark); }
+.lfo-tabs button.busy i { display: block; }
 .lanes { display: grid; grid-auto-rows: 29px; }
 .cols { display: grid; grid-template-columns: 18px 150px 98px 84px 54px 1fr; align-items: center; gap: 8px; }
 .lane .rate { display: flex; align-items: center; gap: 4px; }
@@ -342,7 +400,7 @@ body.learning [data-mapid^="motion_"], body.learning .own-lane { outline: none; 
 .macros .hard-knob .v { color: #E5483B; }
 .macros .seg { flex-wrap: nowrap; gap: 2px; }
 .macros .seg button { flex: 1; padding: 3px 4px; font-size: 8.5px; }
-.status { font-size: 9px; font-weight: 400; color: var(--muted); letter-spacing: .1em; line-height: 1.7; }
+.status { font-size: 9px; font-weight: 400; color: var(--muted); letter-spacing: .1em; line-height: 1.7; white-space: nowrap; margin-right: 10px; }
 .status b { color: var(--on-dark); }
 
 /* ---------- glitch gestures ---------- */
@@ -368,6 +426,7 @@ body.learning [data-mapid^="motion_"], body.learning .own-lane { outline: none; 
       <button id="next" aria-label="Preset suivant">›</button>
     </div>
     <div class="globals">
+      <button class="layout-btn" id="vizBtn" title="Show / hide the visualizer"></button>
       <button class="layout-btn" id="layoutBtn" title="Visualizer on top / on the side (short screens)"></button>
       <div class="themes" id="themes"></div>
       <div id="globalKnobs" style="display:flex;gap:10px"></div>
@@ -472,6 +531,7 @@ const bridge = {
     J.getNativeFunction('getOrder')().then(names => setOrder(names, true));
     J.getNativeFunction('getLayout')().then(name => setLayout(name, true));
     J.getNativeFunction('getMotionOpen')().then(open => setMotionOpen(open, true));
+    J.getNativeFunction('getVizOpen')().then(open => setVizOpen(open, true));
     J.getNativeFunction('getPresets')().then(r => { PRESETS = r.list; userPresets = r.user || []; userPresetName = r.userName || ''; buildPresetMenu(); showPreset(r.current, true); });
     window.__JUCE__.backend.addEventListener('stasis_user_presets', u => { userPresets = u.list || []; userPresetName = u.name || ''; buildPresetMenu(); });
     window.__JUCE__.backend.addEventListener('stasis_preset', i => showPreset(i));
@@ -497,11 +557,11 @@ const live = {
     if (fk) for (let i = 0; i < 12; i++) fk.light(i, (s.classes | midi) & (1 << i));
     // Written only when it changes: rewriting the same text still redraws its block.
     const st = document.getElementById('status');
-    const status = `CPU <b>${s.cpu.toFixed(1)}%</b><br>LATENCY <b>0 SMP</b><br>MIDI <b>${on.join(' ') || '—'}</b>`;
+    const status = `CPU <b>${s.cpu.toFixed(1)}%</b> · LAT <b>0 SMP</b> · MIDI <b>${on.join(" ") || "—"}</b>`;
     if (st && status !== this.statusShown) { st.innerHTML = status; this.statusShown = status; }
     // SPACE › RESONATOR: the notes the combs ring on.
-    const sc = document.querySelector('[data-mod="space"] .top .code');
-    const code = s.res ? 'Resonator · ' + names.filter((_, i) => s.res & (1 << i)).join(' ') : MODS.space.code;
+    const sc = document.querySelector('[data-mod="space"] .spine .info');
+    const code = s.res ? names.filter((_, i) => s.res & (1 << i)).join(' ') : '';
     if (sc && sc.textContent !== code) sc.textContent = code;
     const sr = document.getElementById('srate');
     const rate = s.sampleRate ? (s.sampleRate / 1000).toFixed(1).replace('.0', '') + ' KHZ' : '';
@@ -572,18 +632,89 @@ function editValue(label, format, current, commit) {
 }
 const inside = (e, box) => { const r = box.getBoundingClientRect(); return e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom; };
 const editing = label => !!label.querySelector('input');
-// ↑ ↓ move the control under the mouse: 1 % a step, 0.1 % with Shift.
+// The arrow keys move the control under the mouse: ↑ ↓ two units, ← → one unit. A unit is
+// one step on a stepped control (semitones), else 1 % of the travel; Shift: a tenth of that.
 let hovered = null;
 const hoverable = (el, nudge) => {
   el.addEventListener('pointerenter', () => { hovered = nudge; });
   el.addEventListener('pointerleave', () => { if (hovered === nudge) hovered = null; });
 };
+const ARROW_UNITS = { ArrowUp: 2, ArrowDown: -2, ArrowRight: 1, ArrowLeft: -1 };
 document.addEventListener('keydown', e => {
-  if (!hovered || (e.key !== 'ArrowUp' && e.key !== 'ArrowDown')) return;
+  if (!hovered || !(e.key in ARROW_UNITS) || e.target.tagName === 'INPUT') return;
   e.preventDefault();
-  hovered((e.key === 'ArrowUp' ? 1 : -1) * (e.shiftKey ? 0.001 : 0.01));
+  hovered(ARROW_UNITS[e.key], e.shiftKey);
 });
 
+// The grain envelope from two numbers, as the DSP computes it (GrainCloud::envelopeAt).
+//  shape 0 square (2 % ramps) → .5 sine (Hann) → 1 triangle: a Tukey window whose taper
+//  widens from 4 % to all of it, then a blend from the Hann to the triangle.
+//  skew -1 .. +1: moves the peak from the start (percussive: instant attack, long curved
+//  release) to the end (a swell cut short); 0 is symmetric.
+const grainShape = { shape: .5, skew: 0 };
+function grainShapeAt(p, shape, skew) {
+  const peak = .5 + .47 * skew;
+  let q = p < peak ? .5 * p / peak : .5 + .5 * (p - peak) / (1 - peak);  // the peak moved to the middle
+  const s = Math.min(shape, .5) / .5, taper = .04 + .96 * s;
+  const tukey = x => x < taper / 2 ? .5 - .5 * Math.cos(2 * Math.PI * x / taper) : x > 1 - taper / 2 ? .5 - .5 * Math.cos(2 * Math.PI * (1 - x) / taper) : 1;
+  let e = tukey(q);
+  if (shape > .5) e += (shape - .5) / .5 * ((1 - Math.abs(2 * q - 1)) - e);
+  // The long side curves: a percussive tail falls fast then lingers, a swell grows slowly.
+  if (p >= peak && skew < 0) e = Math.pow(e, 1 + 2.2 * -skew);
+  if (p < peak && skew > 0) e = Math.pow(e, 1 + 2.2 * skew);
+  return e;
+}
+function drawGrainShape(cv, shape, skew) {
+  const r = cv.getBoundingClientRect(), dpr = devicePixelRatio || 1, w = cv.clientWidth, h = cv.clientHeight;
+  if (!w) return;
+  cv.width = w * dpr; cv.height = h * dpr;
+  const g = cv.getContext('2d'); g.setTransform(dpr, 0, 0, dpr, 0, 0); g.clearRect(0, 0, w, h);
+  const css = getComputedStyle(cv), ink = css.color, acc = getComputedStyle(document.documentElement).getPropertyValue('--accent');
+  g.strokeStyle = ink; g.globalAlpha = .25; g.beginPath(); g.moveTo(0, h - 2.5); g.lineTo(w, h - 2.5); g.stroke(); g.globalAlpha = 1;
+  g.beginPath(); g.moveTo(2, h - 2);
+  for (let i = 0; i <= 100; i++) { const p = i / 100; g.lineTo(2 + p * (w - 4), h - 2 - grainShapeAt(p, shape, skew) * (h - 7)); }
+  g.lineTo(w - 2, h - 2); g.closePath();
+  g.fillStyle = acc; g.globalAlpha = .35; g.fill(); g.globalAlpha = 1;
+  g.strokeStyle = acc; g.lineWidth = 1.5; g.stroke();
+  const name = document.getElementById('genvName');
+  if (name) name.textContent = skew < -.9 ? 'PERC' : skew > .9 ? 'SWELL' : shape < .12 ? 'SQUARE' : shape > .88 ? 'TRIANGLE' : Math.abs(shape - .5) < .1 ? 'SINE' : 'BLEND';
+}
+// Where the grains sit in the stereo field, by mode (GrainCloud::Stereo):
+//  RANDOM each grain anywhere within WIDTH (today's behaviour)
+//  L / R  grains alternate left and right, WIDTH apart: a ping-pong of grains
+//  PITCH  low grains to the left, high ones to the right (−12 .. +12 semitones)
+//  ORBIT  the position circles slowly across the field; each grain takes it where it is
+const grainPan = { mode: 0, width: .8, canvas: null, dots: [], flip: 1, orbit: 0, next: 0 };
+function grainPanFor(semitones) {
+  const P = grainPan, w = P.width;
+  if (P.mode === 1) return (P.flip = -P.flip) * w * (.75 + .25 * Math.random());
+  if (P.mode === 2) return Math.max(-1, Math.min(1, semitones / 12)) * w + (Math.random() - .5) * .1 * w;
+  if (P.mode === 3) return Math.sin(P.orbit) * w;
+  return (2 * Math.random() - 1) * w;
+}
+function drawGrainPan(now) {
+  const P = grainPan, cv = P.canvas;
+  if (!cv || !cv.clientWidth) return;
+  P.orbit += .035;
+  if (now > P.next && !cards.grain?.classList.contains('off')) {
+    P.next = now + 90 + Math.random() * 220;
+    const st = [-12, 0, 0, 7, 12][Math.floor(Math.random() * 5)];
+    P.dots.push({ x: grainPanFor(st), st, at: now });
+  }
+  P.dots = P.dots.filter(d => now - d.at < 2200);
+  const dpr = devicePixelRatio || 1, w = cv.clientWidth, h = cv.clientHeight;
+  if (cv.width !== w * dpr) { cv.width = w * dpr; cv.height = h * dpr; }
+  const g = cv.getContext('2d'); g.setTransform(dpr, 0, 0, dpr, 0, 0); g.clearRect(0, 0, w, h);
+  const ink = getComputedStyle(cv).color, acc = getComputedStyle(document.documentElement).getPropertyValue('--accent');
+  g.fillStyle = ink; g.globalAlpha = .3; g.fillRect(0, h / 2, w, 1); g.fillRect(w / 2, 3, 1, h - 6); g.globalAlpha = 1;
+  g.font = '8px "IBM Plex Mono", monospace'; g.fillStyle = ink; g.globalAlpha = .5; g.fillText('L', 2, 9); g.fillText('R', w - 7, 9); g.globalAlpha = 1;
+  for (const d of P.dots) {
+    const age = (now - d.at) / 2200, x = w / 2 + d.x * (w / 2 - 6), y = h / 2 - d.st / 12 * (h / 2 - 5);
+    g.globalAlpha = 1 - age; g.fillStyle = acc;
+    g.beginPath(); g.arc(x, y, 3.2 * (1 - .5 * age), 0, 2 * Math.PI); g.fill();
+  }
+  g.globalAlpha = 1;
+}
 function knob(k, opts = {}) {
   const small = !!opts.small;
   const el = document.createElement('div');
@@ -625,7 +756,7 @@ function knob(k, opts = {}) {
     if (inside(e, label)) editValue(label, k.f, () => t, v => { if (k.id) bridge.drag(k.id, true); change(v); if (k.id) bridge.drag(k.id, false); });
     else change(k.t);
   });
-  hoverable(el, d => { if (k.id) bridge.drag(k.id, true); change(Math.min(1, Math.max(0, t + d))); if (k.id) bridge.drag(k.id, false); });
+  hoverable(el, (n, fine) => { if (k.id) bridge.drag(k.id, true); change(Math.min(1, Math.max(0, t + n * (fine ? .001 : .01)))); if (k.id) bridge.drag(k.id, false); });
   if (k.id) { t = bridge.value(k.id, k.t); bridge.register(k.id, 'slider', v => { t = v; draw(); k.on && k.on(t); }); }
   // MOTION: an arc from where the knob is set to where the LFO has moved it, and a dot.
   const ring = r + 4.5, arc = el.querySelector('.modarc'), dot = el.querySelector('.moddot');
@@ -722,19 +853,23 @@ function cursor(left, right, value, id, opts = {}) {
   track.addEventListener('dblclick', () => { v = 0; draw(); send(); });
   // ↑ ↓: a step (a semitone where it has steps), Shift finer; double-click the value to type it.
   const moveTo = x => { if (id) bridge.drag(id, true); v = snap(Math.max(-1, Math.min(1, x))); draw(); send(); if (id) bridge.drag(id, false); };
-  hoverable(el, d => moveTo(v + (opts.steps ? Math.sign(d) * 2 / opts.steps : 2 * d)));
+  hoverable(el, (n, fine) => moveTo(v + (opts.steps ? n / opts.steps : 2 * n * (fine ? .001 : .01))));  // v runs -1 .. 1, a step is 1 / steps
   el.querySelector('.val').addEventListener('dblclick', () => editValue(el.querySelector('.val'), x => shown(x * 2 - 1), () => (v + 1) / 2, x => moveTo(x * 2 - 1)));
   if (id) bridge.register(id, 'slider', t => { v = t * 2 - 1; draw(); });
   // MOTION: a ghost thumb where the LFO has moved the cursor.
   const ghost = document.createElement('div'); ghost.className = 'ghost'; track.append(ghost);
+  // The whole swing, lo .. hi, drawn on the track's own line (like a knob's arc).
+  const range = document.createElement('div'); range.className = 'mrange'; track.append(range);
   el.value = () => (v + 1) / 2;
   // Moved by a transform (its own layer): a `left` in % re-laid the row out every frame.
-  let ghostOn = false, ghostAt = '', ghostSpan = 0;
-  el.showMod = m => {
-    if (m === null) { if (ghostOn) { ghost.style.display = 'none'; ghostOn = false; } return; }
-    if (!ghostOn) { ghostSpan = track.offsetWidth; ghost.style.left = '0'; ghost.style.willChange = 'transform'; ghost.style.display = 'block'; ghostOn = true; }
+  let ghostOn = false, ghostAt = '', ghostSpan = 0, rangeAt = '';
+  el.showMod = (m, lo = m, hi = m) => {
+    if (m === null) { if (ghostOn) { ghost.style.display = range.style.display = 'none'; ghostOn = false; rangeAt = ''; } return; }
+    if (!ghostOn) { ghostSpan = track.offsetWidth; ghost.style.left = '0'; ghost.style.willChange = 'transform'; ghost.style.display = range.style.display = 'block'; ghostOn = true; }
     const at = `translateX(${(m * ghostSpan).toFixed(2)}px)`;
     if (at !== ghostAt) { ghost.style.transform = at; ghostAt = at; }
+    const r = `${(100 * lo).toFixed(2)}|${(100 * Math.max(hi - lo, .004)).toFixed(2)}`;
+    if (r !== rangeAt) { const [l, w] = r.split('|'); range.style.left = l + '%'; range.style.width = w + '%'; rangeAt = r; }
   };
   if (id) { knobsById[id] = el; el.dataset.mapid = id; }
   draw();
@@ -766,7 +901,7 @@ function vslider(id, range) {
     draw(); send();
   };
   const moveTo = x => { bridge.drag(id, true); v = Math.max(0, Math.min(1, x)); draw(); send(); bridge.drag(id, false); };
-  hoverable(el, d => moveTo(v + d));
+  hoverable(el, (n, fine) => moveTo(v + n * (fine ? .001 : .01)));
   el.querySelector('.val').addEventListener('dblclick', () => editValue(el.querySelector('.val'), shown, () => v, moveTo));
   track.addEventListener('pointerdown', e => { track.setPointerCapture(e.pointerId); bridge.drag(id, true); lastY = e.clientY; set(e); });
   track.addEventListener('pointermove', e => { if (track.hasPointerCapture(e.pointerId)) set(e); });
@@ -774,13 +909,16 @@ function vslider(id, range) {
   track.addEventListener('dblclick', () => { v = .5; draw(); send(); });
   bridge.register(id, 'slider', t => { v = t; draw(); });
   const ghost = document.createElement('div'); ghost.className = 'ghost'; track.append(ghost);
+  const swingLine = document.createElement('div'); swingLine.className = 'mrange'; track.append(swingLine);  // the swing, on the track's line
   el.value = () => v;
-  let ghostOn = false, ghostAt = '', ghostSpan = 0;
-  el.showMod = m => {
-    if (m === null) { if (ghostOn) { ghost.style.display = 'none'; ghostOn = false; } return; }
-    if (!ghostOn) { ghostSpan = track.offsetHeight; ghost.style.top = '0'; ghost.style.willChange = 'transform'; ghost.style.display = 'block'; ghostOn = true; }
+  let ghostOn = false, ghostAt = '', ghostSpan = 0, rangeAt = '';
+  el.showMod = (m, lo = m, hi = m) => {
+    if (m === null) { if (ghostOn) { ghost.style.display = swingLine.style.display = 'none'; ghostOn = false; rangeAt = ''; } return; }
+    if (!ghostOn) { ghostSpan = track.offsetHeight; ghost.style.top = '0'; ghost.style.willChange = 'transform'; ghost.style.display = swingLine.style.display = 'block'; ghostOn = true; }
     const at = `translateY(${((1 - m) * ghostSpan).toFixed(2)}px)`;
     if (at !== ghostAt) { ghost.style.transform = at; ghostAt = at; }
+    const r = `${(100 * (1 - hi)).toFixed(2)}|${(100 * Math.max(hi - lo, .004)).toFixed(2)}`;
+    if (r !== rangeAt) { const [t, h] = r.split('|'); swingLine.style.top = t + '%'; swingLine.style.height = h + '%'; rangeAt = r; }
   };
   knobsById[id] = el; el.dataset.mapid = id;
   draw();
@@ -816,10 +954,10 @@ function piano(labels, onToggle) {
 }
 const NOTE_NAMES = ['C', 'C♯', 'D', 'D♯', 'E', 'F', 'F♯', 'G', 'G♯', 'A', 'A♯', 'B'];
 // GRAIN's transpositions: parameter id, label, default (same order as Params.h).
-const GRAIN_INTERVALS = [['grain_m12', '−12', false], ['grain_m7', '−7', false], ['grain_m5', '−5', false], ['grain_m3', '−3', false], ['grain_0', '0', true],
-                         ['grain_p3', '+3', false], ['grain_p5', '+5', false], ['grain_p7', '+7', true], ['grain_p12', '+12', true]];
+const GRAIN_INTERVALS = [['grain_m12', '−12', false], ['grain_m9', '−9', false], ['grain_m7', '−7', false], ['grain_m5', '−5', false], ['grain_m4', '−4', false], ['grain_m3', '−3', false], ['grain_m2', '−2', false],
+                         ['grain_0', '0', true], ['grain_p2', '+2', false], ['grain_p3', '+3', false], ['grain_p4', '+4', false], ['grain_p5', '+5', false], ['grain_p7', '+7', true], ['grain_p9', '+9', false], ['grain_p12', '+12', true]];
 
-function knobRow(list, opts) { const row = document.createElement('div'); row.className = 'knobs'; list.forEach(k => row.appendChild(knob(k, opts))); return row; }
+function knobRow(list, opts) { const row = document.createElement('div'); row.className = 'knobs' + (opts?.column ? ' column' : '') + (opts?.grid3 ? ' three' : ''); list.forEach(k => row.appendChild(knob(k, opts))); return row; }
 
 // ---------- live state driving the visual ----------
 const state = { size: .6, decay: .5, tone: .45, shimmer: .5, freeze: false, stretch: .6, motion: .6, drift: 1 };
@@ -831,40 +969,43 @@ const MODS = {
   shape:  { n: '01', name: 'SHAPE',   code: 'Tilt · drive', build: b => b.append(
             seg(['Tape', 'Tube', 'Fold', 'Rect', 'Slew', 'Bloom'], 0, null, 'shape_type'),
             knobRow([{ id: 'shape_tilt', l: 'Tilt', t: .5, f: bip(' dB', 6, 1) }, { id: 'shape_drive', l: 'Drive', t: .15, f: pct }, { id: 'shape_harm', l: 'Harm', t: 0, f: pct }])) },
-  derez:  { n: '02', name: 'DEREZ',   code: 'Tuned · A2', build: b => {
+  derez:  { n: '02', name: 'DEREZ',   info: 'A2', code: 'Tuned to the sound', build: b => {
             // Interval: a cursor in semitones, -24 .. +24, snapped to the semitone.
             const st = v => { const n = Math.round(v * 24); return (n > 0 ? '+' : '') + n + ' st'; };
             const interval = cursor('−24', '+24', 0, 'derez_interval', { format: st, steps: 24 });
-            interval.classList.add('pitch-cursor');
+            interval.classList.add('pitch-cursor', 'full');
             // Knob up = clean, down = destroyed (like Airwindows DeRez's Rate and Rez).
-            const knobs = knobRow([{ id: 'derez_crush', l: 'Rate', t: .6, f: t => 'n=' + Math.round(32 * Math.pow(2 / 32, 1 - t)) },
-                                   { id: 'derez_bits', l: 'Bits', t: .7, f: lin(2, 16, '', 1) }, { id: 'derez_smooth', l: 'Smooth', t: .7, f: pct },
-                                   { id: 'derez_mix', l: 'Mix', t: .35, f: pct }]);
+            const knobs = knobRow([{ id: 'derez_crush', l: 'Rate', t: 1, f: t => 'n=' + Math.round(32 * Math.pow(2 / 32, 1 - t)) },
+                                   { id: 'derez_bits', l: 'Bits', t: 1, f: lin(2, 16, '', 1) }, { id: 'derez_smooth', l: 'Smooth', t: .5, f: pct },
+                                   { id: 'derez_mix', l: 'Mix', t: .5, f: pct }]);
             knobs.classList.add('two');
             b.append(interval, knobs); } },
   pitch:  { n: '03', name: 'PITCH',   units: .75, code: 'Vocoder · shift', build: b => b.append(knobRow([
-            { id: 'pitch_semi', l: 'Semi', t: .75, f: t => { const v = Math.round((2 * t - 1) * 24); return (v >= 0 ? '+' : '') + v + ' st'; } },
+            { id: 'pitch_semi', l: 'Semi', t: .5, f: t => { const v = Math.round((2 * t - 1) * 24); return (v >= 0 ? '+' : '') + v + ' st'; } },
             { id: 'pitch_shift', l: 'Shift', t: .5, f: t => { const x = 2 * t - 1, v = 50 * x * x * x; return (v >= 0 ? '+' : '') + v.toFixed(Math.abs(v) < 10 ? 1 : 0) + ' Hz'; } },
-            { id: 'pitch_mix', l: 'Mix', t: .25, f: pct }])) },
-  stretch:{ n: '04', name: 'STRETCH', units: .7, code: 'Blur · pad', build: b => b.append(
+            { id: 'pitch_mix', l: 'Mix', t: .25, f: pct }], { column: true })) },
+  stretch:{ n: '04', name: 'STRETCH', units: .55, code: 'Blur · pad', build: b => b.append(
             knobRow([{ id: 'stretch_factor', l: 'Memory', t: .3, f: t => { const s = Math.pow(1000, t) / 8; return s.toFixed(s < 10 ? 1 : 0) + ' s'; }, on: v => state.stretch = v },
-                     { id: 'stretch_mix', l: 'Mix', t: .35, f: pct }])) },
-  grain:  { n: '11', name: 'GRAIN',   units: 2, code: 'Random notes from the sound', build: b => {
+                     { id: 'stretch_mix', l: 'Mix', t: .35, f: pct }], { column: true })) },
+  grain:  { n: '11', name: 'GRAIN',   units: 2.6, code: 'Random notes from the sound', build: b => {
+            // Left: what fires the grains (algorithm, sync, intervals, the six knobs).
+            // Right: how each grain sounds — its ENVELOPE (drawn, SHAPE + SKEW) and
+            // where it sits in the STEREO field (mode, WIDTH, the last grains shown L — R).
             const modes = document.createElement('div'); modes.className = 'grain-modes';
-            modes.append(seg(['Pulse', 'Scatter', 'Drift'], 1, null, 'grain_algo'), seg(['Sine', 'Tri', 'Square', 'Perc'], 0, null, 'grain_env'));
+            modes.append(seg(['Pulse', 'Scatter', 'Drift'], 1, null, 'grain_algo'));
             // Allowed transpositions, in semitones from whatever is playing: no note to detect.
-            const notes = document.createElement('div'); notes.className = 'grain-notes';
             const intervals = document.createElement('div'); intervals.className = 'seg grain-intervals';
-            GRAIN_INTERVALS.forEach(([id, label, on]) => {
+            // Two lines, lined up by size: 0 on the left, −2 .. −12 above, +2 .. +12 below.
+            const ORDER = ['0', '−2', '−3', '−4', '−5', '−7', '−9', '−12', '+2', '+3', '+4', '+5', '+7', '+9', '+12'];
+            [...GRAIN_INTERVALS].sort((x, y) => ORDER.indexOf(x[1]) - ORDER.indexOf(y[1])).forEach(([id, label, on]) => {
               const b = document.createElement('button'); b.textContent = label;
+              if (label === '0') b.className = 'unison';
               const show = v => { on = !!v; b.setAttribute('aria-pressed', on); };
               b.onclick = () => { show(!on); bridge.send(id, on); };
               show(on); bridge.register(id, 'toggle', show);
               intervals.append(b);
             });
-            const caption = document.createElement('div'); caption.className = 'piano-caption';
-            caption.textContent = 'SEMITONES FROM THE SOUND';
-            notes.append(intervals, caption);
+            intervals.title = 'Semitones from the sound';
             // FREE: DENSITY in grains per second; SYNC: a note division of the host tempo.
             const DIVS = ['1/32', '1/16T', '1/16', '1/16.', '1/8T', '1/8', '1/8.', '1/4T', '1/4', '1/4.', '1/2T', '1/2', '1/2.', '1/1'];
             let row = null;
@@ -876,10 +1017,42 @@ const MODS = {
               { id: 'grain_fdbk', l: 'Fdbk', t: 0, f: pct },
               // Chance a grain plays backwards: left all forward, middle half and half, right all reverse.
               { id: 'grain_reverse', l: 'Rev', t: 0, f: t => t <= 0 ? 'fwd' : t >= 1 ? 'rev' : Math.round(100 * t) + '%' },
-              { id: 'grain_mix', l: 'Mix', t: .35, f: pct }]);
+              { id: 'grain_mix', l: 'Mix', t: .35, f: pct }], { grid3: true });
             row = knobs(false);
             modes.append(seg(['Free', 'Sync'], 0, i => { const next = knobs(i === 1); row.replaceWith(next); row = next; }, 'grain_sync'));
-            b.append(modes, notes, row); } },
+            const left = document.createElement('div'); left.className = 'grain-left';
+            left.append(modes, intervals, row);
+
+            const block = (title, id) => {
+              const el = document.createElement('div'); el.className = 'gblock';
+              el.innerHTML = `<div class="gtitle"><span>${title}</span><b id="${id}"></b></div>`;
+              return el;
+            };
+            const env = block('ENVELOPE', 'genvName');
+            const envCv = document.createElement('canvas'); envCv.className = 'gdraw';
+            const drawEnv = () => drawGrainShape(envCv, grainShape.shape, grainShape.skew);
+            const envRow = document.createElement('div'); envRow.className = 'grow';
+            envRow.append(envCv,
+              knob({ id: 'grain_shape', l: 'Shape', t: .5, f: t => t < .12 ? 'square' : t < .4 ? 'soft' : t < .6 ? 'sine' : t < .88 ? 'pointed' : 'tri', on: t => { grainShape.shape = t; drawEnv(); } }),
+              knob({ id: 'grain_skew', l: 'Skew', t: .5, f: t => { const v = Math.round(200 * t - 100); return v <= -95 ? 'perc' : v >= 95 ? 'swell' : v === 0 ? 'even' : (v > 0 ? '+' : '') + v + '%'; }, on: t => { grainShape.skew = 2 * t - 1; drawEnv(); } }));
+            env.append(envRow);
+            const st = block('STEREO', 'gpanName');
+            const pan = document.createElement('canvas'); pan.className = 'gdraw'; grainPan.canvas = pan;
+            const stRow = document.createElement('div'); stRow.className = 'grow';
+            const stSeg = seg(['Random', 'L / R', 'Pitch', 'Orbit'], 0, i => {
+              grainPan.mode = i; grainPan.dots = [];
+              document.getElementById('gpanName').textContent = ['RANDOM', 'L / R', 'BY PITCH', 'ORBIT'][i];
+            }, 'grain_stereo');
+            stSeg.classList.add('gseg');
+            stRow.append(pan, knob({ id: 'grain_width', l: 'Width', t: .8, f: pct, on: t => grainPan.width = t }));
+            st.append(stRow, stSeg);
+            const right = document.createElement('div'); right.className = 'grain-right';
+            right.append(env, st);
+
+            const cols = document.createElement('div'); cols.className = 'grain-cols';
+            cols.append(left, right);
+            b.append(cols);
+            requestAnimationFrame(() => { drawEnv(); document.getElementById('gpanName').textContent = 'RANDOM'; }); } },
   echo:   { n: '05', name: 'ECHO',    code: 'Tape · sync', build: b => {
             // SYNC: TIME snaps to divisions of the host tempo (straight, dotted, triplet)
             const DIVS = ['1/32', '1/16T', '1/16', '1/16.', '1/8T', '1/8', '1/8.', '1/4T', '1/4', '1/4.', '1/2T', '1/2', '1/2.', '1/1'];
@@ -892,18 +1065,18 @@ const MODS = {
             row = knobs(true);
             const sync = seg(['Free', 'Sync'], 1, i => { const next = knobs(i === 1); row.replaceWith(next); row = next; }, 'echo_sync');
             b.append(modes, sync, row); } },
-  focus:  { n: '07', name: 'FOCUS',   code: 'MIDI · 0 ms', build: b => {
+  focus:  { n: '07', name: 'FOCUS',   units: .9, code: 'MIDI · 0 ms', build: b => {
             // The notes FOCUS is following (MIDI, or what AUTO hears).
             const keys = piano(NOTE_NAMES.map(n => n.replace('♯', '')).map((n, i) => [1, 3, 6, 8, 10].includes(i) ? '' : n));
             keys.id = 'focusKeys';
             [0, 4, 7, 9, 11].forEach(i => keys.light(i, true));
             b.append(seg(['Key', 'Harm', 'Auto'], 0, null, 'focus_mode'), keys,
                      knobRow([{ id: 'focus_amount', l: 'Focus', t: .35, f: pct }, { id: 'focus_depth', l: 'Depth', t: .6, f: pct }, { id: 'focus_mix', l: 'Mix', t: 1, f: pct }])); } },
-  air:    { n: '08', name: 'AIR',     code: 'Matter · width', build: b => { const k = knobRow([
+  air:    { n: '08', name: 'AIR',     units: .85, code: 'Matter · width', build: b => { const k = knobRow([
             { id: 'air_breath', l: 'Breath', t: .15, f: pct }, { id: 'air_smooth', l: 'Smooth', t: .5, f: expo(20, 1000, ' ms', 0) },
             { id: 'air_width', l: 'Width', t: .67, f: t => Math.round(150 * t) + '%' }, { id: 'air_lofi', l: 'Lo-fi', t: 0, f: pct },
-            { id: 'air_thresh', l: 'Thresh', t: 0, f: t => Math.round(-60 + 54 * t) + ' dB' }]); k.classList.add('three'); b.append(k); } },
-  color:  { n: '09', name: 'COLOR',   units: 2.6, code: 'Tone · low → high', build: b => {
+            { id: 'air_thresh', l: 'Thresh', t: 0, f: t => Math.round(-60 + 54 * t) + ' dB' }]); k.classList.add('two'); b.append(k); } },
+  color:  { n: '09', name: 'COLOR',   units: 1.8, code: 'Tone · low → high', build: b => {
             b.append(knobRow([{ id: 'color_bass', l: 'Bass', t: .5, f: bip(' dB', 24, 1) }, { id: 'color_body', l: 'Body', t: .5, f: bip(' dB', 18, 1) },
                               { id: 'color_mud', l: 'Mids', t: .5, f: bip(' dB', 18, 1) }, { id: 'color_harsh', l: 'Presence', t: .5, f: bip(' dB', 18, 1) },
                               { id: 'color_air', l: 'Air', t: .5, f: bip(' dB', 24, 1) }]));
@@ -921,7 +1094,9 @@ const MODS = {
             filters.append(label('LOW CUT'), lowCut, label('HIGH CUT'), highCut);
             const tremRow = document.createElement('div'); tremRow.className = 'filters trem-row';
             tremRow.append(label('TREMOLO'), trem, tremRate, tremMode);
-            b.append(filters, tremRow, tonalRow()); } },
+            const tonal = tonalRow();
+            [filters, tremRow, tonal].forEach(r => r.classList.add('ruled'));
+            b.append(filters, tremRow, tonal); } },
   space:  { n: '06', name: 'SPACE',   units: 2, code: 'FDN-16 · Dattorro plate', build: b => {
             {
               const types = seg(['Room', 'Plate', 'Hall', 'Cathedral', 'Bloom', 'Resonator'], 2, null, 'space_type'); types.classList.add('types');
@@ -962,7 +1137,8 @@ const MODS = {
 function buildCard(el) {
   const mod = el.dataset.mod, m = MODS[mod], inChain = CHAIN_DEFAULT.includes(mod);
   const arrows = inChain ? '<div class="move"><button title="Earlier in the chain"><svg viewBox="0 0 9 11"><path d="M8 0v11L0 5.5z"/></svg></button><button title="Later in the chain"><svg viewBox="0 0 9 11"><path d="M1 0v11l8-5.5z"/></svg></button></div>' : '';
-  el.innerHTML = `<div class="spine" title="${inChain ? 'Drag to move' : ''}">${arrows}<div class="label">${m.name}</div><button class="power" title="On / off"></button></div><div class="body"></div>`;
+  el.innerHTML = `<div class="spine" title="${inChain ? 'Drag to move' : ''}">${arrows}<div class="stack"><div class="label">${m.name}</div><div class="info">${m.info || ''}</div></div><button class="power" title="On / off"></button></div><div class="body"></div>`;
+  if (inChain) el.querySelector('.spine').title = m.code ? `${m.name} · ${m.code} — drag to move` : 'Drag to move';
   const power = el.querySelector('.power'), powerId = mod + '_on';
   power.onclick = () => { el.classList.toggle('off'); bridge.send(powerId, !el.classList.contains('off')); };
   if (LIVE_MODS.includes(mod)) bridge.register(powerId, 'toggle', on => el.classList.toggle('off', !on));
@@ -1008,12 +1184,37 @@ function moveModule(mod, step) {
   setOrder(next);
 }
 // Two rows: cut where the two rows' widths (in units) are the closest.
+// every card is as wide as its content needs (measured, nothing set by hand):
+// the two rows are cut where their needs are closest, then each row shares its width in
+// proportion to those needs. A module moved to the other row keeps its proportions.
 function layoutChain() {
   const rows = document.querySelectorAll('#chain .row');
-  const units = order.map(m => MODS[m].units || 1), total = units.reduce((a, b) => a + b, 0);
-  let cut = 1, best = Infinity, sum = 0;
-  for (let i = 0; i < order.length - 1; i++) { sum += units[i]; const d = Math.abs(total - 2 * sum); if (d < best) { best = d; cut = i + 1; } }
-  order.forEach((m, i) => { cards[m].style.setProperty('--units', units[i]); rows[i < cut ? 0 : 1].append(cards[m]); });
+  order.forEach(m => rows[0].append(cards[m]));
+  // A card's need: the narrowest width at which everything fits in the row's height
+  // (buttons may wrap, nothing may be cut), found by halving the interval.
+  const rowH = rows[0].clientHeight || 296;
+  const need = order.map(m => {
+    const c = cards[m], body = c.querySelector('.body');
+    c.style.flex = 'none'; c.style.height = rowH + 'px';
+    const fits = w => { c.style.width = w + 'px'; return body.scrollHeight <= body.clientHeight + 1 && body.scrollWidth <= body.clientWidth + 1; };
+    let lo = 60, hi = 900;
+    while (hi - lo > 3) { const mid = (lo + hi) / 2; if (fits(mid)) hi = mid; else lo = mid; }
+    c.style.flex = c.style.width = c.style.height = '';
+    return Math.ceil(hi) + 1;
+  });
+  // The cut that leaves the fuller row least full (gaps of 22 px included).
+  const rowNeed = (a, b) => need.slice(a, b).reduce((x, y) => x + y, 0) + 22 * (b - a - 1);
+  let cut = 1, best = Infinity;
+  for (let i = 1; i < order.length; i++) { const worst = Math.max(rowNeed(0, i), rowNeed(i, order.length)); if (worst < best) { best = worst; cut = i; } }
+  order.forEach((m, i) => { cards[m].style.flex = `${need[i]} 1 ${need[i]}px`; rows[i < cut ? 0 : 1].append(cards[m]); });
+  // A row that cannot hold its cards at 22 px apart closes its gaps first (down to 10 px)
+  // rather than squeeze a card.
+  const room = document.getElementById('chain').clientWidth;
+  [[0, cut], [cut, order.length]].forEach(([a, b], r) => {
+    const cards = need.slice(a, b).reduce((x, y) => x + y, 0), gaps = b - a - 1;
+    rows[r].style.gap = gaps > 0 && cards + 22 * gaps > room ? Math.max(10, Math.floor((room - cards) / gaps)) + 'px' : '';
+  });
+  window.__needs = Object.fromEntries(order.map((m, i) => [m, need[i]]));
   requestAnimationFrame(drawWire);
 }
 // The wire: IN → each card's entry (numbered square) … → OUT. Coordinates are the
@@ -1120,7 +1321,7 @@ const MAPPABLE = {
   derez: [['derez_interval', 'Interval'], ['derez_crush', 'Rate'], ['derez_bits', 'Bits'], ['derez_smooth', 'Smooth'], ['derez_mix', 'Mix']],
   pitch: [['pitch_semi', 'Semi'], ['pitch_shift', 'Shift'], ['pitch_mix', 'Mix']],
   stretch: [['stretch_factor', 'Memory'], ['stretch_mix', 'Mix']],
-  grain: [['grain_density', 'Density (free)'], ['grain_div', 'Rate (sync)'], ['grain_chance', 'Chance'], ['grain_size', 'Size'], ['grain_fdbk', 'Feedback'], ['grain_reverse', 'Reverse'], ['grain_mix', 'Mix']],
+  grain: [['grain_density', 'Density (free)'], ['grain_div', 'Rate (sync)'], ['grain_chance', 'Chance'], ['grain_size', 'Size'], ['grain_fdbk', 'Feedback'], ['grain_reverse', 'Reverse'], ['grain_mix', 'Mix'], ['grain_shape', 'Shape'], ['grain_skew', 'Skew'], ['grain_width', 'Width']],
   echo: [['echo_time', 'Time (free)'], ['echo_div', 'Time (sync)'], ['echo_fdbk', 'Feedback'], ['echo_mix', 'Mix']],
   space: [['space_size', 'Size'], ['space_decay', 'Decay'], ['space_tone', 'Tone'], ['space_mod', 'Mod'], ['space_pre', 'Pre-delay'], ['space_mix', 'Mix'],
           ['shimmer_depth', 'Shimmer depth'], ['shimmer_pitch', 'Shimmer pitch'], ['space_width', 'Width']],
@@ -1253,14 +1454,23 @@ const rateLabel = (t, sync) => {
   if (sync) { const b = syncBeats(t); return b >= 4 ? (b / 4) + (b > 4 ? ' bars' : ' bar') : '1/' + (4 / b); }
   const hz = .001 * Math.pow(20000, t); return (hz < 1 ? hz.toFixed(hz < .1 ? 3 : 2) : hz.toFixed(1)) + ' Hz';
 };
+// three tabs of four lanes (LFO 01-04, 05-08, 09-12), each in two columns of two:
+// MOTION takes half its height. A dot on a tab: one of its lanes is moving something.
+let motionTab = 0;
+function setMotionTab(i) {
+  motionTab = i;
+  document.querySelectorAll('.motion-page').forEach((p, k) => p.hidden = k !== i);
+  document.querySelectorAll('.lfo-tabs button').forEach((b, k) => b.setAttribute('aria-pressed', k === i));
+}
 function buildMotion(b) {
   const body = document.createElement('div'); body.className = 'motion-body';
-  for (let col = 0; col < 2; col++) {
+  const pages = [0, 1, 2].map(() => { const p = document.createElement('div'); p.className = 'motion-page'; return p; });
+  for (let col = 0; col < 6; col++) {
     const wrap = document.createElement('div');
     wrap.innerHTML = '<div class="lane-head cols"><span>#</span><span>TARGET</span><span>RATE</span><span>SHAPE</span><span>DEPTH</span><span>TRACE</span></div>';
     const list = document.createElement('div'); list.className = 'lanes';
-    LANES.slice(col * 6, col * 6 + 6).forEach(([shape, rate], j) => {
-      const idx = col * 6 + j, depth = 0;
+    LANES.slice(col * 2, col * 2 + 2).forEach(([shape, rate], j) => {
+      const idx = col * 2 + j, depth = 0;
       const lane = { shape, rate, depth, f: lfoFactory(idx + 1), hist: new Array(140).fill(0) };
       const row = document.createElement('div'); row.className = 'lane cols';
       row.innerHTML = `<span class="i">${String(idx + 1).padStart(2, '0')}</span>`;
@@ -1291,8 +1501,9 @@ function buildMotion(b) {
       const cv = document.createElement('canvas'); row.append(cv); lane.canvas = cv;
       list.append(row); lanes.push(lane);
     });
-    wrap.append(list); body.append(wrap);
+    wrap.append(list); pages[col >> 1].append(wrap);
   }
+  const lanesBox = document.createElement('div'); lanesBox.className = 'motion-lanes'; lanesBox.append(...pages); body.append(lanesBox);
   const macros = document.createElement('div'); macros.className = 'macros';
   macros.append(knob({ id: 'motion_amount', l: 'Motion', t: 1, f: pct, on: t => state.motion = t }, { stack: true }),
                 knob({ id: 'motion_drift', l: 'Drift', t: .5, f: t => '×' + Math.pow(4, t * 2 - 1).toFixed(2), on: t => state.drift = Math.pow(4, t * 2 - 1) }, { stack: true }),
@@ -1304,14 +1515,20 @@ function buildMotion(b) {
   macros.append(knobs3);
   const st = document.createElement('div'); st.className = 'status';
   st.id = 'status';
-  st.innerHTML = 'CPU <b>2.1%</b><br>LATENCY <b>0 SMP</b><br>MIDI <b>A C E G B</b>';
-  macros.append(st); body.append(macros); b.append(body);
+  st.innerHTML = 'CPU <b>2.1%</b> · LAT <b>0 SMP</b> · MIDI <b>A C E G B</b>';
+  body.append(macros); b.append(body);
+  const tabs = document.createElement('div'); tabs.className = 'seg lfo-tabs';
+  ['LFO 01-04', 'LFO 05-08', 'LFO 09-12'].forEach((t, i) => { const x = document.createElement('button'); x.innerHTML = t + '<i></i>'; x.onclick = () => setMotionTab(i); tabs.append(x); });
+  b.querySelector('.top .code').after(tabs);
+  tabs.after(st);  // CPU, latency and MIDI: one line in the title bar
+  setMotionTab(0);
 }
 
 // ---------- build ----------
 document.querySelectorAll('[data-mod]').forEach(buildCard);  // MOTION
 CHAIN_DEFAULT.forEach(m => { const el = document.createElement('section'); el.className = 'card'; el.dataset.mod = m; cards[m] = el; buildCard(el); });
 layoutChain();
+document.fonts?.ready.then(layoutChain);  // measured again once the fonts are in: their widths change the needs
 const gk = document.getElementById('globalKnobs');
 // OFFSET: the wet's right channel a few ms late (Haas width; the dry is untouched).
 const offsetText = t => t <= 0 ? 'off' : (25 * t * t).toFixed(1) + ' ms';
@@ -1469,7 +1686,24 @@ const viz = document.getElementById('viz');
 // Page size per layout (the plugin window takes the same proportions).
 const STAGE_OPEN = { top: [1500, 1120], side: [1744, 976] };
 let motionOpen = true;
-const STAGE = { get top() { return [1500, motionOpen ? 1120 : 892]; }, get side() { return [1744, motionOpen ? 976 : 748]; } };
+let vizOpen = true;
+const STAGE = {
+  get top() { return [1500, (motionOpen ? 938 : 842) - (vizOpen ? 0 : 144)]; },
+  get side() { return vizOpen ? [1744, motionOpen ? 794 : 698] : [1500, (motionOpen ? 938 : 842) - 144]; },
+};
+// hide the visualizer; the page (and the plugin window) lose its band.
+const VIZ_ICON = {
+  shown: '<svg viewBox="0 0 16 14"><path d="M1 7s2.6-4.5 7-4.5S15 7 15 7s-2.6 4.5-7 4.5S1 7 1 7z" fill="none" stroke="currentColor"/><circle cx="8" cy="7" r="2" fill="currentColor"/></svg>',
+  hidden: '<svg viewBox="0 0 16 14"><path d="M1 7s2.6-4.5 7-4.5S15 7 15 7s-2.6 4.5-7 4.5S1 7 1 7z" fill="none" stroke="currentColor" opacity=".5"/><path d="M2 13L14 1" stroke="currentColor" stroke-width="1.4"/></svg>',
+};
+function setVizOpen(open, fromHost) {
+  vizOpen = !!open;
+  document.documentElement.classList.toggle('viz-hidden', !vizOpen);
+  document.getElementById('vizBtn').innerHTML = VIZ_ICON[vizOpen ? 'shown' : 'hidden'];
+  document.getElementById('layoutBtn').style.visibility = vizOpen ? '' : 'hidden';
+  fit(); if (vizOpen) resizeViz();
+  if (!fromHost && bridge.juce) bridge.juce.getNativeFunction('setVizOpen')(vizOpen);
+}
 function setMotionOpen(open, fromHost) {
   motionOpen = !!open;
   document.documentElement.classList.toggle('motion-closed', !motionOpen);
@@ -1675,15 +1909,9 @@ function simulateGrains(now) {  // a plain browser: invent grains from the knobs
   simNext = now - Math.log(Math.random() + 1e-6) * 1000 / density;
   if (Math.random() > bridge.value('grain_chance', .7)) return;
   const allowed = GRAIN_INTERVALS.filter(([id, , on]) => bridge.value(id, on)).map(([, label]) => parseInt(label.replace('−', '-')));
-  grains.push({ at: now, len: size, st: allowed[Math.floor(Math.random() * allowed.length)] ?? 0, pan: Math.random() * 1.6 - .8, env: bridge.value('grain_env', 0), level: .05 + Math.random() * .3 });
+  grains.push({ at: now, len: size, st: allowed[Math.floor(Math.random() * allowed.length)] ?? 0, pan: Math.random() * 1.6 - .8, shape: grainShape.shape, skew: grainShape.skew, level: .05 + Math.random() * .3 });
 }
 // The envelope of a grain at phase p (0..1), as GRAIN shapes it.
-function grainEnvelope(env, p) {
-  if (env === 1) return 1 - Math.abs(2 * p - 1);              // triangle
-  if (env === 2) return Math.min(1, p / .02, (1 - p) / .02);  // square, 2 % ramps
-  if (env === 3) return Math.min(1, p / .01) * Math.exp(-5 * p);  // perc
-  return Math.sin(Math.PI * p);                               // sine
-}
 // Called for each new column of the spectrum: the grains that sounded since the last one.
 function grainCells(col, now) {
   const cells = new Float32Array(rows);
@@ -1701,7 +1929,7 @@ function grainCells(col, now) {
     if (start > since) fired++;
     // A grain shorter than a column still shows once, at its loudest.
     const p = end - start < now - since ? .5 : Math.min(1, (now - start) / (end - start));
-    const level = Math.min(1.2, (g.level ?? .15) / .25) * Math.max(.25, grainEnvelope(g.env, p));
+    const level = Math.min(1.2, (g.level ?? .15) / .25) * Math.max(.25, grainShapeAt(p, g.shape ?? .5, g.skew ?? 0));
     const center = refRow < 0 ? rows * .5 : refRow;
     const y = Math.round(center - (g.st || 0) * rows / SPECTRUM_SEMITONES);
     if (y >= 0 && y < rows) cells[y] = Math.max(cells[y], level);
@@ -1733,6 +1961,8 @@ function setLayout(name, fromHost) {
   if (!fromHost && bridge.juce) bridge.juce.getNativeFunction('setLayout')(layout);
 }
 document.getElementById('layoutBtn').onclick = () => setLayout(layout === 'side' ? 'top' : 'side');
+document.getElementById('vizBtn').onclick = () => setVizOpen(!vizOpen);  // the plugin window follows (native setVizOpen)
+setVizOpen(true, true);
 setLayout(layout, true);
 for (let k = 0; k < 1800; k++) drawViz();  // start with a tail already on the paper
 // The plugin sends its data 30 times a second: drawing 60 times showed every frame twice
@@ -1744,7 +1974,7 @@ let lastDraw = 0;
   now = now || 0;
   if (now - lastDraw < 30) return;
   lastDraw = now;
-  simulateGrains(now); drawViz(now); drawLanes(); grainHud();
+  simulateGrains(now); drawViz(now); drawLanes(); grainHud(); drawGrainPan(now);
 })();
 </script>
 <script type="module">

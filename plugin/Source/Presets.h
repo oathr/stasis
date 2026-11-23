@@ -22,7 +22,7 @@
 //   derez_crush (RATE) / derez_bits  knob up = clean, down = destroyed
 //   grain_density  1.2/s .2 · 1.9/s .3 · 3.6/s .45 · 6.9/s .6 · 13/s .75
 //   grain_size     50 ms .2 · 80 ms .3 · 160 ms .45 · 320 ms .6 · 630 ms .75 · 1 s .85
-//   grain_m12 m7 m5 m3 0 p3 p5 p7 p12  intervals from the sound, in semitones (default: 0, +7, +12)
+//   grain_m12 m9 m7 m5 m4 m3 m2 0 p2 p3 p4 p5 p7 p9 p12  intervals from the sound, in semitones (default: 0, +7, +12)
 //   color_bass … color_air  .5 = flat; BASS / AIR ±24 dB, BODY / MIDS (color_mud) / PRESENCE (color_harsh) ±18 dB
 //
 // MOTION swings the knob around its own position: value = set ± depth (held in 0..1), so
@@ -52,7 +52,7 @@ inline const char* const kCategories[] = {"ECHO", "REVERB", "AMBIENT", "GRAIN"};
 // subtle): every preset starts from these values, then its own.
 inline const std::vector<std::pair<const char*, float>> kBase = {
     {"echo_on", 1.0f},  // ECHO was on in a new instance
-    {"shape_drive", 0.2f}, {"shape_harm", 0.3f}, {"pitch_mix", 0.4f}, {"air_breath", 0.3f}, {"air_lofi", 0.1f}, {"grain_mix", 0.7f}, {"derez_mix", 0.7f}, {"derez_crush", 0.4f}, {"derez_bits", 0.45f}, {"stretch_mix", 0.5f}, {"echo_fdbk", 0.6f}, {"echo_mix", 0.35f}, {"space_type", 3.0f}, {"space_size", 0.9f}, {"space_decay", 0.75f}, {"space_mix", 0.6f}, {"focus_amount", 0.6f}, {"focus_depth", 0.9f}};
+    {"shape_drive", 0.2f}, {"shape_harm", 0.3f}, {"pitch_mix", 0.4f}, {"air_breath", 0.3f}, {"air_lofi", 0.1f}, {"grain_mix", 0.7f}, {"derez_mix", 0.7f}, {"derez_crush", 0.4f}, {"derez_bits", 0.45f}, {"derez_smooth", 0.7f}, {"pitch_semi", 0.75f}, {"stretch_mix", 0.5f}, {"echo_fdbk", 0.6f}, {"echo_mix", 0.35f}, {"space_type", 3.0f}, {"space_size", 0.9f}, {"space_decay", 0.75f}, {"space_mix", 0.6f}, {"focus_amount", 0.6f}, {"focus_depth", 0.9f}};
 
 inline const std::vector<Preset>& all() {
     static const std::vector<Preset> list = {
@@ -71,7 +71,7 @@ inline const std::vector<Preset>& all() {
                               {"color_body", .6f}, {"color_air", .4f}, {"color_lpf", .8f}},
          {{"offset", Sine, .4f, .15f}, {"m01_rate", Perlin, 3.0f, .03f}, {"air_lofi", Drunk, .05f, .3f}, {"echo_time", Perlin, .4f, .02f}}},
         {"ECHO", "Ping-Pong Garden", {{"offset", .25f}, {"echo_div", 6 / 13.f}, {"echo_fdbk", .7f}, {"echo_mix", .5f},
-                                      {"grain_on", 1}, {"grain_env", 3}, {"grain_density", .35f}, {"grain_size", .35f}, {"grain_mix", .35f},
+                                      {"grain_on", 1}, {"grain_skew", 0.0f}, {"grain_density", .35f}, {"grain_size", .35f}, {"grain_mix", .35f},
                                       {"space_type", 1}, {"space_decay", .386f}, {"space_size", .5f}, {"space_mix", .35f}, {"color_air", 0.533f}},
          {{"grain_density", Perlin, .05f, 0.48f}, {"color_air", RSine, .04f, 0.32f}, {"echo_fdbk", Perlin, .03f, .2f}}},
         {"ECHO", "Infinite Tape", {{"offset", .2f}, {"echo_sync", 0}, {"echo_time", .85f}, {"echo_fdbk", .9f}, {"echo_mix", .5f},
@@ -91,7 +91,7 @@ inline const std::vector<Preset>& all() {
                                    {"color_harsh", 0.438f}},
          {{"shimmer_depth", RSine, .03f, 0.48f}, {"echo_mix", Perlin, .04f, .3f}}},
         {"ECHO", "Triplet Rain", {{"offset", .3f}, {"echo_div", 4 / 13.f}, {"echo_fdbk", .75f}, {"echo_mix", .4f},
-                                  {"grain_on", 1}, {"grain_algo", 0}, {"grain_sync", 1}, {"grain_div", 2 / 13.f}, {"grain_env", 3},
+                                  {"grain_on", 1}, {"grain_algo", 0}, {"grain_sync", 1}, {"grain_div", 2 / 13.f}, {"grain_skew", 0.0f},
                                   {"grain_chance", .45f}, {"grain_size", .25f}, {"grain_mix", .4f},
                                   {"space_type", 2}, {"space_decay", .48f}, {"space_mix", .3f},
                                   {"color_harsh", 0.425f}, {"color_air", 0.45f}, {"color_lpf", .8f}},
@@ -100,12 +100,12 @@ inline const std::vector<Preset>& all() {
                                         {"echo_div", 11 / 13.f}, {"echo_fdbk", .55f}, {"echo_mix", .5f}},
          {{"space_tone", Perlin, .03f, 0.4f}, {"echo_fdbk", Drunk, .03f, .2f}},
          "shape,derez,pitch,stretch,grain,space,echo,focus,air,color"},
-        {"ECHO", "Grain Bells", {{"offset", .3f}, {"grain_on", 1}, {"grain_env", 3}, {"grain_p5", 1},
+        {"ECHO", "Grain Bells", {{"offset", .3f}, {"grain_on", 1}, {"grain_skew", 0.0f}, {"grain_p5", 1},
                                  {"grain_density", .4f}, {"grain_size", .3f}, {"grain_mix", .6f},
                                  {"echo_div", 5 / 13.f}, {"echo_fdbk", .6f}, {"echo_mix", .45f},
                                  {"space_type", 2}, {"space_decay", .48f}, {"space_mix", .3f}, {"color_harsh", 0.444f}},
          {{"grain_density", Drunk, .03f, 0.5f}, {"echo_fdbk", Perlin, .02f, 0.24f}, {"grain_size", RSine, .07f, 0.4f}}},
-        {"ECHO", "Tape Stutter", {{"offset", .2f}, {"grain_on", 1}, {"grain_algo", 0}, {"grain_sync", 1}, {"grain_div", 2 / 13.f}, {"grain_env", 2},
+        {"ECHO", "Tape Stutter", {{"offset", .2f}, {"grain_on", 1}, {"grain_algo", 0}, {"grain_sync", 1}, {"grain_div", 2 / 13.f}, {"grain_shape", 0.0f},
                                   {"grain_p7", 0}, {"grain_p12", 0}, {"grain_size", .2f}, {"grain_chance", .55f}, {"grain_mix", .5f},
                                   {"shape_on", 1}, {"shape_drive", .4f},
                                   {"echo_mode", 0}, {"echo_div", 5 / 13.f}, {"echo_fdbk", .5f}, {"echo_mix", .4f},
@@ -132,7 +132,7 @@ inline const std::vector<Preset>& all() {
                                      {"space_type", 2}, {"space_decay", .58f}, {"space_mix", .4f}},
          {{"pitch_shift", Perlin, .02f, 0.16f}, {"echo_mix", Breath, .03f, 0.32f}, {"offset", Sine, .07f, .3f}},
          "shape,derez,stretch,grain,echo,pitch,space,focus,air,color"},
-        {"ECHO", "Granular Delay Cloud", {{"offset", .3f}, {"grain_on", 1}, {"grain_env", 1}, {"grain_density", .6f}, {"grain_size", .45f}, {"grain_mix", .7f},
+        {"ECHO", "Granular Delay Cloud", {{"offset", .3f}, {"grain_on", 1}, {"grain_shape", 1.0f}, {"grain_density", .6f}, {"grain_size", .45f}, {"grain_mix", .7f},
                                           {"echo_div", 6 / 13.f}, {"echo_fdbk", .7f}, {"echo_mix", .5f},
                                           {"space_type", 3}, {"space_decay", .58f}, {"space_mix", .35f}, {"color_mud", 0.425f}},
          {{"grain_size", Perlin, .03f, 0.48f}, {"grain_density", Chaos, .05f, 0.4f}, {"echo_fdbk", Drunk, .02f, 0.16f}}},
@@ -180,12 +180,12 @@ inline const std::vector<Preset>& all() {
         {"REVERB", "Grain Cathedral", {{"offset", .3f}, {"echo_on", 0}, {"grain_on", 1}, {"grain_density", .45f}, {"grain_size", .6f}, {"grain_mix", .5f},
                                        {"space_type", 3}, {"space_decay", .82f}, {"space_mix", .6f}, {"color_mud", 0.425f}},
          {{"grain_density", Perlin, .02f, 0.48f}, {"grain_mix", Breath, .03f, 0.4f}, {"offset", Perlin, .02f, .3f}}},
-        {"REVERB", "Crystal Hall", {{"offset", .35f}, {"echo_on", 0}, {"grain_on", 1}, {"grain_env", 3}, {"grain_p5", 1},
+        {"REVERB", "Crystal Hall", {{"offset", .35f}, {"echo_on", 0}, {"grain_on", 1}, {"grain_skew", 0.0f}, {"grain_p5", 1},
                                     {"grain_density", .35f}, {"grain_size", .3f}, {"grain_mix", .45f},
                                     {"space_type", 2}, {"space_decay", .71f}, {"space_tone", .65f}, {"space_mix", .55f},
                                     {"color_air", 0.55f}, {"color_harsh", 0.438f}},
          {{"grain_chance", Drunk, .04f, 0.48f}, {"space_tone", RSine, .03f, 0.24f}}},
-        {"REVERB", "Shimmer Grains", {{"offset", .3f}, {"echo_on", 0}, {"grain_on", 1}, {"grain_env", 1}, {"grain_density", .5f}, {"grain_size", .5f}, {"grain_mix", .5f},
+        {"REVERB", "Shimmer Grains", {{"offset", .3f}, {"echo_on", 0}, {"grain_on", 1}, {"grain_shape", 1.0f}, {"grain_density", .5f}, {"grain_size", .5f}, {"grain_mix", .5f},
                                       {"space_type", 1}, {"space_decay", .683f}, {"shimmer_depth", .45f}, {"shimmer_pitch", .75f}, {"space_mix", .55f},
                                       {"color_harsh", 0.431f}},
          {{"shimmer_depth", Perlin, .02f, 0.4f}, {"grain_size", Sine, .04f, 0.48f}}},
@@ -255,11 +255,11 @@ inline const std::vector<Preset>& all() {
                                        {"tonal", .7f}, {"tonal_place", 0}},
          {{"tonal", Perlin, .01f, 0.24f}, {"stretch_mix", Perlin, .02f, .3f}}},
         {"AMBIENT", "Music Box Fog", {{"offset", .3f}, {"stretch_on", 1}, {"stretch_factor", .43f}, {"stretch_mix", .6f},
-                                      {"grain_on", 1}, {"grain_env", 3}, {"grain_p3", 1},
+                                      {"grain_on", 1}, {"grain_skew", 0.0f}, {"grain_p3", 1},
                                       {"grain_density", .3f}, {"grain_size", .35f}, {"grain_chance", .6f}, {"grain_mix", .6f},
                                       {"echo_on", 0}, {"space_type", 3}, {"space_decay", .78f}, {"space_mix", .6f}, {"color_harsh", 0.444f}},
          {{"grain_density", Drunk, .03f, 0.5f}, {"grain_chance", Perlin, .05f, 0.4f}}},
-        {"AMBIENT", "Pentatonic Rain", {{"offset", .35f}, {"grain_on", 1}, {"grain_algo", 0}, {"grain_sync", 1}, {"grain_div", 5 / 13.f}, {"grain_env", 3},
+        {"AMBIENT", "Pentatonic Rain", {{"offset", .35f}, {"grain_on", 1}, {"grain_algo", 0}, {"grain_sync", 1}, {"grain_div", 5 / 13.f}, {"grain_skew", 0.0f},
                                         {"grain_p3", 1}, {"grain_p5", 1},
                                         {"grain_chance", .5f}, {"grain_size", .3f}, {"grain_mix", .6f},
                                         {"echo_div", 8 / 13.f}, {"echo_fdbk", .55f}, {"echo_mix", .35f},
@@ -270,13 +270,13 @@ inline const std::vector<Preset>& all() {
                                       {"grain_density", .5f}, {"grain_size", .55f}, {"grain_mix", .7f},
                                       {"echo_on", 0}, {"space_type", 3}, {"space_decay", .82f}, {"space_mix", .6f}, {"tonal", .65f}},
          {{"grain_density", Chaos, .03f, 0.48f}, {"grain_size", Perlin, .02f, 0.4f}}},
-        {"AMBIENT", "Glass Rain", {{"offset", .4f}, {"grain_on", 1}, {"grain_env", 3},
+        {"AMBIENT", "Glass Rain", {{"offset", .4f}, {"grain_on", 1}, {"grain_skew", 0.0f},
                                    {"grain_density", .65f}, {"grain_size", .2f}, {"grain_chance", .6f}, {"grain_mix", .5f},
                                    {"echo_div", 5 / 13.f}, {"echo_fdbk", .6f}, {"echo_mix", .35f},
                                    {"space_type", 1}, {"space_decay", .586f}, {"space_mix", .5f}, {"color_air", 0.533f}, {"color_harsh", 0.438f}},
          {{"grain_density", Perlin, .06f, 0.5f}, {"color_air", Sine, .03f, 0.24f}, {"offset", SampleHold, .2f, .25f}}},
         {"AMBIENT", "Minor Constellation", {{"offset", .3f}, {"stretch_on", 1}, {"stretch_factor", .5f}, {"stretch_mix", .5f},
-                                            {"grain_on", 1}, {"grain_env", 1}, {"grain_m5", 1}, {"grain_p3", 1},
+                                            {"grain_on", 1}, {"grain_shape", 1.0f}, {"grain_m5", 1}, {"grain_p3", 1},
                                             {"grain_density", .4f}, {"grain_size", .5f}, {"grain_mix", .55f},
                                             {"echo_on", 0}, {"space_type", 2}, {"space_decay", .78f}, {"space_mix", .6f},
                                             {"shimmer_depth", .3f}, {"shimmer_pitch", .75f}, {"color_harsh", 0.444f}},
@@ -301,7 +301,7 @@ inline const std::vector<Preset>& all() {
                                    {"air_on", 1}, {"air_lofi", .35f}, {"air_width", .9f},
                                    {"space_type", 3}, {"space_decay", .82f}, {"space_mix", .6f}},
          {{"air_lofi", Perlin, .02f, 0.4f}, {"echo_mix", Breath, .02f, 0.32f}, {"offset", Sine, .3f, .15f}}},
-        {"AMBIENT", "Distant Signals", {{"offset", .25f}, {"grain_on", 1}, {"grain_env", 2}, {"grain_m12", 1},
+        {"AMBIENT", "Distant Signals", {{"offset", .25f}, {"grain_on", 1}, {"grain_shape", 0.0f}, {"grain_m12", 1},
                                         {"grain_density", .3f}, {"grain_size", .25f}, {"grain_chance", .5f}, {"grain_mix", .4f},
                                         {"focus_on", 1}, {"focus_mode", 2}, {"focus_depth", .7f},
                                         {"derez_on", 1}, {"derez_interval", .75f}, {"derez_crush", 0.5f}, {"derez_mix", .3f},
@@ -310,7 +310,7 @@ inline const std::vector<Preset>& all() {
 
         // --------------------------------------------------------------- GRAIN
         // Grains first: short and long, pitched, stretched, reversed, crushed.
-        {"GRAIN", "Dust Motes", {{"offset", .2f}, {"echo_on", 0}, {"grain_on", 1}, {"grain_algo", 1}, {"grain_env", 3}, {"grain_size", .2f},
+        {"GRAIN", "Dust Motes", {{"offset", .2f}, {"echo_on", 0}, {"grain_on", 1}, {"grain_algo", 1}, {"grain_skew", 0.0f}, {"grain_size", .2f},
                                  {"grain_density", .777f}, {"grain_p7", 0}, {"grain_reverse", .2f}, {"grain_mix", .5f},
                                  {"space_type", 2}, {"space_decay", .45f}, {"space_mix", .3f}},
          {{"grain_density", Perlin, .05f, .2f}, {"offset", Sine, .2f, .1f}}},
@@ -319,7 +319,7 @@ inline const std::vector<Preset>& all() {
                                       {"space_type", 3}, {"space_decay", .66f}, {"space_mix", .45f}},
          {{"grain_size", Perlin, .03f, .2f}, {"space_mix", Sine, .02f, .2f}}},
         {"GRAIN", "Octave Rain", {{"offset", .2f}, {"echo_on", 0}, {"grain_on", 1}, {"grain_algo", 0}, {"grain_sync", 1}, {"grain_div", 2 / 13.f},
-                                  {"grain_env", 3}, {"grain_size", .3f}, {"grain_chance", .6f}, {"grain_m12", 1}, {"grain_p7", 0},
+                                  {"grain_skew", 0.0f}, {"grain_size", .3f}, {"grain_chance", .6f}, {"grain_m12", 1}, {"grain_p7", 0},
                                   {"grain_mix", .55f}, {"space_type", 0}, {"space_decay", .3f}, {"space_mix", .3f}},
          {{"grain_chance", Chaos, .05f, .3f}}},
         {"GRAIN", "Frozen Grains", {{"offset", .3f}, {"echo_on", 0}, {"stretch_on", 1}, {"stretch_factor", .57f}, {"stretch_mix", .6f},
@@ -327,14 +327,14 @@ inline const std::vector<Preset>& all() {
                                     {"grain_mix", .5f}, {"space_type", 2}, {"space_decay", .6f}, {"space_mix", .4f}},
          {{"stretch_mix", Perlin, .02f, .25f}, {"grain_reverse", Sine, .03f, .3f}}},
         {"GRAIN", "Bit Grains", {{"offset", .2f}, {"echo_on", 0}, {"derez_on", 1}, {"derez_crush", .3f}, {"derez_bits", .4f}, {"derez_mix", .5f},
-                                 {"grain_on", 1}, {"grain_algo", 1}, {"grain_env", 2}, {"grain_size", .2f}, {"grain_density", .633f},
+                                 {"grain_on", 1}, {"grain_algo", 1}, {"grain_shape", 0.0f}, {"grain_size", .2f}, {"grain_density", .633f},
                                  {"grain_mix", .6f}, {"space_type", 0}, {"space_mix", .25f}},
          {{"derez_crush", SampleHold, .3f, .25f}, {"grain_size", Perlin, .05f, .2f}}},
         {"GRAIN", "Long Shadows", {{"offset", .3f}, {"echo_on", 0}, {"grain_on", 1}, {"grain_algo", 2}, {"grain_size", 1.0f},
                                    {"grain_density", .158f}, {"grain_reverse", .3f}, {"grain_fdbk", .4f}, {"grain_mix", .55f},
                                    {"space_type", 3}, {"space_decay", .7f}, {"space_mix", .5f}},
          {{"grain_fdbk", Perlin, .02f, .2f}, {"space_mix", Sine, .015f, .2f}}},
-        {"GRAIN", "Glitter", {{"offset", .25f}, {"echo_on", 0}, {"grain_on", 1}, {"grain_algo", 1}, {"grain_env", 3}, {"grain_size", .088f},
+        {"GRAIN", "Glitter", {{"offset", .25f}, {"echo_on", 0}, {"grain_on", 1}, {"grain_algo", 1}, {"grain_skew", 0.0f}, {"grain_size", .088f},
                               {"grain_density", .893f}, {"grain_0", 0}, {"grain_reverse", .5f}, {"grain_mix", .45f},
                               {"space_type", 1}, {"space_decay", .5f}, {"space_mix", .35f}, {"color_air", .55f}},
          {{"grain_density", Chaos, .05f, .25f}}},
@@ -347,7 +347,7 @@ inline const std::vector<Preset>& all() {
                                   {"grain_mix", .55f}, {"space_type", 2}, {"space_decay", .6f}, {"space_mix", .4f}},
          {{"grain_size", Perlin, .03f, .2f}, {"grain_reverse", Drunk, .02f, .2f}}},
         {"GRAIN", "Reverse Tape", {{"offset", .3f}, {"grain_on", 1}, {"grain_algo", 0}, {"grain_sync", 1}, {"grain_div", 8 / 13.f},
-                                   {"grain_env", 1}, {"grain_size", .6f}, {"grain_reverse", 1}, {"grain_mix", .55f},
+                                   {"grain_shape", 1.0f}, {"grain_size", .6f}, {"grain_reverse", 1}, {"grain_mix", .55f},
                                    {"echo_div", 9 / 13.f}, {"echo_fdbk", .5f}, {"echo_mix", .3f}, {"space_type", 1}, {"space_mix", .25f}},
          {{"offset", Sine, .4f, .15f}, {"echo_mix", Perlin, .03f, .2f}}},
         {"GRAIN", "Grain Feedback", {{"offset", .2f}, {"echo_on", 0}, {"grain_on", 1}, {"grain_algo", 1}, {"grain_size", .3f},
@@ -367,11 +367,11 @@ inline const std::vector<Preset>& all() {
                                       {"grain_reverse", 1}, {"grain_mix", .55f}, {"space_type", 2}, {"space_mix", .3f}},
          {{"derez_mix", SampleHold, .2f, .3f}, {"grain_density", Perlin, .04f, .2f}}},
         {"GRAIN", "Stretch Dust", {{"offset", .3f}, {"echo_on", 0}, {"stretch_on", 1}, {"stretch_factor", .67f}, {"stretch_mix", .8f},
-                                   {"grain_on", 1}, {"grain_algo", 1}, {"grain_env", 3}, {"grain_size", .088f}, {"grain_density", .777f},
+                                   {"grain_on", 1}, {"grain_algo", 1}, {"grain_skew", 0.0f}, {"grain_size", .088f}, {"grain_density", .777f},
                                    {"grain_mix", .4f}, {"space_type", 3}, {"space_decay", .66f}, {"space_mix", .45f}},
          {{"grain_density", Perlin, .04f, .25f}, {"stretch_mix", Sine, .02f, .15f}}},
         {"GRAIN", "Stutter", {{"offset", .15f}, {"echo_on", 0}, {"grain_on", 1}, {"grain_algo", 0}, {"grain_sync", 1}, {"grain_div", 2 / 13.f},
-                              {"grain_env", 2}, {"grain_size", .2f}, {"grain_chance", .9f}, {"grain_p7", 0}, {"grain_p12", 0},
+                              {"grain_shape", 0.0f}, {"grain_size", .2f}, {"grain_chance", .9f}, {"grain_p7", 0}, {"grain_p12", 0},
                               {"grain_mix", .6f}, {"space_type", 0}, {"space_mix", .2f}},
          {{"grain_chance", Sine, .2f, .3f}, {"grain_reverse", SampleHold, .5f, .4f}}},
         {"GRAIN", "Bloom Grains", {{"offset", .3f}, {"echo_on", 0}, {"grain_on", 1}, {"grain_algo", 2}, {"grain_size", .85f},

@@ -357,7 +357,7 @@ private:
         if (changed({iBreath, iWidthAir, iLofi, iAirSmooth, iAirThresh}))
             air_.setParams({v(values, iBreath), v(values, iWidthAir), v(values, iLofi), airSmoothMs(v(values, iAirSmooth)) / 1000.0f,
                             airThresholdDb(v(values, iAirThresh))});
-        static const int iGrainOn = indexOf("grain_on"), iAlgo = indexOf("grain_algo"), iEnv = indexOf("grain_env"), iDensity = indexOf("grain_density"),
+        static const int iGrainOn = indexOf("grain_on"), iAlgo = indexOf("grain_algo"), iShapeG = indexOf("grain_shape"), iSkew = indexOf("grain_skew"), iStereo = indexOf("grain_stereo"), iWidthG = indexOf("grain_width"), iDensity = indexOf("grain_density"),
                          iChance = indexOf("grain_chance"), iGrainSize = indexOf("grain_size"), iGrainMix = indexOf("grain_mix"),
                          iInterval0 = indexOf("grain_m12"), iGrainSync = indexOf("grain_sync"), iGrainDiv = indexOf("grain_div"),
                          iGrainFdbk = indexOf("grain_fdbk"), iGrainReverse = indexOf("grain_reverse");
@@ -367,11 +367,15 @@ private:
         trimTarget_ = dbToGain(24.0f * (2.0f * v(values, iTrimDb) - 1.0f));
         mix_[kGrain] = v(values, iGrainMix);
         grainFeedback_ = 0.95f * v(values, iGrainFdbk);  // 100 % on the knob: just short of runaway
-        if (changed({iAlgo, iEnv, iDensity, iChance, iGrainSize, iGrainSync, iGrainDiv, iInterval0, iInterval0 + 1, iInterval0 + 2, iInterval0 + 3,
-                     iInterval0 + 4, iInterval0 + 5, iInterval0 + 6, iInterval0 + 7, iInterval0 + 8, iGrainReverse})) {
+        bool intervalsChanged = false;
+        for (int i = 0; i < int(GrainCloud::kIntervals.size()); ++i) intervalsChanged = intervalsChanged || changed({iInterval0 + i});
+        if (intervalsChanged || changed({iAlgo, iShapeG, iSkew, iStereo, iWidthG, iDensity, iChance, iGrainSize, iGrainSync, iGrainDiv, iGrainReverse})) {
             GrainCloud::Params p;
             p.algo = GrainCloud::Algo(std::clamp(int(v(values, iAlgo)), 0, 2));
-            p.envelope = GrainCloud::Envelope(std::clamp(int(v(values, iEnv)), 0, 3));
+            p.shape = v(values, iShapeG);
+            p.skew = 2.0f * v(values, iSkew) - 1.0f;
+            p.stereo = GrainCloud::Stereo(std::clamp(int(v(values, iStereo)), 0, 3));
+            p.spread = v(values, iWidthG);
             p.density = grainDensity(v(values, iDensity));
             p.chance = v(values, iChance);
             p.sizeMs = grainSizeMs(v(values, iGrainSize));

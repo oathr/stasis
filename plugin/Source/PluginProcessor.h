@@ -66,7 +66,8 @@ public:
     // Where the visualizer sits: "top" (default) or "side" (a column on the right, for
     // short screens). Part of the state; the editor sizes its window from it.
     juce::String layout = "top";
-    bool motionOpen = true;  // MOTION's lanes shown (closed: the window is 228 page px shorter)
+    bool motionOpen = true;  // MOTION's lanes shown (closed: the window is 96 page px shorter)
+    bool vizOpen = true;     // the visualizer shown (hidden: 144 page px shorter, and no side column)
     void resetEngine();  // flush only (used by panic and by the NaN guard)
     void setLaneTarget(int lane, const juce::String& ids);  // 'a|b|c' (up to 4); ignores ids MOTION may not move
     void resetAll();                                         // INIT: defaults everywhere, tails cleared
