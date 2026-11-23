@@ -4,7 +4,7 @@
 
 VST3 · Windows & macOS · JUCE 8 · v0.1 (in development)
 
-![The STASIS interface](docs/screenshot.png)
+![The STASIS interface](docs/screenshot-v0.2.0.png)
 
 ---
 
